@@ -318,7 +318,7 @@ async fn list_work_items_internal(
     if top_level_only {
         sql.push_str(" AND parent_work_item_id IS NULL");
     }
-    sql.push_str(" ORDER BY sort_order, created_at DESC");
+    sql.push_str(" ORDER BY sort_order, created_at DESC, id");
     sql.push_str(" LIMIT ? OFFSET ?");
 
     let mut query_builder = sqlx::query_as::<_, WorkItem>(&sql);

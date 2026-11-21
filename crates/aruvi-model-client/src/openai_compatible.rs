@@ -192,6 +192,7 @@ impl OpenAiCompatibleClient {
     fn parse_sse_fallback(raw_body: &str) -> Result<CompletionResponse, ClientError> {
         let mut result = CompletionResponse::default();
         let mut message_seen = false;
+        let mut choice_finished = false;
         // Buffered completions permit the final event without a blank separator,
         // as before, while still requiring the provider's terminal marker.
         let mut parser = crate::sse::EventParser::new(8 * 1024 * 1024 + 2);
@@ -205,7 +206,7 @@ impl OpenAiCompatibleClient {
             let choice = Self::first_choice(&event)?;
             crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
             if let Some(choice) = choice {
-                Self::append_sse_choice(choice, &mut result.content, &mut message_seen, &mut |_| {})?;
+                Self::append_sse_choice(choice, &mut result.content, &mut message_seen, &mut choice_finished, &mut |_| {})?;
             }
             if let Some(usage) = event.get("usage") {
                 result.token_count_input = usage.get("prompt_tokens").and_then(|v| v.as_i64()).or(result.token_count_input);
@@ -219,7 +220,10 @@ impl OpenAiCompatibleClient {
         Ok(result)
     }
 
-    fn append_sse_choice<F: FnMut(&str)>(choice: &serde_json::Value, content: &mut String, message_seen: &mut bool, on_delta: &mut F) -> Result<(), ClientError> {
+    fn append_sse_choice<F: FnMut(&str)>(choice: &serde_json::Value, content: &mut String, message_seen: &mut bool, choice_finished: &mut bool, on_delta: &mut F) -> Result<(), ClientError> {
+        if *choice_finished {
+            return Err(ClientError::Provider("Model stream continued after its finish reason".into()));
+        }
         Self::reject_non_text_choice(choice, "delta")?;
         Self::reject_non_text_choice(choice, "message")?;
         let delta = choice.pointer("/delta/content").and_then(serde_json::Value::as_str).unwrap_or("");
@@ -238,6 +242,9 @@ impl OpenAiCompatibleClient {
         if let Some(full) = message {
             if content.is_empty() { content.push_str(&full); on_delta(&full); }
             *message_seen = true;
+        }
+        if choice.get("finish_reason").and_then(serde_json::Value::as_str) == Some("stop") {
+            *choice_finished = true;
         }
         Ok(())
     }
@@ -322,6 +329,7 @@ impl OpenAiCompatibleClient {
         }
         let mut result = CompletionResponse::default();
         let mut message_seen = false;
+        let mut choice_finished = false;
         crate::sse::read_sse(response, "Model", |data| {
             if data == b"[DONE]" { return Ok(true); }
             let event: serde_json::Value = serde_json::from_slice(data)
@@ -336,7 +344,7 @@ impl OpenAiCompatibleClient {
             let choice = Self::first_choice(&event)?;
             crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
             if let Some(choice) = choice {
-                Self::append_sse_choice(choice, &mut result.content, &mut message_seen, &mut on_delta)?;
+                Self::append_sse_choice(choice, &mut result.content, &mut message_seen, &mut choice_finished, &mut on_delta)?;
             }
             Ok(false)
         }).await?;
@@ -972,6 +980,20 @@ mod tests {
             "data: [DONE]\n\n",
             "data: {\"choices\":[{\"delta\":{\"refusal\":\"no\"}}]}\n\ndata: [DONE]\n\n",
         ] { assert!(openai_stream_fixture(body).await.0.is_err()); }
+    }
+
+    #[tokio::test]
+    async fn rejects_choice_events_after_a_finished_response() {
+        for next in [
+            r#"{"delta":{"content":"unexpected"}}"#,
+            r#"{"delta":{},"finish_reason":"stop"}"#,
+        ] {
+            let body = format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"hello\"}},\"finish_reason\":\"stop\"}}]}}\n\ndata: {{\"choices\":[{next}]}}\n\ndata: [DONE]\n\n");
+            let (result, chunks) = openai_stream_fixture(&body).await;
+            assert!(result.is_err(), "stream accepted another choice after finish");
+            assert_eq!(chunks, ["hello"]);
+            assert!(OpenAiCompatibleClient::parse_sse_fallback(&body).is_err(), "buffered stream accepted another choice after finish");
+        }
     }
 
 

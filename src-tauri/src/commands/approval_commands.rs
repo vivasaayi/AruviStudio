@@ -1,6 +1,6 @@
 use crate::domain::approval::Approval;
 use crate::error::AppError;
-use crate::persistence::{approval_repo, settings_repo, work_item_repo};
+use crate::persistence::{approval_repo, settings_repo};
 use crate::state::AppState;
 use tauri::State;
 use tracing::{error, info};
@@ -19,35 +19,8 @@ pub async fn approve_work_item(
     notes: Option<String>,
 ) -> Result<Approval, AppError> {
     let work_item_id = resolve_work_item_id(work_item_id)?;
-    let id = uuid::Uuid::new_v4().to_string();
     info!(work_item_id = %work_item_id, "approve_work_item requested");
-    let approval = approval_repo::create_approval(
-        &state.db,
-        &id,
-        &work_item_id,
-        None,
-        "task_approval",
-        "approved",
-        &notes.unwrap_or_default(),
-    )
-    .await?;
-    if let Err(error) = work_item_repo::update_work_item(
-        &state.db,
-        work_item_repo::UpdateWorkItemPatch {
-            id: &work_item_id,
-            status: Some("approved"),
-            title: None,
-            description: None,
-            problem_statement: None,
-            acceptance_criteria: None,
-            constraints: None,
-        },
-    )
-    .await
-    {
-        error!(work_item_id = %work_item_id, error = %error, "approve_work_item failed to set work item status");
-        return Err(error);
-    }
+    let approval = crate::services::approval_service::record_task_decision(&state.db, &work_item_id, true, &notes.unwrap_or_default(), None).await?;
     let auto_start =
         settings_repo::get_bool_setting(&state.db, AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY, true)
             .await?;
@@ -79,35 +52,8 @@ pub async fn reject_work_item(
     notes: String,
 ) -> Result<Approval, AppError> {
     let work_item_id = resolve_work_item_id(work_item_id)?;
-    let id = uuid::Uuid::new_v4().to_string();
     info!(work_item_id = %work_item_id, "reject_work_item requested");
-    let approval = approval_repo::create_approval(
-        &state.db,
-        &id,
-        &work_item_id,
-        None,
-        "task_approval",
-        "rejected",
-        &notes,
-    )
-    .await?;
-    if let Err(error) = work_item_repo::update_work_item(
-        &state.db,
-        work_item_repo::UpdateWorkItemPatch {
-            id: &work_item_id,
-            status: Some("draft"),
-            title: None,
-            description: None,
-            problem_statement: None,
-            acceptance_criteria: None,
-            constraints: None,
-        },
-    )
-    .await
-    {
-        error!(work_item_id = %work_item_id, error = %error, "reject_work_item failed to reset work item status");
-        return Err(error);
-    }
+    let approval = crate::services::approval_service::record_task_decision(&state.db, &work_item_id, false, &notes, None).await?;
     info!(work_item_id = %work_item_id, "reject_work_item completed");
     Ok(approval)
 }

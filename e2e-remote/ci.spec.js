@@ -1,4 +1,6 @@
 import { test, expect } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 
 test("browser and MCP inspect a configured CI socket", async ({ page, request }) => {
   const token = process.env.ARUVI_MOBILE_API_TOKEN;
@@ -7,6 +9,7 @@ test("browser and MCP inspect a configured CI socket", async ({ page, request })
   await expect.poll(async () => (await request.get("/api/mobile/ci/status", { headers })).status(), { timeout: 15000 }).toBe(200);
   expect((await request.get("/api/mobile/ci/targets")).status()).toBe(401);
   expect((await request.get("/api/mobile/ci/artifacts/88/readiness")).status()).toBe(401);
+  expect((await request.get("/api/mobile/ci/artifacts/88/data/fast-chunk?offset=0")).status()).toBe(401);
   expect((await request.post("/api/mobile/ci/runs/44/feedback", { data: { verdict: "works" } })).status()).toBe(401);
   const product = await post("/api/mobile/products", { name: "CI fixture product" });
   const repository = await post("/api/mobile/repositories", { name: "CI fixture workspace", local_path: "/repositories/ci-fixture" });
@@ -18,7 +21,16 @@ test("browser and MCP inspect a configured CI socket", async ({ page, request })
   expect((await request.post("/api/mobile/ci/bindings/save", { headers, data: { ...selection, target_id: "mismatch-preview" } })).status()).toBe(400);
   await post("/api/mobile/ci/bindings/save", { ...selection, target_id: "unapproved-preview" });
   expect((await request.post("/api/mobile/ci/bindings/queue", { headers, data: { ...selection, target_id: "unapproved-preview", branch: "main" } })).status()).toBe(400);
+  await page.addInitScript(() => {
+    window.__ciArtifact = {bytes:[], closed:false, aborted:false};
+    window.showSaveFilePicker = async () => ({createWritable: async () => ({
+      write: async bytes => window.__ciArtifact.bytes.push(...bytes),
+      close: async () => { window.__ciArtifact.closed = true; },
+      abort: async () => { window.__ciArtifact.aborted = true; },
+    })});
+  });
   await page.goto("/remote");
+  expect(await page.evaluate(() => window.isSecureContext)).toBe(true);
   await page.locator("#tokenInput").fill(token);
   await page.locator("#saveButton").click();
   await page.getByRole("button", { name: "CI", exact: true }).click();
@@ -27,6 +39,11 @@ test("browser and MCP inspect a configured CI socket", async ({ page, request })
   await expect(page.locator("#ciRuns")).toContainText("failed");
   await page.locator("#ciProduct").selectOption(product.id);
   await page.locator("#ciRepository").selectOption(repository.id);
+  await page.locator("#ciTarget").selectOption("mismatch-preview");
+  let mismatchMessage = "";
+  page.once("dialog", (dialog) => { mismatchMessage = dialog.message(); return dialog.accept(); });
+  await page.locator("#ciAssign").click();
+  await expect.poll(() => mismatchMessage).toMatch(/repository/i);
   await page.locator("#ciTarget").selectOption("fixture-preview");
   const assigned = page.waitForResponse((r) => r.url().endsWith("/api/mobile/ci/bindings/save"));
   await page.locator("#ciAssign").click();
@@ -51,6 +68,17 @@ test("browser and MCP inspect a configured CI socket", async ({ page, request })
   await page.getByRole("button", { name: /Run #42/ }).click();
   await page.getByRole("button", { name: /Verify artifact #88/ }).click();
   await expect(page.locator("#ciRunDetails")).toContainText("fixture verified");
+  const downloadEvent = page.waitForEvent("download");
+  await page.getByRole("button", {name:"Download artifact #88"}).click();
+  const download = await downloadEvent;
+  const expected = Buffer.alloc(70001, 42);
+  expect(download.suggestedFilename()).toBe("package.bin");
+  expect(await readFile(await download.path())).toEqual(expected);
+  await page.getByRole("button", {name:"Save large artifact #88"}).click();
+  await expect.poll(() => page.evaluate(() => window.__ciArtifact.closed)).toBe(true);
+  const saved = await page.evaluate(() => window.__ciArtifact);
+  expect(saved.aborted).toBe(false);
+  expect(createHash("sha256").update(Buffer.from(saved.bytes)).digest("hex")).toBe(createHash("sha256").update(expected).digest("hex"));
   await page.getByRole("button", { name: "Log: build" }).click();
   await expect(page.locator("#ciRunDetails")).toContainText("build output");
   page.once("dialog", (dialog) => dialog.accept());

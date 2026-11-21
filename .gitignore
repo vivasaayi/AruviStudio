@@ -7,3 +7,4 @@ playwright-report
 .playwright-mcp
 .env
 .env.local
+/crates/aruvi-model-client/target/

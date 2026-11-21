@@ -25,6 +25,10 @@ published port and verified that missing credentials, another port, and a null
 origin are rejected. The same test verifies that an untrusted host and duplicate
 Origin headers are rejected. Reverse-proxy deployments and public hostnames require separate
 configuration and validation; forwarded host headers are not trusted by this check.
+Explicit `ARUVI_MCP_ALLOWED_ORIGINS` entries now support exact public origins
+when a proxy preserves Host, and require an MCP token even on localhost. A
+disposable fixture tested matching and rejected proxy headers; the actual VPS
+proxy remains unvalidated. See [the deployment guide](headless-server.md).
 
 On the dedicated `codex/aruvi-web-docker` branch, the worktree image rebuilt and the
 deployed smoke, 17 remote UI, simulated CI and 17 isolated workflow tests passed.
@@ -43,7 +47,134 @@ This is a working inventory, not a claim of tested parity. The desktop routes in
 MCP handlers are under `src-tauri/src/mcp/tools`. An MCP action being present does
 not establish that all desktop behavior is available or works in a container.
 
+The desktop IDE supports ⌘/Ctrl+S. The browser file editor now supports the
+same shortcut while the editor is focused, using its existing conflict-checked
+save operation. A disposable browser fixture saved a file with the shortcut
+and read it back through MCP. The container also offers an opt-in Monaco code
+editor, with the plain text editor as a fallback. Browser checks cover JavaScript
+language detection, per-file edits and undo, guarded saves and read-only files;
+native dialogs and full IDE behavior remain open. The image serves the editor
+assets from its own filesystem; separately run native servers require explicit
+asset configuration and packaged-native delivery is unverified.
+An isolated browser test also sends an unsaved Monaco buffer to a simulated
+Copilot provider and confirms through MCP that the saved file is unchanged.
+A disposable Studio fixture additionally used the real local
+`qwen25-coder-7b-q4` model to discuss an unsaved Monaco buffer, confirmed the
+saved file was unchanged, then reviewed and applied a model-proposed patch.
+That is one successful scenario, not a general model reliability guarantee.
+Browser Copilot can now select an enabled registered model independently of the
+Connection model, or explicitly use the Connection model. The choice lasts for
+the page session; refresh retrieves current models and retains an unavailable
+selection without silently falling back. A disposable browser test exercised
+independent routing, disabling and re-enabling a selected model with a simulated
+provider. Live-provider behavior and full IDE parity remain open.
+
 ### Audit findings before merge
+
+#### CI artifact delivery and service dependency
+
+The desktop CI run panel can reveal a verified artifact in Finder. The browser
+now downloads artifacts using authenticated bounded chunks and checks the
+complete SHA-256 before offering the file. Its standard download requires a
+secure browser context (HTTPS or localhost) and buffers at most 256 MiB. A
+separate streaming save uses the File System Access API where supported and
+commits the selected file only after incremental SHA-256 verification. It
+vendors MIT-licensed js-sha256 1.1.0 with its license in `services/vendor`.
+MCP exposes `artifact_metadata`
+and `artifact_chunk` as well as `artifact_readiness`; the metadata may include
+the service's server-side path. The Aruvici checkout's private socket protocol provides
+`artifact` metadata and bounded `artifact_chunk` reads by numeric ID; the newer
+protocol adds a larger base64 chunk operation. Studio's CI relay permits these
+methods. The
+receiver must check offsets, size and SHA-256 across the completed download;
+readiness alone does not protect against a file changing during transfer.
+An isolated native Studio and Aruvici protocol-branch fixture reconstructed a
+76,800-byte binary through MCP in multiple chunks, checked its digest and size,
+and rejected a negative offset. Chrome downloaded the same artifact from the
+native Studio server and rejected a modified file; unauthenticated chunk access
+was rejected. The streaming path passed the same multichunk check using a
+simulated save picker and aborted the write after a digest mismatch. A synthetic
+268,435,457-byte browser test also completed in 4,097 writes, with both chunk
+responses and the save picker simulated. An actual picker and a large artifact
+from a deployed CI service remain untested. A real 268,435,457-byte file in a
+disposable native debug-service fixture did not finish within five minutes;
+after buffering and socket-mode fixes and an optional 512 KiB base64 protocol,
+the same-sized file streamed through the native debug service in 513 writes and
+passed its digest check. The picker was simulated and staging remains untested.
+
+The `promotion_readiness` operation used by Studio exists in the separate
+`codex/studio-ci-protocol` Aruvici branch but was not found in the
+local Aruvici `main` checkout when checked. It is proposed in draft
+[#1](https://github.com/vivasaayi/aruvici/pull/1), and its eleven CI API tests
+passed locally, including cross-run artifact rejection. A simulated CI service or the presence of a socket does not
+establish compatibility with the actually deployed Aruvici version. Reconcile
+and validate the service protocol before claiming staging CI parity.
+
+#### Product references
+
+The browser can load references on demand for a product, area, capability or
+feature. The authenticated endpoint validates the scope against the selected
+product and the node kind, and pages 50 items at a time. The browser renders
+text safely and links only credential-free HTTP(S) URLs. A disposable browser
+and MCP fixture covered product and capability scopes, a wrong product and
+wrong kind, unauthorized access, unsafe URLs and 52-item pagination. Pagination
+uses an offset and does not provide a stable snapshot if references change while
+paging. The browser can also create and delete references at those scopes;
+creation verifies product ownership in the insert, and deletion compares the
+full displayed reference and scope. An isolated browser/MCP fixture verified
+create, delete, unauthorized and cross-product requests and stale deletion.
+
+#### Product details
+
+Browser Products now edits the desktop product fields: name, description,
+vision, goals, tags, lifecycle, health, owner, investment, roadmap and evidence.
+The browser sends its loaded product snapshot; the server compares and writes
+under an immediate SQLite transaction, rejecting stale edits and preserving the
+browser draft. A disposable browser/MCP test covers a concurrent edit, refresh
+and retry, all fields, authentication, identity and validation. Existing desktop
+and generic MCP product updates do not use the browser snapshot guard and remain
+last-write-wins for the same field. Their partial updates now change only supplied
+fields in a single SQL statement, so concurrent changes to different fields are
+not overwritten by an earlier read. The
+browser uses comma-separated goals and tags, matching the desktop form. Other
+product actions still need comparison.
+
+#### Product hierarchy details
+
+The browser now also supports the desktop product-area purpose field during
+creation and editing, with expected-value conflict checks. The desktop
+capability/feature editor exposes acceptance criteria and technical
+notes in addition to name and description. The browser tree editor now exposes
+those two fields, with product scoping and expected-value checks; older clients
+can still update only name and description without clearing the new fields. A
+disposable browser/MCP test saved both fields, rejected a stale MCP edit and a
+cross-product update, and rejected an update missing its expected value. Current canonical hierarchy rules allow only a capability under a product area
+and only a feature under a capability, so the existing conversion action cannot
+change a valid node between those kinds without violating its parent rule. The
+shared conversion operation now runs under an immediate transaction, but its
+child-reparent path is unreachable for a valid canonical tree and remains
+unverified; no browser conversion control is offered. Other product-management
+actions still need comparison.
+
+#### Portfolio strategy and dependencies
+
+The desktop Portfolio includes a strategy hierarchy, product-to-strategy links
+and product dependencies. Browser Products now provides strategy node creation,
+editing and deletion, product linking and unlinking, and dependency creation and
+deletion. Optional capability references are selected by product and hierarchy name;
+the dependency list can still display IDs for those references. The `aruvi_catalog` MCP namespace now exposes list, create, update and
+delete actions for strategy nodes; list/link/unlink for product-strategy links;
+and list/create/delete for product dependencies. These use the existing desktop
+repository and its hierarchy and dependency validation. Primary-link replacement
+is now transactional so a rejected replacement cannot remove the old primary.
+A disposable database test exercised the MCP dispatch lifecycle and rejected
+invalid hierarchy, self-dependency and an invalid primary replacement. Dependency
+writes reject capabilities that belong to the wrong side's product. Strategy edits
+reject cycles and incompatible existing children. Browser strategy edits require the displayed node snapshot and reject stale
+changes. Strategy creation and updates validate under SQLite write transactions;
+legacy desktop/MCP updates that omit a snapshot remain last-write-wins, and
+browser strategy deletion compares the confirmed subtree and its links under a write lock. Browser link and unlink operations compare the product's complete link set under the same lock, including changes to the primary link. Legacy desktop/MCP link actions can still omit the optional snapshot.
+Native-window acceptance and broader comparison remain open. This is not complete portfolio parity.
 
 #### Settings and outbound contact comparison — 2026-11-14
 
@@ -62,7 +193,7 @@ or evidence that a setting affects runtime behavior.
 | Configure Twilio and default contact details | Routing edits contact defaults and Twilio settings; the auth token is write-only in the browser form, with conflict checks and environment override indicators | Generic `aruvi_settings` operations | The existing settings database stores the token and generic desktop/MCP settings can read it. Live Twilio remains unverified. |
 | Set transcription provider/model/locale | Voice server-default controls; browser can also choose per-session values | `aruvi_settings` and `aruvi_speech` | An explicit nonblank request wins. Browser API, desktop and MCP then use `ARUVI_SPEECH_PROVIDER_ID`, `ARUVI_SPEECH_MODEL_NAME` and `ARUVI_SPEECH_LOCALE` when present, followed by saved settings. A present but blank environment value suppresses the corresponding saved default. If the environment provider differs from the saved provider and no environment model is provided, the saved model is not carried across. An explicit different provider likewise does not inherit the configured model. Desktop and MCP now honor environment overrides that previously applied only to the browser. |
 | Set native voice, microphone, automatic speech and transcript review | Browser Voice has device-specific recording, review and speech controls | `aruvi_speech` supports speech operations | Native OS voice and microphone preferences are not the same as browser device settings; physical capture and playback remain unverified. |
-| Configure mobile/MCP bind address, port and tokens; view bridge status | Connection token is entered locally; no server bridge settings/status controls found | `aruvi_settings` exposes status and generic setting operations | Document container environment precedence and restart behavior; design safe browser administration without exposing tokens. |
+| Configure mobile/MCP bind address, port and tokens; view bridge status | Activity shows the browser-visible MCP endpoint and server configuration summary, edits saved server bind host/port, and rotates or clears saved bridge tokens | `aruvi_settings` exposes status and generic setting operations | Authenticated browser forms reject stale edits. Token values are write-only in these forms; generic settings operations still expose stored values. Changes to saved tokens apply immediately unless overridden by environment variables. Configured server bind may differ from the published browser address, and bind changes require restart. |
 | Inspect database health and override its path | Routing database panel | `aruvi_settings` database actions | Both server paths and restart/environment precedence need to remain explicit. |
 | Set Docker host and maximum workflow retries | No corresponding controls found | Generic `aruvi_settings` can store values | Repository search found these keys only in the desktop settings form and loader, with no backend readers. Do not present them as working execution controls until behavior is implemented and verified. |
 
@@ -122,25 +253,125 @@ registered and the default LM Studio endpoint was unavailable.
 | --- | --- | --- | --- |
 | Portfolio, product overview, products | Create products, product areas, capabilities and features; edit and delete hierarchy nodes; list, summary and on-demand hierarchy tree; download Product Book Docs HTML, Book HTML, EPUB and PDF | `aruvi_catalog`, `aruvi_work_items` | Partial: browser, MCP and desktop PDF export share the guarded renderer; native packaging, image, reader and deployment limitations are tracked in [Product Book migration](product-book-migration.md). |
 | Work items and delivery | Create work with problem, outcome, acceptance criteria, constraints, type, priority, complexity and hierarchy placement; edit the desktop form's task details and status, approve/start, configure a test command, inspect test results, delivery and gates | `aruvi_work_items`, `aruvi_workflows`, `aruvi_checkpoints` | Partial: navigation and workflow actions need comparison; changing status does not run a workflow, and test commands execute inside the server container. |
+| Backlog decisions and ordering | Browser supports individual and multi-select approve and reject actions, status filtering, and stale and active-execution checks. It supports drag and move buttons for the unfiltered product backlog. | `aruvi_checkpoints` supports individual and batch decisions; `aruvi_work_items` exposes a guarded move and the legacy reorder action. | The browser move validates the displayed contiguous interval and commits atomically, including when further pages exist. Filtered reordering is disabled, and a move spans at most 1,000 loaded items. The legacy reorder action is atomic but does not detect stale or cross-product inputs. Approving follows the configured automatic-start policy. |
+| Work item external CLI | Browser can launch an explicitly enabled server CLI and inspect recent runs and events | `aruvi_work_items` launch, list runs and list events | Partial: a disposable native server and headless browser exercised a fake CLI, MCP history, environment isolation, output truncation and active-run guards. The container image does not install the CLIs; actual provider installation, authentication and live execution remain unverified. The CLI runs as the server user and is not sandboxed. |
 | Planner | Sessions, turns, draft editing, repository analysis, confirmation and clear | `aruvi_planner` | Partial: native interaction, physical voice and other desktop behaviors need comparison. |
 | Repositories and IDE | Create, register and attach workspaces for products or areas; browse, filter and edit text files in separate in-memory tabs, inspect Git status and diff, ask Copilot about saved or unsaved content, configure generation and file-context settings, review multi-file patch proposals, and change defaults or detach for products and product areas | `aruvi_repositories`, `aruvi_models` | Partial: desktop, browser and MCP workspace creation reject existing paths and preserve prior attachments; browser file Copilot supports streaming, while MCP remains buffered and patch proposals require saved content. Isolated browser checks cover separate unsaved tabs and protection of patch targets; tabs do not survive reload. A streamed proposal passed in the browser with a real local model and a two-file proposal passed through MCP. Native dialogs and other IDE behavior require comparison and implementation. |
-| Agents and teams | Manage agent definitions, team profiles, rosters, product/area/capability scope assignments, skill definitions and links, and workflow-stage routing; inspect and replace individual agent model bindings from Models | `aruvi_agents`, `aruvi_agent_work` | Partial: prompt-template application remains unimplemented. A desktop bulk-binding operation was not found in the current agent commands. |
-| Models and providers | Add, edit (including model context, tags and notes; OpenAI-compatible, reasoning profile and Anthropic protocol), enable/disable and remove providers and models; set the transcription language field format; install checksum-pinned Whisper presets or register an existing server-side file, test providers, detach API credentials and select a browser model | `aruvi_models` | Partial: remaining provider/model fields still need comparison; custom files may be unverified. The desktop transcription-format control was checked with a mocked UI, not a native window. Detaching disables fallback keys but does not revoke provider credentials. MCP and browser local paths refer to the server filesystem. |
+| Agents and teams | Manage agent definitions, team profiles, rosters, product/area/capability scope assignments, skill definitions and links, prompt templates, and workflow-stage routing; inspect and replace individual agent model bindings from Models | `aruvi_agents`, `aruvi_agent_work` | Template references using the explicit `template:` prefix are applied by shared execution; legacy references remain inactive. The desktop editor accepts references but template management is in the browser and MCP. A desktop bulk-binding operation was not found in the current agent commands. |
+| Models and providers | Add, edit (including model context, tags and notes; OpenAI-compatible, reasoning profile and Anthropic protocol), enable/disable and remove providers and models; set the transcription language field format; install checksum-pinned Whisper presets or register an existing server-side file, test providers, detach API credentials and select a browser model | `aruvi_models` | Partial: The desktop model and provider form fields have browser equivalents, and browser model presets fill the same model details while preserving the explicitly selected provider. Other provider-management behavior still needs comparison; custom files may be unverified. The desktop transcription-format control was checked with a mocked UI, not a native window. Detaching disables fallback keys but does not revoke provider credentials. MCP and browser local paths refer to the server filesystem. |
+
 | Chat and voice | Chat with optional streaming and cancellation; voice with browser-specific transcription provider, model and locale, transcript review and device speech controls | `aruvi_models`, `aruvi_speech` | Partial: physical microphone, device speech playback and broader provider/model validation remain open. |
 | Model calls | Calls grouped by session, filters over loaded calls, older-page loading, selected details and on-demand snapshots in Activity | `aruvi_models` list, detail and snapshot read | Browser, desktop and MCP support cursor pagination. Browser and desktop pause auto-refresh while viewing older calls and filter only loaded calls. Authenticated browser API and MCP pages agreed on existing 7B-model records; a live headless browser loaded older records and refreshed. Desktop browser and Tauri mock-runtime checks passed; native-window acceptance remains outstanding. |
 | CI | Inspect service, targets, revisions, runs and live logs; manage target assignments; queue, cancel or retry builds; request artifact readiness and record feedback | `aruvi_ci` | Partial: artifact access and host service integration require work and validation. |
 | Settings | Connection token and browser model fields; server transcription defaults on Voice; external planner model and product defaults and workflow auto-start and approval settings on Routing | `aruvi_settings` | Partial: compare remaining settings, database and bridge controls. Environment variables can override saved transcription and external-channel defaults; live external-channel use remains unverified. |
+
+The browser Work list loads 100 items at a time and offers a load-more action
+when more are available. A failed later-page request leaves the current items
+in place for retry; refreshing starts over, and a late response from a previous
+product is ignored. An isolated browser test used 101 actual work items,
+including a failed page and a delayed response after a product switch. Paging
+uses offsets rather than a snapshot: concurrent inserts, deletions or reorders
+can move items between pages, so refresh when the list changes.
+
+Work item workspace and branch overrides are now available in the browser and
+`aruvi_work_items` MCP action as well as desktop, through a shared backend guard.
+An isolated workflow wrote to a selected override instead of the product's
+default workspace; the model was simulated. The operation selects a registered
+server workspace without checking out a branch, and rejects changes during a
+running or paused workflow. Browser edits and optional MCP baselines reject
+stale assignments; desktop and MCP calls without a baseline remain last-write-wins.
+A separate real 7B Model Host workflow also wrote, independently checked and
+delivered a generated file from an override workspace while leaving the product
+default untouched, after earlier truncated-response failures. See the model
+client goal checkpoint for the model budget and scope of that evidence.
+
+The browser can now delete a work item with confirmation, like desktop and MCP.
+The shared backend rejects deletion during an active workflow for that item or a
+direct child; the browser also rejects stale details. Related records follow the
+database's deletion rules, direct children are detached, and files are retained.
+
+The external CLI action was identified in a later source comparison of the
+desktop Work tab. Remote launches now require an operator opt-in and dedicated
+CLI home and receive a cleared, minimal environment. A disposable native
+server test used a fake CLI through the browser and MCP, confirmed server
+secrets were not inherited, checked bounded output, workspace override and
+active-run guards, and verified missing-executable failure and history after a
+restart. Desktop continues to inherit its own process environment. A read-only
+check of the previous running worktree app found `codex`, `claude`,
+`cursor-agent` and `copilot` unavailable. Real CLI provisioning, provider
+authentication, other failure and restart scenarios, and container deployment remain
+open; see the [server guide](headless-server.md) for the execution limits.
+
+The browser can now edit and disable an existing local Whisper provider. Its
+file path is treated as a server path instead of an HTTP URL; a newly selected
+path must resolve to an existing regular file, while an unchanged missing path
+can still be disabled. The update retains the existing stale-write check and
+checks that the provider type has not changed. The isolated workflow fixture
+exercises disable/re-enable, a valid replacement file, a missing file and a
+stale edit. This does not validate model contents or physical audio.
+
+The Work view now opens workflow text artifacts as well as test results. Its
+authenticated endpoint checks that the artifact belongs to the selected work
+item, resolves it under the server artifact directory, and limits the read to
+2 MiB of UTF-8 text. An isolated workflow compared a generated coding artifact
+through browser and MCP; a Rust test covered authentication, incorrect work
+items, outside paths, a symlink escape, invalid text and oversized files. The
+filesystem checks do not eliminate races with independent filesystem writers.
+Desktop, browser and MCP text reads now share the same artifact-directory
+confinement and a 2 MiB limit; the browser's test-result endpoint retains its
+256 KiB limit and work-item/type checks. On Unix, descriptor-relative opens
+reject a symlink inserted into a path after canonicalization; other platforms
+still use a canonicalized path followed by an ordinary open. Historical records
+whose files live outside the current artifact directory, and larger or non-UTF-8
+artifacts, can no longer be read through desktop or MCP; move or recover those
+files separately. Hard links, changes to file contents while reading, and
+concurrent changes to the artifact directory itself are not eliminated by
+these checks. This is not a claim of complete artifact-format parity.
 
 ### Settings action inventory
 
 | Desktop action | Browser and MCP assessment |
 | --- | --- |
 | Hide seeded products and repair example catalog | Browser Routing exposes the preference and seed/repair action; MCP `aruvi_settings` reads/sets the same preference and `aruvi_catalog` seeds examples. Browser updates reject stale values. |
-| Docker daemon and workflow retry settings | MCP generic setting operations can read and update the same stored keys; whether each execution path honors them in the Docker environment needs verification. |
+| Docker daemon and workflow retry settings | Desktop saves `docker_host` and `max_workflow_retries`, and MCP generic setting operations can read and update them. A source search found no backend reads of either key. New workflow runs instead receive a hard-coded maximum of three, and the test stage invokes the configured command in the server environment; `docker_service.rs` is a stub. The desktop controls therefore do not currently establish Docker isolation or configure retries. Browser equivalents should not imply otherwise. Retry behavior and a deliberate execution-isolation design remain open. |
+| Product workflow test command | Browser Work edits the product policy and indicates that commands execute as the server user. It submits the loaded effective policy as an expected snapshot; the backend compares and writes under a SQLite write transaction, including changes to an inherited default. A conflict preserves the browser draft and offers an explicit reload. Older API clients without a snapshot remain last-write-wins; generic MCP settings can still update the stored values. This check does not sandbox command execution. |
 | Planner defaults, speech defaults and workflow approval switches | Browser Routing and Voice expose relevant server settings; MCP generic settings operations also exist. Device-local speech controls are browser-specific and are not proof of physical audio parity. |
-| MCP/mobile bind, token and bridge status | MCP exposes settings and both status reads; bind changes need a restart and deployment environment variables may override saved values. Browser connection settings do not establish equivalent operational administration. |
+| MCP/mobile bind, token and bridge status | Browser Activity can edit the saved bind host/port and replace or clear saved mobile/MCP tokens, with stale-write protection. Disposable native and Docker browser fixtures covered conflicts, rotation, restart, clearing and environment recovery. Token values are not returned by these browser-specific endpoints; generic desktop/MCP setting operations retain their existing access. Environment variables may override stored values, bind changes require restart, and clearing an active mobile token removes browser access. |
 | Twilio and planner contact | Browser Routing provides configuration, contact defaults, planner routing and direct outbound actions; MCP has channel operations. Simulated and policy-blocked cases are covered; live Twilio delivery and provider-error handling remain open. |
-| Database path, override and migration health | Browser Routing and MCP expose path, override and migration health through the same Rust service as desktop. The mobile token authorizes these operations. Paths refer to the Studio host/container filesystem, changes take effect on restart, and `ARUVI_DB_PATH` takes precedence. Writes use last-write-wins and saving does not validate the new database. Isolated browser tests cover authentication, validation and save/clear, but not restart into the new path or an actual migration. |
+| Database path, override and migration health | Browser Routing and MCP expose path, override and migration health through the same Rust service as desktop. The mobile token authorizes these operations. Paths refer to the Studio host/container filesystem, changes take effect on restart, and `ARUVI_DB_PATH` takes precedence. Browser writes compare the loaded override and preserve drafts on conflict; MCP can opt into the same check. Existing desktop and older API/MCP clients remain last-write-wins. Cooperating Unix processes serialize writes and replace the override file atomically; older binaries and direct file writes do not participate. Saving does not validate the new database. A disposable native server and persistent headless browser verified cross-client conflict, reload, override and clear across restarts, isolated persisted products, environment precedence and unauthorized rejection. A reconstructed migration-52 database upgraded through server startup while retaining a product and legacy channel binding. Delayed browser refresh and save responses preserve an unsaved path draft. This does not prove upgrades from all historical databases. |
+
+Workflow test commands run in a separate process group on Unix. After the main
+command exits, times out, or its execution future is cancelled, Studio signals
+the group to stop remaining members. On macOS and Linux it waits to reap the
+leader until after the signal, avoiding group-ID reuse in the normal exit path.
+A command can start a new session or process group, so this cleanup is not a
+sandbox and cannot guarantee that every descendant is stopped.
+
+Workflow starts now reserve the selected team slot and work item in the same
+SQLite insert that creates and assigns the run. A full or disabled team, an
+active external CLI run, or an already active workflow prevents the insert;
+concurrent starts cannot both reserve the final slot. A repository fixture
+checks concurrent contention, absence of a rejected run, slot reuse and
+duplicate work-item rejection. Assignment of an existing active run also
+checks capacity atomically, including concurrent assignments; retaining the
+same team and releasing a slot remain possible. The fixture verifies both
+contention and slot reuse. This does not implement automatic workflow-stage
+retries or command isolation.
+
+Main workflow transitions and failure recording commit lifecycle, stage and
+history together and reject stale sources. Manual advancement records the Git
+stage before delivery and completes only after a successful push. Cooperating
+processes on Unix with a shared file-backed database serialize Git delivery per
+run; in-memory and non-Unix databases have only in-process coordination. A stale
+failure cannot mark a later stage failed. The native tests exercised concurrent
+advances against a local Git remote and the cross-process delivery lock; the
+deployed candidate also passed five two-container decision races and a forced
+two-container MCP Git-delivery race against a local bare remote. The prior image
+failed the new delivery test by bypassing its held lock. Database
+atomicity does not include Git or other external effects: a crash after a push
+can lead to retrying the same recorded commit. Agent writes and coordinator
+pending-stage updates remain outside that transaction. See the current checkpoint
+in [model-client-goal.md](model-client-goal.md) for validation and limitations.
 
 ### Planner action inventory
 
@@ -150,11 +381,11 @@ handlers. An available handler is not evidence of a successful real-model workfl
 | Desktop action | Browser and MCP status |
 | --- | --- |
 | Create or update a planner session and choose provider/model | Browser connection settings create/update a session; `aruvi_planner` provides both operations. |
-| Submit a planner turn with selected draft node and product | Browser presents a product selector and sends its selected node and product; MCP accepts both. Simulated browser tests cover scope. An isolated MCP test exercised a scoped proposal and confirmation with the real 7B Model Host; other models and real-provider browser turns remain unverified. |
+| Submit a planner turn with selected draft node and product | Browser presents a product selector and sends its selected node and product; MCP accepts both. Simulated browser tests cover scope and node selection. A disposable browser fixture sent a product-scoped turn to the real 7B Model Host, inspected the staged draft and review packet, verified the catalog remained unchanged, and confirmed through MCP. The model required a format retry; other models, selected-node turns and general model reliability remain unverified. |
 | Select and inspect the staged draft tree | Browser renders/selects nodes, shows their path, summary, source, confidence and evidence, and requests suggested prompts, name-matched recent plan actions and structural validation from shared Rust services. MCP exposes these services; desktop uses the shared suggestions and action-matching commands, and shared validation with a local validation fallback. Matching is by name and can conflate similarly named nodes; recent actions are limited to the current page session. |
 | Rename a draft node, add a child or delete a draft node | Browser and `aruvi_planner` expose these operations. An isolated Docker browser test exercised the authenticated API and verified the actual product remained unchanged. A two-server Linux fixture covers cooperating processes sharing a database; see the planner coordination checkpoint for platform and filesystem limitations. |
 | Analyze a registered repository into a design draft | Browser and `aruvi_planner` can analyze a registered workspace into the selected product draft. Simulated tests cover authentication, staging and scan-failure recovery. A disposable browser test also analyzed a synthetic workspace with the real 7B Model Host, then confirmed the staged design through MCP; broader repositories and models remain unverified. |
-| Confirm or clear a staged design | Browser and MCP expose both; failure, conflict and multi-client behavior require further validation. |
+| Confirm or clear a staged design | Browser and MCP expose both. A disposable two-server fixture covered concurrent draft edits, confirmation without duplicate application, and a stale server confirming after another server cleared the draft. These checks require cooperating Unix processes sharing a database and do not cover every failure or client race. |
 | Export and reveal a design-review packet | Browser can download and MCP can retrieve a Rust-generated HTML packet from a staged session. It contains the tree, validation, current context, pending actions and review sections. Desktop uses the same backend renderer for active sessions and retains native file/reveal; its prior renderer remains as a no-session fallback. The offline SVG and pending-action summaries differ from the older Mermaid packet, and native UI verification remains open. |
 | Voice transcription, voice planner commands and native speech | Browser has transcription, device speech controls and a Planner destination; MCP exposes speech and voice turns. Simulated browser tests cover view switching, draft selection, and global and targeted expand/collapse while preserving the selected node. Real Model Host speech passed through MCP and browser recording with a synthetic microphone. Native service tests cover mixed-case node types and a single speech-added final period for named commands; physical microphone, audible playback and native-window behavior remain unverified. |
 | WhatsApp or phone contact routing | Browser Routing supports planner contact with channel preference and an explicit quiet-hours override; MCP has channel operations. Simulated and policy-blocked cases are covered; live delivery and provider-error handling remain unverified. |
@@ -201,6 +432,26 @@ loopback TCP reachability probe from the Docker image succeeded, but network
 reachability alone does not fix the protocol or shared-repository identity
 requirements. A complete bridge must authenticate requests, reconcile trusted
 shared paths, and resolve the API mismatch before enabling build dispatch.
+An isolated candidate branch in Aruvici now implements the missing metadata,
+retry and integrity operations and has passed the native protocol fixture; it
+is not deployed. A disposable minimal Rust/OCI build has also passed through
+native Studio MCP, with result reads via the browser API. Real product builds,
+native browser interaction, and Docker-to-host transport remain open.
+An opt-in, token-authenticated host-loopback relay now lets a Docker Studio
+fixture read status from a real disposable Aruvici service on Mac Docker Desktop.
+The relay is plaintext on the trusted local host connection and is not deployed;
+an explicit trusted root mapping and read-only worktree mount now support a
+container-initiated disposable CI build. The operator must ensure the two roots
+represent the same files; live-service deployment and broader product builds
+remain open.
+
+A headless Chrome browser also inspected the completed disposable real-service
+build through the Docker Studio relay, including its stages, Rust-test log and
+OCI artifact verification. A follow-up fixture selected and queued a different
+commit in the browser and verified the real build passed. This exposed and fixed
+a selector that hid valid mapped host/container targets; the backend validates
+target identity when assigning or queueing. Cancellation and other actions are
+still covered only by simulated-service tests.
 
 | Desktop action | Dependency or constraint for web parity |
 | --- | --- |
@@ -375,7 +626,7 @@ validate the newer database fixes that are absent from that running image.
 
 - The browser Skills screen creates, edits, enables/disables and deletes skill definitions and manages links to agents (including proficiency) and teams. Optimistic checks reject stale edits and deletions; duplicate links are rejected and deleting a skill removes its links. Agent prompts now exclude disabled skills and include enabled linked instructions once, with a combined limit of 4,000 characters or the smaller context budget. A simulated provider captured a coding prompt containing the active team skill instruction and excluding a disabled skill. Two Rust tests cover deduplication, Unicode-safe bounds and coding prompt inclusion. The final isolated browser suite passed nine tests; the broader remote suite passed 12 tests before the final explanatory text was added, and the Rust library suite passed 131 tests with one live-provider test ignored. Real-provider behavior remains unverified.
 
-- The Agents screen creates, edits, disables and deletes definitions, including tool lists, skill tags, execution boundaries and employment status. Edits and deletions compare structured snapshots under a database write lock; recorded runs prevent deletion. An isolated workflow used a browser-created agent for coding, and UI/API tests verified conflicts, validation, link cleanup and history protection. Exact repository tool names now grant only that tool; known legacy aliases expand to groups, unknown nonempty entries grant no tools, and an empty list retains the existing defaults including writing. Invalid types or unknown execution boundary fields now stop execution rather than silently replacing limits with defaults; the existing Docker database had nine agents and no incompatible boundaries when checked. The editor and [headless documentation](headless-server.md) explain these behaviors. Prompt template references remain stored metadata and are not used by the prompt builder. The final Rust library suite passed 133 tests with one live-provider test ignored; 11 isolated tests passed, including rejection of an invalid boundary imported through MCP.
+- The Agents screen creates, edits, disables and deletes definitions, including tool lists, skill tags, execution boundaries and employment status. Edits and deletions compare structured snapshots under a database write lock; recorded runs prevent deletion. An isolated workflow used a browser-created agent for coding, and UI/API tests verified conflicts, validation, link cleanup and history protection. Exact repository tool names now grant only that tool; known legacy aliases expand to groups, unknown nonempty entries grant no tools, and an empty list retains the existing defaults including writing. Invalid types or unknown execution boundary fields now stop execution rather than silently replacing limits with defaults; the existing Docker database had nine agents and no incompatible boundaries when checked. The editor and [headless documentation](headless-server.md) explain these behaviors. At that checkpoint prompt template references were stored metadata and were not used by the prompt builder; the later template checkpoint above supersedes that behavior. The final Rust library suite passed 133 tests with one live-provider test ignored; 11 isolated tests passed, including rejection of an invalid boundary imported through MCP.
 
 - The Routing screen edits and resets per-stage role preferences, fallbacks and coordinator review with stale-write protection. It makes clear that review runs only when an active coordinator is available and that push stages are system operations whose role lists do not select an agent. Empty role lists use stage defaults. A malformed stored role list now returns an error instead of silently using defaults; an invalid policy can be removed with the MCP `aruvi_agents` `delete_workflow_stage_policy` action. In an isolated workflow, a custom coding role selected the intended team agent and completed coding against a simulated provider. Twelve isolated tests passed, including MCP/browser conflicts and reset; the Rust library suite passed 134 tests with one live-provider test ignored. Real-provider execution and an actual Git push remain unverified.
 

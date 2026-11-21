@@ -56,9 +56,121 @@ pub(crate) struct MobileUpdateWorkItemRequest {
     fields: MobileTaskFields,
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileWorkspaceAssignment {
+    repository_id: Option<String>,
+    branch_name: Option<String>,
+    expected: crate::services::work_item_service::WorkspaceBaseline,
+}
+
+pub(crate) async fn mobile_assign_work_item_workspace(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<MobileWorkspaceAssignment>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::work_item_service::assign_workspace(&state.app_state, &id, body.repository_id.as_deref(), body.branch_name.as_deref(), Some(&body.expected)).await {
+        Ok(item) => Json(item).into_response(),
+        Err(AppError::Validation(error)) => (StatusCode::CONFLICT, error).into_response(),
+        Err(error) => bad_request(error),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileDeleteWorkItem { expected: crate::services::work_item_service::WorkItemBaseline }
+
+pub(crate) async fn mobile_delete_work_item(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<MobileDeleteWorkItem>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::work_item_service::delete_work_item(&state.app_state, &id, Some(&body.expected)).await {
+        Ok(()) => Json(json!({"ok":true})).into_response(),
+        Err(AppError::Validation(error)) => (StatusCode::CONFLICT, error).into_response(),
+        Err(error) => bad_request(error),
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct MobileWorkItemActionRequest {
     notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileTaskDecision {
+    action: String,
+    notes: String,
+    expected: crate::services::work_item_service::WorkItemBaseline,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileBatchTaskDecision {
+    product_id: String,
+    action: String,
+    notes: String,
+    items: Vec<crate::services::approval_service::BatchDecisionItem>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileWorkMove {
+    product_id: String,
+    offset: i64,
+    items: Vec<work_item_repo::WorkOrderEntry>,
+    source_id: String,
+}
+
+pub(crate) async fn mobile_move_work_item(
+    State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileWorkMove>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match work_item_repo::move_work_item(&state.app_state.db, &body.product_id, body.offset, &body.items, &body.source_id).await {
+        Ok(()) => Json(json!({"ok":true})).into_response(),
+        Err(AppError::Validation(error)) => (StatusCode::CONFLICT, error).into_response(),
+        Err(error) => bad_request(error),
+    }
+}
+
+pub(crate) async fn mobile_batch_task_decision(
+    State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileBatchTaskDecision>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let approved = match body.action.as_str() { "approve" => true, "reject" => false, _ => return (StatusCode::BAD_REQUEST, "Invalid decision").into_response() };
+    let auto_start = if approved {
+        match crate::persistence::settings_repo::get_bool_setting(&state.app_state.db, "workflow.auto_start_after_work_item_approval", true).await {
+            Ok(value) => value, Err(error) => return bad_request(error),
+        }
+    } else { false };
+    let approvals = match crate::services::approval_service::record_batch_task_decisions(&state.app_state.db, &body.product_id, approved, &body.notes, &body.items).await {
+        Ok(value) => value,
+        Err(AppError::Validation(message)) => return (StatusCode::CONFLICT, message).into_response(),
+        Err(error) => return bad_request(error),
+    };
+    if auto_start { crate::services::approval_service::schedule_batch_workflows(&state.app_state, body.items.into_iter().map(|item| item.id).collect()); }
+    Json(json!({"approvals":approvals,"auto_start_requested":auto_start})).into_response()
+}
+
+pub(crate) async fn mobile_task_decision(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<MobileTaskDecision>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let approved = match body.action.as_str() { "approve" => true, "reject" => false, _ => return (StatusCode::BAD_REQUEST, "Invalid decision").into_response() };
+    if body.notes.len() > 4000 || (!approved && body.notes.trim().is_empty()) { return (StatusCode::BAD_REQUEST, "A rejection reason is required and notes must be at most 4000 bytes").into_response(); }
+    let auto_start = if approved {
+        match crate::persistence::settings_repo::get_bool_setting(&state.app_state.db, "workflow.auto_start_after_work_item_approval", true).await {
+            Ok(value) => value, Err(error) => return bad_request(error),
+        }
+    } else { false };
+    let approval = match crate::services::approval_service::record_task_decision(&state.app_state.db, &id, approved, &body.notes, Some(&body.expected)).await {
+        Ok(value) => value,
+        Err(AppError::Validation(message)) => return (StatusCode::CONFLICT, message).into_response(),
+        Err(error) => return bad_request(error),
+    };
+    if auto_start {
+        let service = state.app_state.workflow_service.clone();
+        tokio::spawn(async move {
+            if let Err(error) = service.lock().await.start_work_item_workflow(&id).await {
+                tracing::error!(work_item_id=%id, error=%error, "auto-start after browser approval failed");
+            }
+        });
+    }
+    Json(json!({"approval":approval,"auto_start_requested":auto_start})).into_response()
 }
 
 #[derive(Debug, Deserialize)]
@@ -69,6 +181,41 @@ pub(crate) struct MobileWorkflowActionRequest {
 
 fn bad_request(error: impl ToString) -> axum::response::Response {
     (StatusCode::BAD_REQUEST, error.to_string()).into_response()
+}
+
+#[derive(Deserialize)]
+pub(crate) struct MobileExternalCliRequest { provider: String }
+
+pub(crate) async fn mobile_external_cli_runs(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if let Err(error) = work_item_repo::get_work_item(&state.app_state.db, &id).await { return bad_request(error); }
+    match crate::persistence::external_cli_repo::list_recent_external_cli_runs_for_work_item(&state.app_state.db, &id).await {
+        Ok(runs) => Json(runs).into_response(), Err(error) => bad_request(error),
+    }
+}
+
+pub(crate) async fn mobile_run_external_cli(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<MobileExternalCliRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::external_cli_service::run_remote_external_cli_for_work_item(&state.app_state.db, &state.app_state.artifact_base_path, &id, &body.provider).await {
+        Ok(run) => Json(run).into_response(), Err(error) => bad_request(error),
+    }
+}
+
+pub(crate) async fn mobile_external_cli_events(
+    State(state): State<WebhookState>, headers: HeaderMap, Path((work_id, run_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let run = match crate::persistence::external_cli_repo::get_external_cli_run(&state.app_state.db, &run_id).await {
+        Ok(run) if run.work_item_id == work_id => run,
+        _ => return (StatusCode::NOT_FOUND, "External CLI run not found").into_response(),
+    };
+    match crate::persistence::external_cli_repo::list_external_cli_run_events(&state.app_state.db, &run.id, 500).await {
+        Ok(events) => Json(events).into_response(), Err(error) => bad_request(error),
+    }
 }
 
 fn workflow_start_error(
@@ -267,36 +414,10 @@ pub(crate) async fn mobile_approve_work_item(
         Err(error) => return bad_request(error),
     };
     if work_item.status != WorkItemStatus::Approved {
-        let approval_id = uuid::Uuid::new_v4().to_string();
-        if let Err(error) = approval_repo::create_approval(
-            &state.app_state.db,
-            &approval_id,
-            &work_item_id,
-            None,
-            "task_approval",
-            "approved",
-            body.notes
-                .as_deref()
-                .unwrap_or("Approved from remote Studio"),
-        )
-        .await
-        {
-            return bad_request(error);
-        }
-        if let Err(error) = work_item_repo::update_work_item(
-            &state.app_state.db,
-            work_item_repo::UpdateWorkItemPatch {
-                id: &work_item_id,
-                status: Some("approved"),
-                title: None,
-                description: None,
-                problem_statement: None,
-                acceptance_criteria: None,
-                constraints: None,
-            },
-        )
-        .await
-        {
+        if let Err(error) = crate::services::approval_service::record_task_decision(
+            &state.app_state.db, &work_item_id, true,
+            body.notes.as_deref().unwrap_or("Approved from remote Studio"), None,
+        ).await {
             return bad_request(error);
         }
     }
@@ -371,19 +492,31 @@ pub(crate) async fn mobile_get_workflow_test_result(
         Ok(value) if value.work_item_id == work_item_id && value.artifact_type == "workflow_test_result" => value,
         _ => return (StatusCode::NOT_FOUND, "Test result not found").into_response(),
     };
-    let base = match tokio::fs::canonicalize(&state.app_state.artifact_base_path).await {
-        Ok(value) => value, Err(error) => return bad_request(error),
-    };
-    let path = match tokio::fs::canonicalize(&artifact.storage_path).await {
-        Ok(value) if value.starts_with(&base) => value,
-        _ => return (StatusCode::NOT_FOUND, "Test result not found").into_response(),
-    };
-    match tokio::fs::metadata(&path).await {
-        Ok(metadata) if metadata.is_file() && metadata.len() <= 256 * 1024 => (),
-        _ => return bad_request("Test result is unavailable or too large"),
-    }
-    match tokio::fs::read_to_string(path).await {
+    match crate::services::artifact_service::read_text(
+        &state.app_state.artifact_base_path, std::path::Path::new(&artifact.storage_path),
+        crate::services::artifact_service::TEST_RESULT_LIMIT,
+    ).await {
         Ok(content) => Json(json!({"content":content})).into_response(),
+        Err(AppError::NotFound(_)) => (StatusCode::NOT_FOUND, "Test result not found").into_response(),
+        Err(error) => bad_request(error),
+    }
+}
+
+pub(crate) async fn mobile_get_work_item_artifact(
+    State(state): State<WebhookState>, headers: HeaderMap,
+    Path((work_item_id, artifact_id)): Path<(String, String)>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let artifact = match artifact_repo::get_artifact(&state.app_state.db, &artifact_id).await {
+        Ok(value) if value.work_item_id == work_item_id => value,
+        _ => return (StatusCode::NOT_FOUND, "Artifact not found").into_response(),
+    };
+    match crate::services::artifact_service::read_text(
+        &state.app_state.artifact_base_path, std::path::Path::new(&artifact.storage_path),
+        crate::services::artifact_service::TEXT_LIMIT,
+    ).await {
+        Ok(content) => Json(json!({"content":content})).into_response(),
+        Err(AppError::NotFound(_)) => (StatusCode::NOT_FOUND, "Artifact not found").into_response(),
         Err(error) => bad_request(error),
     }
 }

@@ -7,7 +7,7 @@ pub use hierarchy::{
     SemanticTemplateApplicationResult, SemanticTemplateKind,
 };
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Product {
     pub id: String,
     pub name: String,

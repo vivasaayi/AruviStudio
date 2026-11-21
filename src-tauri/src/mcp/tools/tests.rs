@@ -336,9 +336,13 @@ async fn database_settings_use_desktop_validation_and_persist() {
     dispatch_tool(&state, "aruvi_settings", call("set_database_path_override", json!({"db_path": format!("  {path}  ")}))).await.unwrap();
     let result = dispatch_tool(&state, "aruvi_settings", call("get_database_path_override", json!({}))).await.unwrap();
     assert_eq!(result["result"]["path"], path);
+    assert!(dispatch_tool(&state, "aruvi_settings", call("set_database_path_override", json!({"db_path":"/tmp/other.db", "expected":{"path":null}}))).await.is_err());
+    assert!(dispatch_tool(&state, "aruvi_settings", call("clear_database_path_override", json!({"expected":{"path":"/tmp/stale.db"}}))).await.is_err());
+    let still = dispatch_tool(&state, "aruvi_settings", call("get_database_path_override", json!({}))).await.unwrap();
+    assert_eq!(still["result"]["path"], path);
     let health = dispatch_tool(&state, "aruvi_settings", call("get_database_health", json!({}))).await.unwrap();
     assert!(health["result"]["applied_migrations"].as_u64().unwrap() > 0);
-    dispatch_tool(&state, "aruvi_settings", call("clear_database_path_override", json!({}))).await.unwrap();
+    dispatch_tool(&state, "aruvi_settings", call("clear_database_path_override", json!({"expected":{"path":path}}))).await.unwrap();
     let cleared = dispatch_tool(&state, "aruvi_settings", call("get_database_path_override", json!({}))).await.unwrap();
     assert!(cleared["result"]["path"].is_null());
 }

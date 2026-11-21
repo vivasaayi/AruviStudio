@@ -15,11 +15,14 @@ pub struct ToolDefinition {
 
 pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
     vec![
-        action_tool("aruvi_ci", "Inspect Aruvici targets, revisions, runs and artifacts, manage target assignments, feedback and builds.", &["get_status", "list_targets", "list_runs", "get_run", "get_logs", "cancel_run", "retry_run", "artifact_readiness", "list_branches", "list_commits", "list_bindings", "save_binding", "delete_binding", "queue_build", "list_feedback", "create_feedback"]),
+        action_tool("aruvi_ci", "Inspect Aruvici targets, revisions, runs and artifacts, manage target assignments, feedback and builds. Artifact chunks are bounded binary byte arrays; verify total size and SHA-256 after downloading.", &["get_status", "list_targets", "list_runs", "get_run", "get_logs", "cancel_run", "retry_run", "artifact_readiness", "artifact_metadata", "artifact_chunk", "list_branches", "list_commits", "list_bindings", "save_binding", "delete_binding", "queue_build", "list_feedback", "create_feedback"]),
         action_tool(
             "aruvi_catalog",
             "Manage products, product areas, capabilities, features, and attached delivery stories/tasks.",
             &[
+                "list_strategy_nodes", "create_strategy_node", "update_strategy_node", "delete_strategy_node",
+                "list_product_strategy_links", "link_product_to_strategy", "unlink_product_from_strategy",
+                "list_product_dependencies", "create_product_dependency", "delete_product_dependency",
                 "create_product",
                 "get_product",
                 "list_products",
@@ -64,9 +67,14 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "list_product_export_work_items",
                 "summarize_work_items_by_product",
                 "update_work_item",
+                "assign_work_item_workspace",
                 "delete_work_item",
+                "run_external_cli",
+                "list_external_cli_runs",
+                "list_external_cli_events",
                 "get_sub_work_items",
                 "reorder_work_items",
+                "move_work_item",
             ],
         ),
         action_tool(
@@ -138,6 +146,8 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
             &[
                 "approve_work_item",
                 "reject_work_item",
+                "approve_work_items",
+                "reject_work_items",
                 "approve_work_item_plan",
                 "reject_work_item_plan",
                 "approve_work_item_test_review",
@@ -153,6 +163,10 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
             "Manage agents, teams, skills, model bindings, and workflow stage routing policies.",
             &[
                 "list_agent_definitions",
+                "list_prompt_templates",
+                "create_prompt_template",
+                "update_prompt_template",
+                "delete_prompt_template",
                 "list_agent_model_bindings",
                 "inspect_agent_model",
                 "set_primary_agent_model_binding",

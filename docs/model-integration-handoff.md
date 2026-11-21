@@ -1,5 +1,11 @@
 # Model integration handoff
 
+This is a historical handoff. Work has resumed since it was written; use the
+latest checkpoints in [model-client-goal.md](model-client-goal.md) for the
+current deployment, disk capacity, validation evidence and remaining work.
+In particular, the later clean-image checkpoint supersedes the full-disk and
+branch-image statements below. Worktree ports are dynamically assigned.
+
 Paused on 2026-11-14. The goal is not complete and no release has been
 published. The detailed chronological evidence is in
 [model-client-goal.md](model-client-goal.md); the desktop/web/MCP inventory is

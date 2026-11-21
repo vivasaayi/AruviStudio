@@ -29,29 +29,20 @@ pub(crate) async fn transition_stage(
         )));
     }
 
-    workflow_repo::update_workflow_stage(db, workflow_run_id, to.as_str()).await?;
     let (status, error_message, mark_ended) = match to {
         WorkflowStage::Done => ("completed", None, true),
         WorkflowStage::Failed => ("failed", Some(notes.as_str()), true),
         WorkflowStage::Cancelled => ("cancelled", Some(notes.as_str()), true),
         _ => ("running", None, false),
     };
-    workflow_repo::update_workflow_lifecycle(
+    workflow_repo::commit_workflow_transition(
         db,
-        workflow_run_id,
-        status,
-        error_message,
-        mark_ended,
-    )
-    .await?;
-
-    let transition_id = uuid::Uuid::new_v4().to_string();
-    workflow_repo::record_stage_transition(
-        db,
-        &transition_id,
         workflow_run_id,
         from.as_str(),
         to.as_str(),
+        status,
+        error_message,
+        mark_ended,
         trigger.as_str(),
         &notes,
     )

@@ -10,7 +10,7 @@ if [[ ! -f "$env_file" ]]; then
   printf '%s\n' 'Initialize and build this worktree first: bash scripts/env worktree up' >&2
   exit 1
 fi
-APP_IMAGE=$(python3 -c 'import sys; print(next(line.split("=",1)[1] for line in open(sys.argv[1]) if line.startswith("APP_IMAGE=")))' "$env_file")
+APP_IMAGE=${ARUVI_TEST_APP_IMAGE:-$(python3 -c 'import sys; print(next(line.split("=",1)[1] for line in open(sys.argv[1]) if line.startswith("APP_IMAGE=")))' "$env_file")}
 export APP_IMAGE PRODUCT_SOURCE="$root" COMPOSE_IGNORE_ORPHANS=true
 if ! docker image inspect "$APP_IMAGE" >/dev/null 2>&1; then
   printf '%s\n' 'The worktree image is unavailable; run bash scripts/build worktree first.' >&2

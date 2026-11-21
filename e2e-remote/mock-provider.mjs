@@ -163,9 +163,10 @@ const server = http.createServer((request, response) => {
         response.statusCode = 400; return response.end(JSON.stringify({ error: "Invalid Anthropic request" }));
       }
       response.setHeader("Content-Type", "text/event-stream");
+      const last = body.messages.at(-1)?.content || "";
+      if (last.includes("initial content")) return response.end('data: {"type":"message_start","message":{"content":[{"type":"tool_use","name":"fixture"}]}}\n\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"partial"}}\n\ndata: {"type":"message_stop"}\n\n');
       response.write('data: {"type":"message_start","message":{"id":"fixture","usage":{"input_tokens":17}}}\n\n');
       response.write('data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Claude "}}\n\n');
-      const last = body.messages.at(-1)?.content || "";
       setTimeout(() => {
         if (response.destroyed) return;
         if (last.includes("stream failure")) return response.end('data: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}\n\n');

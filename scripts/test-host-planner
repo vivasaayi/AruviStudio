@@ -14,10 +14,8 @@ root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-model-host-studio-validation")
 parser.add_argument("--repository", action="store_true", help="Analyze a disposable workspace rather than submit a text turn")
-parser.add_argument("--browser", action="store_true", help="Drive repository analysis through a real browser")
+parser.add_argument("--browser", action="store_true", help="Drive the planner turn or repository analysis through a real browser")
 args = parser.parse_args()
-if args.browser and not args.repository:
-    parser.error("--browser requires --repository")
 host = args.host.expanduser().resolve()
 container = None
 volume = None
@@ -102,6 +100,11 @@ try:
                     result = json.load(response)
             except urllib.error.HTTPError as error:
                 raise ValueError(f"Repository analysis HTTP {error.code}: {error.read(1000).decode(errors='replace')}") from error
+    elif args.browser:
+        browser = subprocess.run(["node", str(root / "scripts/test-host-planner-browser.mjs")], cwd=root, input=json.dumps({"address": address, "session": session["session_id"], "product": product["id"]}), text=True, capture_output=True, timeout=300)
+        if browser.returncode:
+            raise ValueError("Browser fixture failed: " + browser.stderr[-1500:])
+        result = json.loads(browser.stdout)
     else:
         result = call("aruvi_planner", "submit_planner_turn", {
             "session_id": session["session_id"], "product_id": product["id"],
@@ -133,7 +136,8 @@ try:
     areas = call("aruvi_catalog", "list_product_areas", {"product_id": product["id"]})
     if not any("inventory" in area.get("name", "").lower() for area in areas):
         raise ValueError("Confirmed product area was not saved")
-    print(f"Real model {model_name} created and confirmed a planner draft through {'browser repository analysis' if args.browser else ('repository analysis API' if args.repository else 'MCP')}", flush=True)
+    interface = ('browser repository analysis' if args.repository else 'browser planner turn') if args.browser else ('repository analysis API' if args.repository else 'MCP')
+    print(f"Real model {model_name} created and confirmed a planner draft through {interface}", flush=True)
 except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
     print(f"Real planner workflow failed: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'fixture command failed'}", file=sys.stderr)
     sys.exit(1)

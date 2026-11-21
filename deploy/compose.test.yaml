@@ -4,6 +4,7 @@ services:
     environment:
       ARUVI_MOBILE_API_TOKEN: workflow-mobile-test
       ARUVI_MCP_API_TOKEN: workflow-mcp-test
+      ARUVI_MCP_ALLOWED_ORIGINS: https://studio.example
       ARUVI_LLM_CONFIG_PATH: /data/llm-config.json
       ARUVI_PDF_SOCKET: /pdf-socket/renderer.sock
       ARUVI_CI_SOCKET: /ci/ci.sock

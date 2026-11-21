@@ -1,0 +1,34 @@
+#!/usr/bin/env python3
+"""Recreate the existing worktree with an explicit read-only host CI mount."""
+import json
+import os
+from pathlib import Path, PurePosixPath
+import subprocess
+import sys
+
+root = Path(__file__).resolve().parent.parent
+try:
+    plan = json.loads(subprocess.check_output(['bash', 'scripts/env', 'worktree', 'plan'], cwd=root, text=True))
+    env_file = Path(plan['state']) / 'environment.env'
+    values = dict(line.split('=', 1) for line in env_file.read_text().splitlines() if line and not line.startswith('#') and '=' in line)
+    host = Path(values['ARUVI_CI_HOST_REPOSITORY_ROOT'])
+    raw_target = values['ARUVI_CI_CONTAINER_REPOSITORY_ROOT']
+    target = PurePosixPath(raw_target)
+    if not host.is_absolute() or str(host) == '/' or not host.is_dir() or host.resolve() != host:
+        raise ValueError('Host repository root must be an existing canonical absolute directory')
+    if not target.is_absolute() or not target.is_relative_to('/repositories') or len(target.parts) < 3 or any(part in ('.', '..') for part in raw_target.split('/')):
+        raise ValueError('Container repository root must be a directory below /repositories without dot components')
+    if not values.get('ARUVI_CI_RELAY_URL', '').strip() or not values.get('ARUVI_CI_RELAY_TOKEN', '').strip():
+        raise ValueError('Configure the local CI relay URL and token in the private environment file')
+    # Compose gives shell variables precedence over --env-file. Pass precisely
+    # the values validated above, including the app's mapping and relay settings.
+    compose_env = os.environ.copy()
+    for key in ('ARUVI_CI_HOST_REPOSITORY_ROOT', 'ARUVI_CI_CONTAINER_REPOSITORY_ROOT', 'ARUVI_CI_RELAY_URL', 'ARUVI_CI_RELAY_TOKEN'):
+        compose_env[key] = values[key]
+    command = ['docker', 'compose', '--project-name', plan['project'], '--project-directory', str(root), '--env-file', str(env_file), '-f', str(root / 'deploy/compose.worktree.yaml'), '-f', str(root / 'deploy/compose.ci-shared.yaml')]
+    subprocess.run(command + ['up', '-d', '--wait', '--no-build'], cwd=root, env=compose_env, check=True)
+    address = subprocess.check_output(command + ['port', 'app', '8787'], cwd=root, env=compose_env, text=True).strip()
+    print('Worktree started with read-only CI repository mount at ' + address)
+except (OSError, KeyError, ValueError, subprocess.SubprocessError) as error:
+    print('Could not start CI worktree: ' + (str(error) if isinstance(error, ValueError) else type(error).__name__), file=sys.stderr)
+    sys.exit(1)

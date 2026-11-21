@@ -532,6 +532,23 @@
               </div>
               <div class="panel-body stack">
                 <div class="metrics" id="productMetrics"></div>
+                <div id="productReferences"></div>
+                <details id="productEditSection"><summary>Edit product</summary>
+                  <form id="productEditForm" class="stack">
+                    <label><span class="label">Edit product name</span><input name="name" required maxlength="200" /></label>
+                    <label><span class="label">Product description</span><textarea name="description"></textarea></label>
+                    <label><span class="label">Vision</span><textarea name="vision"></textarea></label>
+                    <label><span class="label">Goals (comma-separated)</span><input name="goals" /></label>
+                    <label><span class="label">Tags (comma-separated)</span><input name="tags" /></label>
+                    <label><span class="label">Lifecycle</span><select name="lifecycle"><option>idea</option><option>incubating</option><option>active</option><option>maturing</option><option>sunsetting</option><option>retired</option></select></label>
+                    <label><span class="label">Health</span><select name="health"><option>unknown</option><option>healthy</option><option>watch</option><option value="at_risk">at risk</option><option>blocked</option></select></label>
+                    <label><span class="label">Owner</span><input name="owner" /></label>
+                    <label><span class="label">Investment</span><select name="investment"><option>evaluate</option><option>invest</option><option>maintain</option><option>pause</option><option>retire</option></select></label>
+                    <label><span class="label">Roadmap</span><textarea name="roadmap"></textarea></label>
+                    <label><span class="label">Evidence</span><textarea name="evidence"></textarea></label>
+                    <button id="productEditSave" type="submit">Save product</button>
+                  </form>
+                </details>
                 <div class="stack">
                   <label><span class="label">Product Book format</span><select id="productBookFormat"><option value="docs_html">Docs HTML</option><option value="book_html">Book HTML</option><option value="epub">EPUB</option><option value="pdf">PDF</option></select></label>
                   <label><span class="label">Book trim preset</span><select id="productBookTrim"><option value="trade-6x9">Trade Paperback (6×9)</option><option value="a5">A5 Book</option><option value="us-letter">US Letter Review</option></select></label>
@@ -539,6 +556,7 @@
                 </div>
                 <form id="createAreaForm" class="stack">
                   <label><span class="label">New product area</span><input id="newAreaName" maxlength="200" required /></label>
+                  <label><span class="label">Product area purpose (optional)</span><input id="newAreaPurpose" /></label>
                   <button id="createAreaButton" type="submit" disabled>Add product area</button>
                 </form>
                 <div class="tree" id="productTree"></div>
@@ -554,6 +572,40 @@
               </div>
             </section>
           </div>
+          <details id="portfolioSection" class="panel">
+            <summary>Portfolio strategy and dependencies</summary>
+            <div class="panel-body stack">
+              <p class="empty">Changes apply immediately. Refresh before editing if another user may have changed the portfolio.</p>
+              <button type="button" class="secondary" id="portfolioRefresh">Refresh portfolio</button>
+              <form id="strategyCreate" class="stack">
+                <label><span class="label">Strategy name</span><input name="name" required maxlength="200" /></label>
+                <label><span class="label">Strategy kind</span><select name="kind"><option value="strategic_product_area">Strategic product area</option><option value="domain">Domain</option><option value="sub_domain">Sub-domain</option></select></label>
+                <label><span class="label">Parent strategy</span><select name="parent" id="strategyParent"></select></label>
+                <label><span class="label">Strategy description</span><textarea name="description"></textarea></label>
+                <label><span class="label">Strategy owner</span><input name="owner" /></label>
+                <button type="submit">Add strategy node</button>
+              </form>
+              <div id="strategyList" class="tool-list"></div>
+              <form id="strategyLink" class="stack">
+                <label><span class="label">Product to link</span><select name="product" id="strategyProduct" required></select></label>
+                <label><span class="label">Strategy to link</span><select name="node" id="strategyNode" required></select></label>
+                <label><input type="checkbox" name="primary" /> Primary strategy</label><button type="submit">Link product</button>
+              </form>
+              <div id="strategyLinks" class="tool-list"></div>
+              <form id="dependencyCreate" class="stack">
+                <label><span class="label">Dependent product</span><select name="product" id="dependencyProduct" required></select></label>
+                <label><span class="label">Depends on product</span><select name="target" id="dependencyTarget" required></select></label>
+                <label><span class="label">Dependent capability (optional)</span><select name="capability" id="dependencyCapability" disabled><option value="">Select a product first</option></select></label>
+                <label><span class="label">Target capability (optional)</span><select name="target_capability" id="dependencyTargetCapability" disabled><option value="">Select a product first</option></select></label>
+                <div id="dependencyCapabilityStatus" class="empty" aria-live="polite"></div>
+                <label><span class="label">Dependency kind</span><select name="kind"><option>platform</option><option>capability</option><option>data</option><option>integration</option><option>operational</option><option>other</option></select></label>
+                <label><span class="label">Dependency status</span><select name="status"><option>active</option><option>planned</option><option>blocked</option><option>retired</option></select></label>
+                <label><span class="label">Dependency description</span><textarea name="description"></textarea></label>
+                <button type="submit" id="dependencyAdd">Add dependency</button>
+              </form>
+              <div id="dependencyList" class="tool-list"></div>
+            </div>
+          </details>
         </section>
 
         <section class="tab-panel" id="tab-workspaces">
@@ -597,12 +649,18 @@
               <pre id="repositoryDiff" style="white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto"></pre>
               <label><span class="label">Filter workspace files</span><input id="repositoryTreeFilter" placeholder="Filter by name or path" /></label><button id="refreshRepositoryTree" type="button" class="secondary" disabled>Refresh file tree</button>
               <div id="repositoryTree" class="tree"></div><div id="repositoryTreeEmpty" class="empty" hidden>No matching files.</div>
-              <div id="repositoryFileTabs" class="button-row" aria-label="Open workspace files"></div><label><span class="label">Selected file</span><textarea id="repositoryFileContent" readonly rows="18" aria-label="Selected file contents"></textarea></label>
-              <div class="button-row"><button id="saveRepositoryFileButton" type="button" disabled>Save file</button><button id="discardRepositoryFileButton" class="secondary" type="button" disabled>Discard file edits</button></div>
+              <div id="repositoryFileTabs" class="button-row" aria-label="Open workspace files"></div>
+              <button type="button" class="secondary" id="toggleCodeEditor">Use code editor</button>
+              <div id="codeEditorStatus" class="empty" role="status"></div>
+              <label id="repositoryPlainEditor"><span class="label">Selected file</span><textarea id="repositoryFileContent" readonly rows="18" aria-label="Selected file contents"></textarea></label>
+              <div id="repositoryCodeEditor" hidden aria-label="Code editor" style="height: 420px; border: 1px solid #334155"></div>
+              <div class="button-row"><button id="saveRepositoryFileButton" type="button" disabled>Save file</button><button id="discardRepositoryFileButton" class="secondary" type="button" disabled>Discard file edits</button><span class="empty">In the editor, use ⌘/Ctrl+S to save.</span></div>
               <div class="tool-card stack">
                 <strong>Ask Copilot about this file</strong>
                 <div class="empty">Sends the file path, up to 12,000 characters of the current editor content, your question and recent conversation to the selected provider. Unsaved edits are included. Requests and responses are recorded in Activity. Conversation resets when the file content or provider changes. Save before proposing changes.</div>
                 <details><summary>Copilot settings</summary><div class="stack">
+                  <label><span class="label">Copilot model</span><select id="repositoryCopilotModel"><option value="">Use Connection model</option></select></label>
+                  <button id="refreshRepositoryCopilotModels" type="button" class="secondary">Refresh Copilot models</button>
                   <label><input id="repositoryCopilotIncludeFile" type="checkbox" checked> Include file context</label>
                   <label><span class="label">File context budget (characters)</span><input id="repositoryCopilotContextBudget" type="number" min="1" max="12000" step="1" value="12000" /></label>
                   <label><span class="label">Copilot temperature</span><input id="repositoryCopilotTemperature" type="number" min="0" max="2" step="0.1" value="0.2" /></label>
@@ -670,11 +728,13 @@
                 <div class="panel-header"><div class="panel-title">Workflow test command</div></div>
                 <div class="panel-body stack">
                   <p class="empty">For the selected product, run a command in its repository inside the server container. Enter an executable and arguments as a JSON array; no shell expansion is performed. Commands run as the server user.</p>
+                  <p class="empty">A passing command covers only the checks it runs. Include behavioral tests for the work item's acceptance criteria; syntax checks alone do not verify behavior.</p>
                   <p id="workflowTestScopeStatus" class="empty">Select a product.</p>
                   <form id="workflowTestForm" class="stack">
                     <label><span class="label">Test command policy</span><select id="workflowTestMode"><option value="inherit">Use default command</option><option value="custom">Use product command</option><option value="disabled">Skip tests and require manual review</option></select></label>
                     <label><span class="label">Test command arguments</span><textarea id="workflowTestArgv" placeholder='["npm", "test"]'></textarea></label>
                     <button id="saveWorkflowTestButton" type="submit">Save test command</button>
+                    <button id="reloadWorkflowTestButton" type="button" class="secondary">Reload test settings</button>
                   </form>
                 </div>
               </section>
@@ -684,10 +744,25 @@
                   <button class="secondary" id="refreshWorkButton" type="button">Refresh</button>
                 </div>
                 <div class="panel-body">
+                  <label><span class="label">Work status</span><select id="workStatusFilter"><option value="">All statuses</option><option value="draft">Draft</option><option value="ready_for_review">Ready for review</option><option value="approved">Approved</option><option value="in_planning">In planning</option><option value="in_progress">In progress</option><option value="in_validation">In validation</option><option value="waiting_human_review">Waiting human review</option><option value="done">Done</option><option value="blocked">Blocked</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select></label>
+                  <div class="button-row"><button class="secondary" id="approveSelectedWork" type="button" disabled>Approve selected</button><button class="danger" id="rejectSelectedWork" type="button" disabled>Reject selected</button></div>
+                  <div id="workSelectionStatus" class="empty" aria-live="polite">Select up to 100 loaded items for a batch decision.</div>
+                  <div class="empty">Drag work items or use the move buttons to reorder. Clear the status filter first.</div>
                   <div class="work-list" id="workList"></div>
+                  <button class="secondary" id="loadMoreWorkButton" type="button" hidden>Load more work items</button>
+                  <div class="empty" id="workPageStatus" aria-live="polite"></div>
                 </div>
               </section>
 
+              <section class="panel">
+                <div class="panel-header"><div class="panel-title">External coding CLI</div></div>
+                <div class="panel-body stack">
+                  <p class="empty">Runs on the server against the selected work item's workspace. The operator must enable and configure the CLI. Commands can modify workspace files.</p>
+                  <label><span class="label">CLI provider</span><select id="externalCliProvider"><option value="codex">Codex CLI</option><option value="claude">Claude Code</option><option value="cursor">Cursor Agent</option><option value="copilot">GitHub Copilot</option></select></label>
+                  <div class="button-row"><button id="externalCliRun" type="button">Run CLI</button><button id="externalCliRefresh" class="secondary" type="button">Refresh runs</button></div>
+                  <div id="externalCliRuns" class="tool-list"></div><pre id="externalCliEvents" style="white-space:pre-wrap;overflow-wrap:anywhere" aria-live="polite"></pre>
+                </div>
+              </section>
               <section class="panel">
                 <div class="panel-header">
                   <div class="panel-title">Delivery</div>
@@ -695,7 +770,17 @@
                 </div>
                 <div class="panel-body stack">
                   <div id="deliveryDetails" class="tool-list"></div>
+                  <button class="secondary" id="editWorkWorkspaceButton" type="button">Change work item workspace</button>
+                  <form id="workWorkspaceForm" class="stack" hidden>
+                    <label><span class="label">Work item workspace</span><select id="workWorkspaceRepository" required></select></label>
+                    <label><span class="label">Work item branch option</span><select id="workWorkspaceBranchMode"><option value="default">Workspace default branch</option><option value="work_item">Work item branch</option><option value="custom">Custom branch</option></select></label>
+                    <label id="workWorkspaceCustomLabel" hidden><span class="label">Custom work item branch</span><input id="workWorkspaceBranch" /></label>
+                    <div id="workWorkspacePreview" class="empty"></div>
+                    <div class="empty">Selects a server workspace and branch; it does not check out or create the branch. Changes are blocked while a workflow is active.</div>
+                    <div class="button-row"><button type="submit">Save work item workspace</button><button class="secondary" id="clearWorkWorkspaceButton" type="button">Use scope default</button><button class="secondary" id="cancelWorkWorkspaceButton" type="button">Cancel workspace edit</button></div>
+                  </form>
                   <button class="secondary" id="editWorkButton" type="button">Edit task</button>
+                  <button class="danger" id="deleteWorkButton" type="button">Delete work item</button>
                   <form id="editWorkForm" hidden><div class="stack">
                     <label><span class="label">Edit title</span><input id="editWorkTitle" required /></label>
                     <label><span class="label">Problem statement</span><textarea id="editWorkProblem"></textarea></label>
@@ -708,10 +793,13 @@
                   </div></form>
                   <div class="button-row">
                     <button id="approveWorkButton" type="button">Approve &amp; Start</button>
+                    <button class="secondary" id="approveDecisionButton" type="button">Approve</button>
+                    <button class="danger" id="rejectDecisionButton" type="button">Reject</button>
                     <button class="secondary" id="startWorkButton" type="button">Start / Retry</button>
                     <button class="secondary" id="refreshDeliveryButton" type="button">Refresh</button>
                     <button class="secondary" id="retryGitDeliveryButton" type="button" hidden>Retry Git delivery</button>
                   </div>
+                  <div class="empty">Approve follows the configured automatic-start policy. Reject returns the work item to draft.</div>
                   <div class="button-row" id="workflowActions">
                     <button class="secondary" data-workflow-action="approve" type="button">Approve Gate</button>
                     <button class="danger" data-workflow-action="reject" type="button">Reject Gate</button>
@@ -792,11 +880,12 @@
             <section class="panel">
               <div class="panel-header"><div class="panel-title">Add model provider</div><button class="secondary" id="refreshModelsButton" type="button">Refresh</button></div>
               <div class="panel-body stack">
-                <p class="empty">For Aruvi Model Host, enter its running OpenAI-compatible endpoint and API token. The address must be reachable from the Studio server.</p>
+                <p class="empty">The address must be reachable from the Studio server. In Docker Desktop, localhost refers to the container; for LM Studio or another service on the Mac, use the Docker Desktop host address and the service's actual port. For Aruvi Model Host, enter its running endpoint and API token.</p>
                 <form id="providerForm" class="stack">
                   <label><span class="label">Provider name</span><input id="providerName" required /></label>
                   <label><span class="label">Protocol</span><select id="providerProtocol"><option value="openai_compatible">OpenAI compatible</option><option value="openai_reasoning">OpenAI reasoning models (no temperature)</option><option value="anthropic">Anthropic Messages</option></select></label>
                   <label><span class="label">API base URL</span><input id="providerUrl" type="url" required placeholder="https://example.com/v1" /></label>
+                  <button type="button" class="secondary" id="providerDockerHost">Use Docker Desktop host address</button>
                   <label><span class="label">API key (optional)</span><input id="providerKey" type="password" autocomplete="off" /></label>
                   <button type="submit" id="createProviderButton">Add provider</button>
                 </form>
@@ -814,6 +903,8 @@
                   <label><span class="label">Context window (optional)</span><input id="newModelContext" type="number" min="1" step="1" /></label>
                   <label><span class="label">Capability tags (comma-separated)</span><input id="newModelTags" /></label>
                   <label><span class="label">Notes</span><textarea id="newModelNotes"></textarea></label>
+                  <label><span class="label">Model preset (optional)</span><select id="modelPreset"><option value="">Choose a preset</option><option value="deepseek-flash">DeepSeek Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro</option><option value="deepseek-voice-transcription">DeepSeek transcription</option><option value="whisper-base.en">Local Whisper</option></select></label>
+                  <div class="empty">Presets fill model details only. Choose a compatible provider above and verify availability with the provider.</div>
                   <button type="submit" id="createModelButton">Add model</button>
                 </form>
                 <div id="modelList" class="tool-list"></div>
@@ -856,10 +947,13 @@
         <section class="tab-panel" id="tab-agents">
           <div class="split">
             <section class="panel"><div class="panel-header"><div class="panel-title">Create agent</div><button class="secondary" id="refreshAgentsButton" type="button">Refresh</button></div>
-              <div class="panel-body"><p class="empty">An empty allowed-tools list uses the default repository tools, including writing. To restrict access, list exact tool names: repo.list_tree, repo.read_file, repo.search, repo.write_file, repo.replace_range or repo.apply_patch. Supported legacy aliases also work; unrecognized names grant no tools. Agent model bindings are managed under Models; team and skill links are managed under Teams and Skills. Prompt template references are stored but are not currently applied to agent prompts.</p><div id="createAgentEditor"></div></div>
+              <div class="panel-body"><p class="empty">An empty allowed-tools list uses the default repository tools, including writing. To restrict access, list exact tool names: repo.list_tree, repo.read_file, repo.search, repo.write_file, repo.replace_range or repo.apply_patch. Supported legacy aliases also work; unrecognized names grant no tools. Agent model bindings are managed under Models; team and skill links are managed under Teams and Skills.</p><div id="createAgentEditor"></div></div>
             </section>
             <section class="panel"><div class="panel-header"><div class="panel-title">Agent definitions</div></div><div class="panel-body"><div class="stack" id="agentList"></div></div></section>
           </div>
+          <section class="panel"><div class="panel-header"><div class="panel-title">Agent prompt templates</div><button class="secondary" id="refreshPromptTemplates" type="button">Refresh templates</button></div>
+            <div class="panel-body stack"><p class="empty">Templates provide additional agent instructions; they do not change tool permissions. Use role * for any agent, or match an agent role exactly. Copy the template reference into the agent form.</p><div id="createPromptTemplate"></div><div id="promptTemplateList" class="stack"></div></div>
+          </section>
         </section>
 
         <section class="tab-panel" id="tab-teams">
@@ -898,11 +992,11 @@
           <section class="panel">
             <div class="panel-header"><div class="panel-title">Database</div><button type="button" class="secondary" id="refreshDatabaseSettings">Refresh database</button></div>
             <div class="panel-body stack">
-              <p>Paths refer to the Studio server filesystem. Changes apply on restart; an environment-configured database path takes precedence. Changing the path can open a different database. Concurrent changes use the last saved value.</p>
+              <p>Paths refer to the Studio server filesystem. Changes apply on restart; an environment-configured database path takes precedence. Changing the path can open a different database. A stale browser edit is rejected if the saved override changed.</p>
               <div id="databaseStatus" aria-live="polite">Load database settings to see migration health.</div>
               <details><summary>Migration history</summary><pre id="databaseMigrations">No migration history loaded.</pre></details>
               <label><span class="label">Database path override</span><input id="databaseOverride" placeholder="Absolute server path" /></label>
-              <div class="button-row"><button type="button" id="saveDatabaseOverride">Save override</button><button type="button" class="secondary" id="clearDatabaseOverride">Clear override</button></div>
+              <div class="button-row"><button type="button" id="saveDatabaseOverride">Save override</button><button type="button" class="secondary" id="clearDatabaseOverride">Clear override</button><button type="button" class="secondary" id="reloadDatabaseOverride">Discard draft and reload</button></div>
             </div>
           </section>
           <section class="panel">
@@ -980,7 +1074,7 @@
               <h3>Build target assignment</h3>
               <label>Product <select id="ciProduct"></select></label>
               <label>Attached workspace <select id="ciRepository"></select></label>
-              <label>Matching target <select id="ciTarget"></select></label>
+              <label>Target <select id="ciTarget"></select></label><div class="hint">The server checks that the target matches the selected workspace when assigning or queueing.</div>
               <label><input type="checkbox" id="ciAutoPreview"> Automatically queue Preview after workflow delivery</label>
               <button type="button" id="ciAssign" class="secondary">Assign target</button>
               <div id="ciBindings" class="stack"></div>
@@ -1006,6 +1100,29 @@
                   <div class="metric-label" id="bridgeUrl">Not checked</div>
                 </div>
                 <div class="tool-list" id="healthDetails"></div>
+                <div class="empty" id="bridgeConfiguration">Check connection to load bridge configuration.</div>
+                <details>
+                  <summary>Configure server bind</summary>
+                  <div class="stack">
+                    <div class="hint">These are server-side saved settings. Restart the server to apply them; environment variables can override them, and Docker's published port is configured separately.</div>
+                    <label>Bind host <input id="bridgeBindHost" placeholder="127.0.0.1" disabled></label>
+                    <label>Bind port <input id="bridgeBindPort" type="number" min="1" max="65535" placeholder="8787" disabled></label>
+                    <div><button type="button" class="secondary" id="bridgeBindLoad">Load bind settings</button> <button type="button" id="bridgeBindSave" disabled>Save bind settings</button></div>
+                  </div>
+                </details>
+                <details>
+                  <summary>Manage bridge tokens</summary>
+                  <div class="stack">
+                    <div class="hint">Tokens are write-only here and must use printable ASCII without spaces. Changes apply immediately unless an environment variable overrides the saved token. Clearing the active mobile token disables browser and mobile API access; recovery requires server administration.</div>
+                    <button type="button" class="secondary" id="bridgeTokensLoad">Load token status</button>
+                    <div id="bridgeMobileTokenStatus" class="hint">Not loaded</div>
+                    <label>New mobile token <input id="bridgeMobileToken" type="password" autocomplete="new-password" disabled></label>
+                    <div><button type="button" id="bridgeMobileTokenSave" disabled>Replace mobile token</button> <button type="button" class="danger" id="bridgeMobileTokenClear" disabled>Clear mobile token</button></div>
+                    <div id="bridgeMcpTokenStatus" class="hint">Not loaded</div>
+                    <label>New MCP token <input id="bridgeMcpToken" type="password" autocomplete="new-password" disabled></label>
+                    <div><button type="button" id="bridgeMcpTokenSave" disabled>Replace MCP token</button> <button type="button" class="danger" id="bridgeMcpTokenClear" disabled>Clear MCP token</button></div>
+                  </div>
+                </details>
               </div>
             </section>
 
@@ -1034,6 +1151,7 @@
     </div>
   </div>
 
+  <script src="/assets/js-sha256.js"></script>
   <script>
     const storageKeys = {
       activeTab: "aruvi.remote.active_tab",
@@ -1179,6 +1297,7 @@
       newModelName: document.getElementById("newModelName"),
       newModelContext: document.getElementById("newModelContext"),
       newModelTags: document.getElementById("newModelTags"),
+      modelPreset: document.getElementById("modelPreset"),
       newModelNotes: document.getElementById("newModelNotes"),
       discoverModelsButton: document.getElementById("discoverModelsButton"),
       discoverMoreModelsButton: document.getElementById("discoverMoreModelsButton"),
@@ -1285,6 +1404,7 @@
       bridgeState: document.getElementById("bridgeState"),
       bridgeUrl: document.getElementById("bridgeUrl"),
       healthDetails: document.getElementById("healthDetails"),
+      bridgeConfiguration: document.getElementById("bridgeConfiguration"),
       mcpToolList: document.getElementById("mcpToolList")
     };
 
@@ -1344,6 +1464,7 @@
       el.status.className = "status" + (kind ? " " + kind : "");
     }
 
+    let externalCliBusy = false;
     function setBusy(nextBusy) {
       state.busy = nextBusy;
       [
@@ -1390,9 +1511,19 @@
       el.clearButton.disabled = nextBusy || !state.sessionId;
       el.editWorkButton.disabled = nextBusy || !state.delivery || state.delivery.work_item.id !== state.selectedWorkItemId;
       el.approveWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
+      document.getElementById("approveDecisionButton").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
+      document.getElementById("rejectDecisionButton").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
       el.startWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
+      document.getElementById("deleteWorkButton").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
+      document.getElementById("editWorkWorkspaceButton").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
+      document.getElementById("externalCliRun").disabled = nextBusy || externalCliBusy || !state.selectedWorkItemId || !state.delivery;
+      document.getElementById("externalCliRefresh").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
       el.refreshDeliveryButton.disabled = nextBusy || !state.selectedWorkItemId;
       el.retryGitDeliveryButton.disabled = nextBusy || !state.delivery || !state.delivery.retryable_git_delivery;
+      document.getElementById("workStatusFilter").disabled = nextBusy;
+      el.workList.querySelectorAll("input[data-work-selection]").forEach((input) => { input.disabled = nextBusy; });
+      updateWorkSelectionControls();
+      updateWorkMoveControls();
       Array.from(el.workflowActions.querySelectorAll("button")).forEach((button) => {
         button.disabled = nextBusy || !state.delivery || !state.delivery.workflow_run;
       });
@@ -1422,6 +1553,7 @@
       }
       if (tabId === "workspaces") {
         void loadWorkspaces();
+        void loadRepositoryCopilotModels();
       }
       if (tabId === "activity") {
         void loadModelCalls();
@@ -1448,6 +1580,7 @@
       }
       if (tabId === "agents") {
         void loadAgents();
+        void loadPromptTemplates();
       }
       if (tabId === "skills") {
         void loadSkills();
@@ -2141,6 +2274,97 @@
     el.refreshPlannerRepositoriesButton.addEventListener("click", () => void loadPlannerRepositories());
     el.analyzePlannerRepositoryButton.addEventListener("click", () => void analyzePlannerRepository());
 
+    let bridgeTokenSnapshots = null, bridgeTokensBusy = false;
+    const bridgeTokensLoad = document.getElementById("bridgeTokensLoad");
+    const bridgeTokenControls = Object.fromEntries(["mobile", "mcp"].map((kind) => {
+      const label = kind === "mobile" ? "Mobile" : "Mcp";
+      return [kind, { input: document.getElementById(`bridge${label}Token`), status: document.getElementById(`bridge${label}TokenStatus`),
+        save: document.getElementById(`bridge${label}TokenSave`), clear: document.getElementById(`bridge${label}TokenClear`) }];
+    }));
+    function setBridgeTokensBusy(busy) {
+      bridgeTokensBusy = busy; bridgeTokensLoad.disabled = busy;
+      Object.values(bridgeTokenControls).forEach((item) => { item.input.disabled = busy || !bridgeTokenSnapshots; item.save.disabled = busy || !bridgeTokenSnapshots; item.clear.disabled = busy || !bridgeTokenSnapshots; });
+    }
+    function renderBridgeTokenStatus(kind) {
+      const item = bridgeTokenControls[kind], snapshot = bridgeTokenSnapshots[kind];
+      item.status.textContent = `${kind === "mcp" ? "MCP" : "Mobile"} saved token: ${snapshot.saved_configured ? "configured" : "not configured"}. ${snapshot.environment_override ? "An environment variable overrides the saved token." : "The saved token controls access."}`;
+    }
+    bridgeTokensLoad.addEventListener("click", async () => {
+      if (bridgeTokensBusy || (Object.values(bridgeTokenControls).some((item) => item.input.value) && !confirm("Discard entered tokens and reload status?"))) return;
+      setBridgeTokensBusy(true);
+      try {
+        bridgeTokenSnapshots = await request("/api/mobile/bridge-tokens");
+        for (const kind of ["mobile", "mcp"]) { bridgeTokenControls[kind].input.value = ""; renderBridgeTokenStatus(kind); }
+        bridgeTokensLoad.textContent = "Discard and reload token status";
+        setStatus("Bridge token status loaded", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { setBridgeTokensBusy(false); }
+    });
+    async function updateBridgeToken(kind, action) {
+      if (bridgeTokensBusy || !bridgeTokenSnapshots) return;
+      const item = bridgeTokenControls[kind], snapshot = bridgeTokenSnapshots[kind], token = item.input.value;
+      if (action === "replace" && !token) { setStatus("Enter a new token", "error"); return; }
+      const warning = snapshot.environment_override ? "The environment currently overrides the saved token." :
+        kind === "mobile" ? (action === "clear" ? "This immediately disables browser access until an administrator configures a token." : "This immediately changes the browser and mobile credential.") : "This immediately changes MCP access.";
+      if (!confirm(`${action === "clear" ? "Clear" : "Replace"} the ${kind.toUpperCase()} token? ${warning}`)) return;
+      setBridgeTokensBusy(true);
+      try {
+        const body = { kind, expected_revision: snapshot.revision, action };
+        if (action === "replace") body.token = token;
+        const result = await request("/api/mobile/bridge-tokens", { method: "POST", body });
+        bridgeTokenSnapshots[kind] = result;
+        if (kind === "mobile" && !result.environment_override) {
+          el.tokenInput.value = action === "replace" ? token : "";
+          if (action === "replace") localStorage.setItem(storageKeys.token, token); else localStorage.removeItem(storageKeys.token);
+        }
+        item.input.value = ""; renderBridgeTokenStatus(kind);
+        setStatus(result.environment_override ? "Saved token updated; the environment still takes precedence." : "Bridge token updated", "ok");
+      } catch (error) { setStatus((error.message || String(error)) + " If the request was interrupted, the token may have changed; check before retrying.", "error"); }
+      finally { setBridgeTokensBusy(false); }
+    }
+    for (const kind of ["mobile", "mcp"]) {
+      bridgeTokenControls[kind].save.addEventListener("click", () => void updateBridgeToken(kind, "replace"));
+      bridgeTokenControls[kind].clear.addEventListener("click", () => void updateBridgeToken(kind, "clear"));
+    }
+
+    let bridgeBindSnapshot = null, bridgeBindBusy = false, bridgeBindDirty = false;
+    const bridgeBindHost = document.getElementById("bridgeBindHost"), bridgeBindPort = document.getElementById("bridgeBindPort");
+    const bridgeBindLoad = document.getElementById("bridgeBindLoad"), bridgeBindSave = document.getElementById("bridgeBindSave");
+    [bridgeBindHost, bridgeBindPort].forEach((input) => input.addEventListener("input", () => { bridgeBindDirty = true; }));
+    function bridgeBindControls(busy) {
+      bridgeBindBusy = busy;
+      bridgeBindLoad.disabled = busy;
+      bridgeBindHost.disabled = busy || !bridgeBindSnapshot;
+      bridgeBindPort.disabled = busy || !bridgeBindSnapshot;
+      bridgeBindSave.disabled = busy || !bridgeBindSnapshot;
+    }
+    bridgeBindLoad.addEventListener("click", async () => {
+      if (bridgeBindBusy || (bridgeBindDirty && !confirm("Discard unsaved bind settings and reload?"))) return;
+      bridgeBindControls(true);
+      try {
+        const result = await request("/api/mobile/bridge-bind");
+        bridgeBindSnapshot = result.raw;
+        bridgeBindHost.value = result.raw[0] ?? "127.0.0.1";
+        bridgeBindPort.value = result.raw[1] ?? "8787";
+        bridgeBindDirty = false;
+        bridgeBindLoad.textContent = "Discard and reload bind settings";
+        setStatus("Bind settings loaded", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { bridgeBindControls(false); }
+    });
+    bridgeBindSave.addEventListener("click", async () => {
+      if (bridgeBindBusy || !bridgeBindSnapshot) return;
+      bridgeBindControls(true);
+      try {
+        const result = await request("/api/mobile/bridge-bind", { method: "POST", body: { expected: bridgeBindSnapshot, host: bridgeBindHost.value, port: bridgeBindPort.value } });
+        bridgeBindSnapshot = result.raw;
+        bridgeBindHost.value = result.raw[0]; bridgeBindPort.value = result.raw[1];
+        bridgeBindDirty = false;
+        setStatus("Bind settings saved. Restart the server to apply.", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { bridgeBindControls(false); }
+    });
+
     async function checkHealth() {
       try {
         setBusy(true);
@@ -2150,10 +2374,17 @@
         el.bridgeState.className = "metric-value ok";
         el.bridgeUrl.textContent = normalizeBaseUrl();
         renderHealthDetails(health);
+        try {
+          const bridge = await request("/api/mobile/bridge-status");
+          el.bridgeConfiguration.textContent = `MCP endpoint for this connection: ${normalizeBaseUrl()}/api/mcp. MCP token configured: ${bridge.mcp_token_configured ? "yes" : "no"}; requests allowed by configuration: ${bridge.mcp_requests_allowed ? "yes" : "no"} (${bridge.mcp_auth_mode}). Configured server bind: ${bridge.configured_bind_host}:${bridge.configured_bind_port} (host: ${bridge.host_source}, port: ${bridge.port_source}). Bind changes require a restart. The configured bind is server-side and may differ from this browser address.`;
+        } catch (error) {
+          el.bridgeConfiguration.textContent = "Bridge configuration unavailable: " + (error.message || String(error));
+        }
       } catch (error) {
         setStatus(error.message || String(error), "error");
         el.bridgeState.textContent = "Offline";
         el.bridgeState.className = "metric-value error";
+        el.bridgeConfiguration.textContent = "Bridge configuration unavailable.";
         renderHealthDetails({ error: error.message || String(error) });
       } finally {
         setBusy(false);
@@ -2384,6 +2615,112 @@
       }
     }
 
+    const portfolioElement = (id) => document.getElementById(id);
+    let portfolioLinks = [];
+    const dependencyScopeState = { source: {generation: 0, loading: false, error: false}, target: {generation: 0, loading: false, error: false} };
+    function updateDependencyReadiness() {
+      const scopes = Object.values(dependencyScopeState);
+      portfolioElement("dependencyAdd").disabled = scopes.some((scope) => scope.loading || scope.error);
+      portfolioElement("dependencyCapabilityStatus").textContent = scopes.some((scope) => scope.loading) ? "Loading capability choices…" : scopes.some((scope) => scope.error) ? "Could not load capability choices. Reselect the product to retry." : "";
+    }
+    async function loadDependencyCapabilities(side) {
+      const scope = dependencyScopeState[side];
+      const product = portfolioElement(side === "source" ? "dependencyProduct" : "dependencyTarget");
+      const select = portfolioElement(side === "source" ? "dependencyCapability" : "dependencyTargetCapability");
+      const productId = product.value, generation = ++scope.generation;
+      select.replaceChildren(new Option(productId ? "All capabilities" : "Select a product first", ""));
+      select.disabled = true; scope.error = false; scope.loading = !!productId; updateDependencyReadiness();
+      if (!productId) return;
+      try {
+        const tree = await request(`/api/mobile/products/${encodeURIComponent(productId)}/tree`);
+        if (generation !== scope.generation || product.value !== productId) return;
+        const add = (entries, prefix) => { for (const entry of entries) { const item = entry.capability; select.add(new Option(prefix + item.name, item.id)); add(entry.children || [], prefix + " › "); } };
+        for (const area of tree.product_areas || []) add(area.features || [], area.product_area.name + " › ");
+        select.disabled = false;
+      } catch (error) { if (generation === scope.generation) scope.error = true; }
+      finally { if (generation === scope.generation) { scope.loading = false; updateDependencyReadiness(); } }
+    }
+    for (const [id, side] of [["dependencyProduct", "source"], ["dependencyTarget", "target"]]) portfolioElement(id).addEventListener("change", () => void loadDependencyCapabilities(side));
+    async function portfolioAction(action, args = {}) {
+      return request("/api/mobile/portfolio", { method: "POST", body: { action, arguments: args } });
+    }
+    function portfolioSelect(select, items, placeholder) {
+      const previous = select.value;
+      select.replaceChildren(new Option(placeholder, ""));
+      for (const item of items) select.add(new Option(item.name, item.id));
+      if (items.some((item) => item.id === previous)) select.value = previous;
+    }
+    function portfolioButton(label, action) {
+      const button = document.createElement("button"); button.type = "button"; button.className = "secondary"; button.textContent = label;
+      button.addEventListener("click", action); return button;
+    }
+    async function portfolioChange(action, args) {
+      try { await portfolioAction(action, args); await loadPortfolio(); setStatus("Portfolio updated", "ok"); }
+      catch (error) { setStatus(error.message || String(error), "error"); }
+    }
+    async function loadPortfolio() {
+      try {
+        const [nodes, links, dependencies] = await Promise.all([portfolioAction("list_strategy_nodes"), portfolioAction("list_product_strategy_links"), portfolioAction("list_product_dependencies")]);
+        portfolioLinks = links;
+        const names = new Map(state.products.map((p) => [p.id, p.name]));
+        const nodeNames = new Map(nodes.map((n) => [n.id, n.name]));
+        portfolioSelect(portfolioElement("strategyParent"), nodes, "No parent (root)");
+        portfolioSelect(portfolioElement("strategyNode"), nodes, "Select strategy");
+        for (const id of ["strategyProduct", "dependencyProduct", "dependencyTarget"]) portfolioSelect(portfolioElement(id), state.products, "Select product");
+        await Promise.all([loadDependencyCapabilities("source"), loadDependencyCapabilities("target")]);
+        const list = portfolioElement("strategyList"); list.replaceChildren();
+        for (const node of nodes) {
+          const card = document.createElement("div"); card.className = "tool-card";
+          const title = document.createElement("div"); title.className = "tool-title"; title.textContent = node.name + " · " + node.node_kind + (node.parent_node_id ? " · parent: " + (nodeNames.get(node.parent_node_id) || node.parent_node_id) : " · root"); card.appendChild(title);
+          const edit = document.createElement("details"); const summary = document.createElement("summary"); summary.textContent = "Edit strategy"; edit.appendChild(summary);
+          const editForm = document.createElement("form"); editForm.className = "stack";
+          function field(label, input) { const wrapper = document.createElement("label"); const caption = document.createElement("span"); caption.className = "label"; caption.textContent = label; wrapper.append(caption, input); editForm.appendChild(wrapper); }
+          const name = document.createElement("input"); name.value = node.name; name.required = true; field("Edit strategy name", name);
+          const kind = document.createElement("select"); for (const value of ["strategic_product_area", "domain", "sub_domain"]) kind.add(new Option(value, value)); kind.value = node.node_kind; field("Edit strategy kind", kind);
+          const parent = document.createElement("select"); portfolioSelect(parent, nodes.filter((item) => item.id !== node.id), "No parent (root)"); parent.value = node.parent_node_id || ""; field("Edit strategy parent", parent);
+          const description = document.createElement("textarea"); description.value = node.description; field("Edit strategy description", description);
+          const owner = document.createElement("input"); owner.value = node.owner_label; field("Edit strategy owner", owner);
+          const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save strategy"; editForm.appendChild(save);
+          editForm.addEventListener("submit", async (event) => { event.preventDefault(); save.disabled = true; try { await portfolioChange("update_strategy_node", {id:node.id, expected:node, name:name.value.trim(), node_kind:kind.value, parent_node_id:parent.value || null, clear_parent:!parent.value, description:description.value.trim(), owner_label:owner.value.trim()}); } finally { save.disabled = false; } });
+          edit.appendChild(editForm); card.appendChild(edit);
+          card.appendChild(portfolioButton("Delete strategy", async () => {
+            const ids = new Set([node.id]);
+            let changed = true;
+            while (changed) { changed = false; for (const item of nodes) if (ids.has(item.parent_node_id) && !ids.has(item.id)) { ids.add(item.id); changed = true; } }
+            const expectedNodes = nodes.filter((item) => ids.has(item.id));
+            const expectedLinks = links.filter((item) => ids.has(item.strategy_node_id));
+            if (confirm(`Delete ${expectedNodes.length} strategy node(s) and ${expectedLinks.length} product link(s)?`)) await portfolioChange("delete_strategy_node", {id:node.id, expected_nodes:expectedNodes, expected_links:expectedLinks});
+          })); list.appendChild(card);
+        }
+        const linkList = portfolioElement("strategyLinks"); linkList.replaceChildren();
+        for (const link of links) {
+          const card = document.createElement("div"); card.className = "tool-card";
+          const text = document.createElement("span"); text.textContent = (names.get(link.product_id) || link.product_id) + " → " + (nodeNames.get(link.strategy_node_id) || link.strategy_node_id) + (link.is_primary ? " · primary" : ""); card.appendChild(text);
+          card.appendChild(portfolioButton("Unlink", async () => { if (confirm("Unlink this product and strategy?")) await portfolioChange("unlink_product_from_strategy", {product_id:link.product_id, strategy_node_id:link.strategy_node_id, expected_links:links.filter((item) => item.product_id === link.product_id)}); })); linkList.appendChild(card);
+        }
+        const dependencyList = portfolioElement("dependencyList"); dependencyList.replaceChildren();
+        for (const item of dependencies) {
+          const card = document.createElement("div"); card.className = "tool-card";
+          const text = document.createElement("span"); text.textContent = (names.get(item.product_id) || item.product_id) + (item.capability_id ? " / " + item.capability_id : "") + " → " + (names.get(item.depends_on_product_id) || item.depends_on_product_id) + (item.depends_on_capability_id ? " / " + item.depends_on_capability_id : "") + " · " + item.dependency_kind + " · " + item.status + (item.description ? " · " + item.description : ""); card.appendChild(text);
+          card.appendChild(portfolioButton("Delete dependency", async () => { if (confirm("Delete this product dependency?")) await portfolioChange("delete_product_dependency", {id:item.id}); })); dependencyList.appendChild(card);
+        }
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+    }
+    portfolioElement("portfolioSection").addEventListener("toggle", () => { if (portfolioElement("portfolioSection").open) void loadPortfolio(); });
+    portfolioElement("portfolioRefresh").addEventListener("click", loadPortfolio);
+    portfolioElement("strategyCreate").addEventListener("submit", async (event) => {
+      event.preventDefault(); const form = event.currentTarget.elements;
+      await portfolioChange("create_strategy_node", {name:form.name.value.trim(), node_kind:form.kind.value, parent_node_id:form.parent.value || null, description:form.description.value.trim(), owner_label:form.owner.value.trim()});
+    });
+    portfolioElement("strategyLink").addEventListener("submit", async (event) => {
+      event.preventDefault(); const form = event.currentTarget.elements;
+      await portfolioChange("link_product_to_strategy", {product_id:form.product.value, strategy_node_id:form.node.value, is_primary:form.primary.checked, expected_links:portfolioLinks.filter((item) => item.product_id === form.product.value)});
+    });
+    portfolioElement("dependencyCreate").addEventListener("submit", async (event) => {
+      event.preventDefault(); const form = event.currentTarget.elements;
+      await portfolioChange("create_product_dependency", {product_id:form.product.value, depends_on_product_id:form.target.value, capability_id:form.capability.value || null, depends_on_capability_id:form.target_capability.value || null, dependency_kind:form.kind.value, status:form.status.value, description:form.description.value.trim()});
+    });
+
     async function loadProducts() {
       try {
         setBusy(true);
@@ -2493,7 +2830,36 @@
       finally { productBookExporting = false; el.productBookDownload.disabled = !state.productSummary; }
     });
 
+    let productEditSnapshot = null;
+    const productEditSection = document.getElementById("productEditSection");
+    const productEditForm = document.getElementById("productEditForm");
+    productEditSection.querySelector(":scope > summary").addEventListener("click", (event) => {
+      if (productEditSection.open) return;
+      const product = state.products.find((item) => item.id === state.selectedProductId);
+      if (!product) { event.preventDefault(); setStatus("Select a product first", "error"); return; }
+      productEditSnapshot = structuredClone(product);
+      const f = productEditForm.elements;
+      for (const key of ["name", "description", "vision", "lifecycle", "health", "roadmap", "evidence"]) f[key].value = product[key];
+      f.goals.value = product.goals.join(", "); f.tags.value = product.tags.join(", ");
+      f.owner.value = product.owner_label; f.investment.value = product.investment_status;
+    });
+    productEditForm.addEventListener("submit", async (event) => {
+      event.preventDefault(); const expected = productEditSnapshot;
+      if (!expected || expected.id !== state.selectedProductId) { setStatus("Select a product first", "error"); return; }
+      const f = productEditForm.elements;
+      const list = (value) => value.split(",").map((item) => item.trim()).filter(Boolean);
+      const fields = {...expected, name:f.name.value.trim(), description:f.description.value, vision:f.vision.value, goals:list(f.goals.value), tags:list(f.tags.value), lifecycle:f.lifecycle.value, health:f.health.value, owner_label:f.owner.value, investment_status:f.investment.value, roadmap:f.roadmap.value, evidence:f.evidence.value};
+      const save = document.getElementById("productEditSave"); save.disabled = true;
+      try {
+        await request(`/api/mobile/products/${encodeURIComponent(expected.id)}/update`, {method:"POST", body:{expected, fields}});
+        productEditSection.open = false; productEditSnapshot = null;
+        await loadProducts(); setStatus("Product saved", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { save.disabled = false; }
+    });
+
     async function loadProductSummary(productId) {
+      if (state.selectedProductId !== productId) { document.getElementById("productEditSection").open = false; productEditSnapshot = null; }
       state.selectedProductId = productId;
       localStorage.setItem(storageKeys.selectedProduct, productId);
       renderProducts();
@@ -2524,6 +2890,58 @@
       return metric;
     }
 
+    function referenceSection(productId, scopeType, scopeId) {
+      const section = document.createElement("details");
+      const title = document.createElement("summary"); title.textContent = "References"; section.appendChild(title);
+      const list = document.createElement("div"); list.className = "stack"; section.appendChild(list);
+      const more = document.createElement("button"); more.type = "button"; more.className = "secondary"; more.textContent = "Load references"; section.appendChild(more);
+      let offset = 0, loading = false, mutating = false;
+      const form = document.createElement("form"); form.className = "stack";
+      function field(label, input) { const wrapper = document.createElement("label"); const text = document.createElement("span"); text.className = "label"; text.textContent = label; wrapper.append(text, input); form.appendChild(wrapper); }
+      const name = document.createElement("input"); name.required = true; name.maxLength = 200; field("Reference title", name);
+      const kind = document.createElement("select"); for (const value of ["note","external_doc","architecture","customer_evidence","regulatory","design_packet","standard","other"]) kind.add(new Option(value.replaceAll("_", " "), value)); field("Reference kind", kind);
+      const uri = document.createElement("input"); uri.maxLength = 4096; field("Reference URL or path (optional)", uri);
+      const content = document.createElement("textarea"); content.maxLength = 65536; field("Reference content", content);
+      const submit = document.createElement("button"); submit.type = "submit"; submit.textContent = "Add reference"; form.appendChild(submit); section.appendChild(form);
+      async function reload() { list.replaceChildren(); offset = 0; more.hidden = false; await load(); }
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault(); if (loading || mutating) return; mutating = true; submit.disabled = true; more.disabled = true;
+        try { await request(`/api/mobile/products/${encodeURIComponent(productId)}/references`, {method:"POST", body:{scope_type:scopeType,scope_id:scopeId,title:name.value.trim(),reference_kind:kind.value,uri:uri.value,content:content.value}}); form.reset(); await reload(); setStatus("Reference added", "ok"); }
+        catch (error) { setStatus(error.message || String(error), "error"); }
+        finally { mutating = false; submit.disabled = false; more.disabled = false; }
+      });
+      async function load() {
+        if (loading) return; loading = true; more.disabled = true;
+        try {
+          const query = new URLSearchParams({scope_type:scopeType, scope_id:scopeId, offset:String(offset)});
+          const page = await request(`/api/mobile/products/${encodeURIComponent(productId)}/references?${query}`);
+          for (const reference of page.items) {
+            const card = document.createElement("div"); card.className = "tool-card";
+            const heading = document.createElement("div"); heading.className = "tool-title"; heading.textContent = reference.title; card.appendChild(heading);
+            const kind = document.createElement("div"); kind.className = "tool-meta"; kind.textContent = reference.reference_kind; card.appendChild(kind);
+            if (reference.content) { const content = document.createElement("p"); content.textContent = reference.content; card.appendChild(content); }
+            if (reference.uri) {
+              let link; try { const parsed = new URL(reference.uri); if (["http:", "https:"].includes(parsed.protocol) && !parsed.username && !parsed.password) { link = document.createElement("a"); link.href = parsed.href; link.target = "_blank"; link.rel = "noopener noreferrer"; } } catch {}
+              const uri = link || document.createElement("span"); uri.textContent = reference.uri; card.appendChild(uri);
+            }
+            const remove = document.createElement("button"); remove.type = "button"; remove.className = "secondary"; remove.textContent = "Delete reference";
+            remove.addEventListener("click", async () => {
+              if (loading || mutating || !confirm(`Delete reference “${reference.title}”?`)) return;
+              mutating = true; remove.disabled = true; more.disabled = true;
+              try { await request(`/api/mobile/products/${encodeURIComponent(productId)}/references/delete`, {method:"POST", body:{expected:reference}}); await reload(); setStatus("Reference deleted", "ok"); }
+              catch (error) { setStatus(error.message || String(error), "error"); remove.disabled = false; }
+              finally { mutating = false; more.disabled = false; }
+            }); card.appendChild(remove);
+            list.appendChild(card);
+          }
+          offset += page.items.length; more.hidden = !page.has_more; more.textContent = "Load more references";
+          if (!offset) list.textContent = "No references for this scope.";
+        } catch (error) { more.textContent = "Retry loading references"; setStatus(error.message || String(error), "error"); }
+        finally { loading = false; more.disabled = false; }
+      }
+      more.addEventListener("click", load); return section;
+    }
+
     function renderProductSummary() {
       el.productMetrics.innerHTML = "";
       el.productTree.innerHTML = "";
@@ -2534,6 +2952,8 @@
         return;
       }
       const product = state.products.find((entry) => entry.id === state.selectedProductId);
+      const references = document.getElementById("productReferences"); references.replaceChildren();
+      if (product) references.appendChild(referenceSection(product.id, "product", product.id));
       el.createAreaButton.disabled = !product;
       el.resetPlanButton.disabled = !product;
       el.productStatus.textContent = product ? product.name : "Loaded";
@@ -2573,6 +2993,7 @@
             details.appendChild(description);
           }
           children.forEach((child) => addNode(details, child.capability, child.children || [], areaId));
+          details.appendChild(referenceSection(productId, item.node_kind, item.id));
           const editSection = document.createElement("details");
           const editTitle = document.createElement("summary"); editTitle.textContent = "Edit details";
           const editForm = document.createElement("form"); editForm.className = "stack";
@@ -2581,13 +3002,31 @@
           const descriptionInput = document.createElement("textarea"); descriptionInput.value = item.description || "";
           descriptionInput.setAttribute("aria-label", "Edit description for " + item.name);
           const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save details"; save.className = "secondary";
-          editForm.append(nameInput, descriptionInput, save); editSection.append(editTitle, editForm); details.appendChild(editSection);
+          editForm.append(nameInput, descriptionInput);
+          let acceptanceInput, technicalInput, purposeInput;
+          if (item.node_kind === "product_area") {
+            purposeInput = document.createElement("input"); purposeInput.value = item.purpose || "";
+            purposeInput.setAttribute("aria-label", "Edit purpose for " + item.name);
+            const purposeLabel = document.createElement("label"); purposeLabel.textContent = "Purpose"; purposeLabel.appendChild(purposeInput); editForm.appendChild(purposeLabel);
+          }
+          if (item.node_kind !== "product_area") {
+            acceptanceInput = document.createElement("textarea"); acceptanceInput.value = item.acceptance_criteria || "";
+            acceptanceInput.setAttribute("aria-label", "Edit acceptance criteria for " + item.name);
+            technicalInput = document.createElement("textarea"); technicalInput.value = item.technical_notes || "";
+            technicalInput.setAttribute("aria-label", "Edit technical notes for " + item.name);
+            const acceptanceLabel = document.createElement("label"); acceptanceLabel.textContent = "Acceptance criteria"; acceptanceLabel.appendChild(acceptanceInput);
+            const technicalLabel = document.createElement("label"); technicalLabel.textContent = "Technical notes"; technicalLabel.appendChild(technicalInput);
+            editForm.append(acceptanceLabel, technicalLabel);
+          }
+          editForm.append(save); editSection.append(editTitle, editForm); details.appendChild(editSection);
           editForm.addEventListener("submit", async (event) => {
             event.preventDefault(); save.disabled = true;
             try {
               await request("/api/mobile/products/" + encodeURIComponent(productId) + "/hierarchy/update", { method: "POST", body: {
                 node_type: item.node_kind === "product_area" ? "product_area" : "capability", id: item.id,
-                expected_name: item.name, expected_description: item.description || "", name: nameInput.value, description: descriptionInput.value
+                expected_name: item.name, expected_description: item.description || "", name: nameInput.value, description: descriptionInput.value,
+                ...(acceptanceInput ? {expected_acceptance_criteria:item.acceptance_criteria || "", acceptance_criteria:acceptanceInput.value, expected_technical_notes:item.technical_notes || "", technical_notes:technicalInput.value} : {}),
+                ...(purposeInput ? {expected_purpose:item.purpose || "", purpose:purposeInput.value} : {})
               }});
               if (state.selectedProductId === productId) {
                 await loadProductSummary(productId);
@@ -2670,12 +3109,12 @@
       finally { if (state.selectedProductId === productId) el.resetPlanButton.disabled = !state.productSummary; }
     }
 
-    async function createHierarchyNode(productId, areaId, parentId, name) {
+    async function createHierarchyNode(productId, areaId, parentId, name, purpose = null) {
       if (!productId || !name.trim()) { setStatus("Enter a name", "error"); return; }
       try {
-        await request("/api/mobile/products/" + encodeURIComponent(productId) + "/hierarchy", { method: "POST", body: { name: name.trim(), product_area_id: areaId, parent_capability_id: parentId } });
+        await request("/api/mobile/products/" + encodeURIComponent(productId) + "/hierarchy", { method: "POST", body: { name: name.trim(), product_area_id: areaId, parent_capability_id: parentId, purpose } });
         if (state.selectedProductId !== productId) return;
-        el.newAreaName.value = "";
+        if (!areaId) { el.newAreaName.value = ""; document.getElementById("newAreaPurpose").value = ""; }
         await loadProductSummary(productId);
         const button = el.productTree.querySelector("button");
         if (button && state.selectedProductId === productId) await loadProductTree(productId, button);
@@ -2686,7 +3125,7 @@
       event.preventDefault();
       const productId = state.selectedProductId;
       el.createAreaButton.disabled = true;
-      try { await createHierarchyNode(productId, null, null, el.newAreaName.value); }
+      try { await createHierarchyNode(productId, null, null, el.newAreaName.value, document.getElementById("newAreaPurpose").value); }
       finally { el.createAreaButton.disabled = !state.selectedProductId; }
     }
 
@@ -2721,25 +3160,57 @@
       renderWorkProductOptions();
     }
 
+    let workPageRequestId = 0, workNextOffset = 0, workHasMore = false, workMoreLoading = 0, draggedWorkId = null;
+    const selectedWorkItems = new Map();
+    function updateWorkSelectionControls() {
+      const count = selectedWorkItems.size;
+      document.getElementById("approveSelectedWork").disabled = state.busy || !count;
+      document.getElementById("rejectSelectedWork").disabled = state.busy || !count;
+      document.getElementById("workSelectionStatus").textContent = count ? `${count} selected · up to 100 per batch` : "Select up to 100 loaded items for a batch decision.";
+    }
+    function updateWorkMoveControls() {
+      const disabled = state.busy || workMoreLoading || !!document.getElementById("workStatusFilter").value;
+      el.workList.querySelectorAll("[data-work-move]").forEach((button) => { button.disabled = disabled || button.dataset.boundary === "true"; });
+      el.workList.querySelectorAll(".work-card").forEach((card) => { card.draggable = !disabled; });
+    }
+    function workStatusQuery() {
+      const status = document.getElementById("workStatusFilter").value;
+      return status ? "&status=" + encodeURIComponent(status) : "";
+    }
+    function renderWorkPageStatus() {
+      document.getElementById("loadMoreWorkButton").hidden = !workHasMore;
+      document.getElementById("workPageStatus").textContent = state.workItems.length ? `${state.workItems.length} work item(s) loaded${workHasMore ? " · more available" : ""}. Refresh to see changes to earlier pages.` : "";
+    }
     async function loadWorkItems() {
+      const requestId = ++workPageRequestId;
+      selectedWorkItems.clear(); updateWorkSelectionControls();
+      el.workList.querySelectorAll("input[data-work-selection]").forEach((input) => { input.checked = false; });
+      workNextOffset = 0; workHasMore = false; renderWorkPageStatus();
       try {
         setBusy(true);
         setStatus("Loading work...", "warn");
         await ensureWorkProducts();
+        if (requestId !== workPageRequestId) return;
         void loadWorkflowTestConfig();
         if (!state.selectedProductId) {
           state.workItems = [];
           state.delivery = null;
+          renderWorkPageStatus();
           renderWorkItems();
           renderDelivery();
           setStatus("Create a product first", "warn");
           return;
         }
+        const productId = state.selectedProductId;
         const response = await request(
-          "/api/mobile/work-items?product_id=" + encodeURIComponent(state.selectedProductId) + "&limit=100"
+          "/api/mobile/work-items?product_id=" + encodeURIComponent(productId) + "&limit=100" + workStatusQuery()
         );
+        if (requestId !== workPageRequestId || productId !== state.selectedProductId) return;
         state.workItems = response.items || [];
+        workNextOffset = state.workItems.length; workHasMore = !!response.has_more;
+        renderWorkPageStatus();
         if (!state.workItems.some((item) => item.id === state.selectedWorkItemId)) {
+          cancelWorkWorkspace();
           state.selectedWorkItemId = state.workItems[0] ? state.workItems[0].id : "";
           if (state.selectedWorkItemId) {
             localStorage.setItem(storageKeys.selectedWorkItem, state.selectedWorkItemId);
@@ -2756,20 +3227,38 @@
         }
         setStatus("Connected", "ok");
       } catch (error) {
-        setStatus(error.message || String(error), "error");
-        renderWorkItems(error.message || String(error));
+        if (requestId === workPageRequestId) { setStatus(error.message || String(error), "error"); renderWorkItems(error.message || String(error)); }
       } finally {
-        setBusy(false);
+        if (requestId === workPageRequestId) setBusy(false);
       }
     }
 
+    async function loadMoreWorkItems() {
+      if (!workHasMore || !state.selectedProductId) return;
+      const requestId = workPageRequestId, productId = state.selectedProductId, offset = workNextOffset;
+      const button = document.getElementById("loadMoreWorkButton");
+      button.disabled = true; workMoreLoading++; updateWorkMoveControls();
+      try {
+        const response = await request("/api/mobile/work-items?product_id=" + encodeURIComponent(productId) + "&limit=100&offset=" + offset + workStatusQuery());
+        if (requestId !== workPageRequestId || productId !== state.selectedProductId) return;
+        const items = response.items || [], seen = new Set(state.workItems.map((item) => item.id));
+        state.workItems.push(...items.filter((item) => !seen.has(item.id)));
+        workNextOffset += items.length; workHasMore = !!response.has_more && items.length > 0;
+        renderWorkItems(); renderWorkPageStatus(); setStatus("Connected", "ok");
+      } catch (error) { if (requestId === workPageRequestId) setStatus(error.message || String(error), "error"); }
+      finally { button.disabled = false; workMoreLoading--; updateWorkMoveControls(); }
+    }
+    document.getElementById("loadMoreWorkButton").addEventListener("click", () => void loadMoreWorkItems());
+
     let workflowTestRequest = 0;
+    let workflowTestSnapshot = null;
     function updateWorkflowTestControls() {
       el.workflowTestArgv.disabled = el.workflowTestMode.disabled || el.workflowTestMode.value !== "custom";
     }
     async function loadWorkflowTestConfig() {
       const productId = state.selectedProductId;
       const requestId = ++workflowTestRequest;
+      workflowTestSnapshot = null;
       el.workflowTestMode.disabled = true;
       el.saveWorkflowTestButton.disabled = true;
       updateWorkflowTestControls();
@@ -2778,6 +3267,7 @@
       try {
         const config = await request("/api/mobile/workflow-test-config?product_id=" + encodeURIComponent(productId));
         if (requestId !== workflowTestRequest || productId !== state.selectedProductId) return;
+        workflowTestSnapshot = { mode: config.mode, argv: config.argv };
         el.workflowTestMode.value = config.mode;
         el.workflowTestArgv.value = JSON.stringify(config.argv);
         const product = state.products.find((item) => item.id === productId);
@@ -2791,7 +3281,7 @@
     async function saveWorkflowTestConfig(event) {
       event.preventDefault();
       const productId = state.selectedProductId;
-      if (!productId) return;
+      if (!productId || !workflowTestSnapshot) return;
       el.saveWorkflowTestButton.disabled = true;
       try {
         let argv = [];
@@ -2800,7 +3290,7 @@
           catch { throw new Error("Enter the test command as a JSON array of strings"); }
           if (!Array.isArray(argv) || !argv.every((value) => typeof value === "string")) throw new Error("Enter the test command as a JSON array of strings");
         }
-        await request("/api/mobile/workflow-test-config", { method: "POST", body: { product_id: productId, mode: el.workflowTestMode.value, argv } });
+        await request("/api/mobile/workflow-test-config", { method: "POST", body: { product_id: productId, mode: el.workflowTestMode.value, argv, expected: workflowTestSnapshot } });
         if (productId === state.selectedProductId) {
           await loadWorkflowTestConfig();
           setStatus("Workflow test command saved", "ok");
@@ -2808,6 +3298,7 @@
       } catch (error) { setStatus(error.message || String(error), "error"); }
       finally { if (productId === state.selectedProductId && !el.workflowTestMode.disabled) el.saveWorkflowTestButton.disabled = false; }
     }
+    document.getElementById("reloadWorkflowTestButton").addEventListener("click", () => void loadWorkflowTestConfig());
 
     function renderWorkItems(errorMessage) {
       el.workList.innerHTML = "";
@@ -2821,15 +3312,27 @@
       if (!state.workItems.length) {
         const empty = document.createElement("div");
         empty.className = "empty";
-        empty.textContent = "No work items for this product.";
+        empty.textContent = document.getElementById("workStatusFilter").value ? "No work items match this status." : "No work items for this product.";
         el.workList.appendChild(empty);
         return;
       }
-      state.workItems.forEach((item) => {
+      state.workItems.forEach((item, index) => {
+        const row = document.createElement("div"); row.style.display = "grid"; row.style.gridTemplateColumns = "auto minmax(0, 1fr) auto auto"; row.style.gap = "8px"; row.style.alignItems = "center";
+        const checkbox = document.createElement("input"); checkbox.type = "checkbox"; checkbox.style.width = "auto"; checkbox.dataset.workSelection = ""; checkbox.disabled = state.busy;
+        checkbox.setAttribute("aria-label", "Select " + item.title); checkbox.checked = selectedWorkItems.has(item.id);
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked && selectedWorkItems.size >= 100) { checkbox.checked = false; setStatus("Select at most 100 items per batch", "error"); return; }
+          if (checkbox.checked) selectedWorkItems.set(item.id, structuredClone(item)); else selectedWorkItems.delete(item.id);
+          updateWorkSelectionControls();
+        });
         const card = document.createElement("button");
         card.type = "button";
         card.className = "work-card" + (item.id === state.selectedWorkItemId ? " selected" : "");
         card.onclick = () => selectWorkItem(item.id);
+        card.addEventListener("dragstart", (event) => { if (state.busy || workMoreLoading || document.getElementById("workStatusFilter").value) { event.preventDefault(); return; } draggedWorkId = item.id; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", item.id); });
+        card.addEventListener("dragend", () => { draggedWorkId = null; });
+        card.addEventListener("dragover", (event) => { if (draggedWorkId && draggedWorkId !== item.id) event.preventDefault(); });
+        card.addEventListener("drop", (event) => { event.preventDefault(); const source = draggedWorkId; draggedWorkId = null; if (source) void moveWorkItem(source, item.id); });
         const title = document.createElement("div");
         title.className = "work-title";
         title.textContent = item.title;
@@ -2838,19 +3341,170 @@
         summary.textContent = String(item.status || "draft").replaceAll("_", " ") + " · " + String(item.work_item_type || "task").replaceAll("_", " ");
         card.appendChild(title);
         card.appendChild(summary);
-        el.workList.appendChild(card);
+        const up = document.createElement("button"), down = document.createElement("button");
+        for (const [button, direction, boundary] of [[up, -1, index === 0], [down, 1, index === state.workItems.length - 1]]) {
+          button.type = "button"; button.className = "secondary"; button.textContent = direction < 0 ? "↑" : "↓";
+          button.setAttribute("aria-label", `Move ${item.title} ${direction < 0 ? "up" : "down"}`); button.dataset.workMove = ""; button.dataset.boundary = String(boundary);
+          button.onclick = () => void moveWorkItem(item.id, state.workItems[index + direction].id);
+        }
+        row.append(checkbox, card, up, down); el.workList.appendChild(row);
       });
+      updateWorkMoveControls();
+    }
+
+    async function moveWorkItem(sourceId, targetId) {
+      if (state.busy || workMoreLoading || document.getElementById("workStatusFilter").value) return;
+      const source = state.workItems.findIndex((item) => item.id === sourceId), target = state.workItems.findIndex((item) => item.id === targetId);
+      if (source < 0 || target < 0 || source === target) return;
+      const start = Math.min(source, target), end = Math.max(source, target), productId = state.selectedProductId;
+      if (end - start + 1 > 1000) { setStatus("Move across at most 1000 loaded items at a time", "error"); return; }
+      const items = state.workItems.slice(start, end + 1).map(({id, sort_order}) => ({id, sort_order}));
+      try {
+        setBusy(true);
+        await request("/api/mobile/work-items/move", {method:"POST", body:{product_id:productId, offset:start, items, source_id:sourceId}});
+        if (productId !== state.selectedProductId) return;
+        await loadWorkItems(); setStatus("Work item order saved", "ok");
+      } catch (error) { if (productId === state.selectedProductId) setStatus(error.message || String(error), "error"); }
+      finally { setBusy(false); }
+    }
+
+    async function decideSelectedWork(action) {
+      const productId = state.selectedProductId, items = Array.from(selectedWorkItems, ([id, expected]) => ({id, expected}));
+      if (!productId || !items.length || state.busy) return;
+      let notes = "Approved from remote backlog";
+      if (action === "reject") {
+        notes = window.prompt(`Reason for rejecting ${items.length} selected work item(s):`);
+        if (notes === null) return;
+        if (!notes.trim()) { setStatus("A rejection reason is required", "error"); return; }
+      } else if (!window.confirm(`Approve ${items.length} selected work item(s)? The configured automatic-start policy may start workflows.`)) return;
+      try {
+        setBusy(true);
+        const result = await request("/api/mobile/work-items/batch-decision", {method:"POST", body:{product_id:productId, action, notes, items}});
+        if (productId !== state.selectedProductId) return;
+        await loadWorkItems();
+        setStatus(action === "reject" ? `${items.length} work item(s) rejected` : (result.auto_start_requested ? `${items.length} approved; workflow starts requested` : `${items.length} work item(s) approved`), "ok");
+      } catch (error) { if (productId === state.selectedProductId) setStatus(error.message || String(error), "error"); }
+      finally { setBusy(false); }
     }
 
     async function selectWorkItem(workItemId) {
+      cancelWorkWorkspace();
       state.selectedWorkItemId = workItemId;
       localStorage.setItem(storageKeys.selectedWorkItem, workItemId);
       cancelWorkEdit();
       state.delivery = null;
       renderWorkItems();
       renderDelivery();
+      document.getElementById("externalCliRuns").textContent = "";
+      document.getElementById("externalCliEvents").textContent = "";
       await loadDelivery();
     }
+
+    async function refreshExternalCliRuns() {
+      const id = state.selectedWorkItemId;
+      if (!id) { setStatus("Select a work item first", "error"); return; }
+      try {
+        const runs = await request("/api/mobile/work-items/" + encodeURIComponent(id) + "/external-cli");
+        if (id !== state.selectedWorkItemId) return;
+        const list = document.getElementById("externalCliRuns"); list.textContent = "";
+        if (!runs.length) { list.textContent = "No external CLI runs yet."; return; }
+        for (const run of runs) {
+          const button = document.createElement("button"); button.type = "button"; button.className = "secondary";
+          button.textContent = `${run.label} · ${run.status} · ${run.started_at}`;
+          button.addEventListener("click", async () => {
+            try {
+              const events = await request("/api/mobile/work-items/" + encodeURIComponent(id) + "/external-cli/" + encodeURIComponent(run.id) + "/events");
+              if (id === state.selectedWorkItemId) document.getElementById("externalCliEvents").textContent = events.map((event) => `[${event.stream}] ${event.message}`).join("\n");
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+          });
+          list.appendChild(button);
+        }
+      } catch (error) { if (id === state.selectedWorkItemId) setStatus(error.message || String(error), "error"); }
+    }
+
+    async function runExternalCli() {
+      const id = state.selectedWorkItemId;
+      if (!id) { setStatus("Select a work item first", "error"); return; }
+      const provider = document.getElementById("externalCliProvider").value;
+      if (!window.confirm("Run this CLI on the server? It can change files in the work item's workspace.")) return;
+      externalCliBusy = true; setBusy(state.busy);
+      try {
+        await request("/api/mobile/work-items/" + encodeURIComponent(id) + "/external-cli", {method:"POST", body:{provider}});
+        if (id === state.selectedWorkItemId) { await refreshExternalCliRuns(); setStatus("External CLI started", "ok"); }
+      } catch (error) { if (id === state.selectedWorkItemId) setStatus(error.message || String(error), "error"); }
+      finally { externalCliBusy = false; setBusy(state.busy); }
+    }
+
+    async function deleteSelectedWorkItem() {
+      const item = state.delivery?.work_item;
+      if (!item || item.id !== state.selectedWorkItemId) return;
+      if (!window.confirm(`Delete “${item.title}”? Its workflow history, approvals and artifact records will be removed. Direct child work items will be detached; workspace and artifact files remain on the server.`)) return;
+      const expected = item;
+      try {
+        setBusy(true);
+        await request("/api/mobile/work-items/" + encodeURIComponent(item.id) + "/delete", {method:"POST",body:{expected}});
+        if (state.selectedWorkItemId === item.id) { cancelWorkWorkspace(); cancelWorkEdit(); state.selectedWorkItemId = ""; state.delivery = null; await loadWorkItems(); setStatus("Work item deleted", "ok"); }
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { setBusy(false); }
+    }
+    document.getElementById("deleteWorkButton").addEventListener("click", () => void deleteSelectedWorkItem());
+
+    let workWorkspaceBaseline = null, workWorkspaceItemId = "", workWorkspaceRepositories = [], workWorkspaceRequest = 0;
+    function cancelWorkWorkspace() {
+      workWorkspaceRequest++; workWorkspaceBaseline = null; workWorkspaceItemId = "";
+      document.getElementById("workWorkspaceForm").hidden = true;
+    }
+    function workWorkspaceBranch() {
+      const mode = document.getElementById("workWorkspaceBranchMode").value;
+      if (mode === "custom") return document.getElementById("workWorkspaceBranch").value.trim();
+      if (mode === "work_item") {
+        const title = state.delivery?.work_item?.title || "";
+        const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64);
+        return "work/" + (slug || "work-item");
+      }
+      return workWorkspaceRepositories.find((repo) => repo.id === document.getElementById("workWorkspaceRepository").value)?.default_branch || "";
+    }
+    function updateWorkWorkspacePreview() {
+      document.getElementById("workWorkspaceCustomLabel").hidden = document.getElementById("workWorkspaceBranchMode").value !== "custom";
+      document.getElementById("workWorkspacePreview").textContent = "Selected branch: " + (workWorkspaceBranch() || "Choose a workspace and branch");
+    }
+    async function openWorkWorkspace() {
+      const item = state.delivery?.work_item;
+      if (!item || item.id !== state.selectedWorkItemId) return;
+      const requestId = ++workWorkspaceRequest;
+      try {
+        const repositories = await request("/api/mobile/repositories");
+        if (requestId !== workWorkspaceRequest || item.id !== state.selectedWorkItemId) return;
+        workWorkspaceRepositories = repositories; workWorkspaceItemId = item.id;
+        workWorkspaceBaseline = { repo_override_id: item.repo_override_id, active_repo_id: item.active_repo_id, branch_name: item.branch_name };
+        const select = document.getElementById("workWorkspaceRepository"); select.replaceChildren(new Option("Select workspace", ""));
+        repositories.forEach((repo) => select.add(new Option(repo.name + " · " + repo.local_path, repo.id)));
+        select.value = item.repo_override_id || item.active_repo_id || "";
+        const chosen = repositories.find((repo) => repo.id === select.value);
+        document.getElementById("workWorkspaceBranchMode").value = item.branch_name && item.branch_name !== chosen?.default_branch ? "custom" : "default";
+        document.getElementById("workWorkspaceBranch").value = item.branch_name || "";
+        document.getElementById("workWorkspaceForm").hidden = false; updateWorkWorkspacePreview();
+      } catch (error) { if (requestId === workWorkspaceRequest) setStatus(error.message || String(error), "error"); }
+    }
+    async function saveWorkWorkspace(clear = false) {
+      const itemId = workWorkspaceItemId, baseline = workWorkspaceBaseline;
+      if (!itemId || !baseline || itemId !== state.selectedWorkItemId) return;
+      const repository = clear ? null : document.getElementById("workWorkspaceRepository").value;
+      const branch = clear ? null : workWorkspaceBranch();
+      if (!clear && (!repository || !branch)) { setStatus("Select a workspace and branch", "error"); return; }
+      const form = document.getElementById("workWorkspaceForm");
+      Array.from(form.querySelectorAll("button")).forEach((button) => { button.disabled = true; });
+      try {
+        await request("/api/mobile/work-items/" + encodeURIComponent(itemId) + "/workspace", { method:"POST", body:{repository_id:repository, branch_name:branch, expected:baseline} });
+        if (itemId === state.selectedWorkItemId) { cancelWorkWorkspace(); await loadDelivery(false); setStatus("Work item workspace saved", "ok"); }
+      } catch (error) { if (itemId === state.selectedWorkItemId) setStatus(error.message || String(error), "error"); }
+      finally { Array.from(form.querySelectorAll("button")).forEach((button) => { button.disabled = false; }); }
+    }
+    document.getElementById("editWorkWorkspaceButton").addEventListener("click", () => void openWorkWorkspace());
+    document.getElementById("cancelWorkWorkspaceButton").addEventListener("click", cancelWorkWorkspace);
+    document.getElementById("clearWorkWorkspaceButton").addEventListener("click", () => void saveWorkWorkspace(true));
+    document.getElementById("workWorkspaceForm").addEventListener("submit", (event) => { event.preventDefault(); void saveWorkWorkspace(); });
+    for (const id of ["workWorkspaceRepository", "workWorkspaceBranchMode", "workWorkspaceBranch"]) document.getElementById(id).addEventListener("input", updateWorkWorkspacePreview);
 
     function appendDetailCard(titleText, detailText, kind) {
       const card = document.createElement("div");
@@ -2890,6 +3544,7 @@
         String(workItem.status || "draft").replaceAll("_", " "),
         workItem.status === "done" ? "ok" : ""
       );
+      appendDetailCard("Work item workspace", workItem.repo_override_id ? "Override: " + workItem.repo_override_id + " · branch: " + (workItem.branch_name || "workspace default") : "Uses the product or area scope default");
       if (workflow) {
         appendDetailCard(
           "Workflow",
@@ -2898,6 +3553,9 @@
             (workflow.error_message ? " · " + workflow.error_message : ""),
           workflow.status === "failed" ? "error" : ""
         );
+        if (workflow.current_stage === "pending_test_review") {
+          appendDetailCard("Test review", "Review the generated changes and the test result against the acceptance criteria. A passing command covers only the checks it runs; syntax checks alone do not verify behavior.");
+        }
       } else {
         appendDetailCard("Workflow", "Not started");
       }
@@ -2914,6 +3572,20 @@
             const result = await request("/api/mobile/work-items/" + encodeURIComponent(workItem.id) + "/test-results/" + encodeURIComponent(artifact.id));
             output.textContent = result.content;
           } catch (error) { output.textContent = error.message || String(error); }
+          finally { button.disabled = false; }
+        });
+        card.append(title, button, output); el.deliveryDetails.appendChild(card);
+      });
+      artifacts.filter((artifact) => artifact.artifact_type !== "workflow_test_result").forEach((artifact) => {
+        const card = document.createElement("div"), title = document.createElement("div"), button = document.createElement("button"), output = document.createElement("pre");
+        card.className = "tool-card"; title.textContent = (artifact.summary || artifact.artifact_type) + " · " + artifact.artifact_type;
+        button.type = "button"; button.className = "secondary"; button.textContent = "Show artifact";
+        button.setAttribute("aria-label", "Show artifact " + (artifact.summary || artifact.artifact_type));
+        output.style.whiteSpace = "pre-wrap"; output.style.overflowWrap = "anywhere";
+        button.addEventListener("click", async () => {
+          button.disabled = true;
+          try { const result = await request("/api/mobile/work-items/" + encodeURIComponent(workItem.id) + "/artifacts/" + encodeURIComponent(artifact.id)); output.textContent = result.content; }
+          catch (error) { output.textContent = error.message || String(error); }
           finally { button.disabled = false; }
         });
         card.append(title, button, output); el.deliveryDetails.appendChild(card);
@@ -3067,6 +3739,26 @@
         setBusy(false);
       }
       await loadWorkItems();
+    }
+
+    async function decideWorkItem(action) {
+      const item = state.delivery?.work_item;
+      if (!item || item.id !== state.selectedWorkItemId || state.busy) return;
+      let notes = "Approved from remote Studio";
+      if (action === "reject") {
+        notes = window.prompt("Reason for rejecting this work item:");
+        if (notes === null) return;
+        if (!notes.trim()) { setStatus("A rejection reason is required", "error"); return; }
+      } else if (!window.confirm("Approve this work item? The configured automatic-start policy may start its workflow.")) return;
+      const expected = item;
+      try {
+        setBusy(true);
+        const result = await request("/api/mobile/work-items/" + encodeURIComponent(item.id) + "/decision", {method:"POST", body:{action, notes, expected}});
+        if (item.id !== state.selectedWorkItemId) return;
+        await loadWorkItems();
+        setStatus(action === "reject" ? "Work item rejected" : (result.auto_start_requested ? "Approved; workflow start requested" : "Work item approved"), "ok");
+      } catch (error) { if (item.id === state.selectedWorkItemId) setStatus(error.message || String(error), "error"); }
+      finally { setBusy(false); }
     }
 
     async function approveAndStartWork() {
@@ -3237,9 +3929,35 @@
     let openedFile = null;
     let openRepositoryFiles = [];
     let fileSaving = false;
+    let fileLoading = false;
     let copilotBusy = false;
     let copilotStreamController = null;
     let reviewedPatch = null;
+    let copilotModelRequestId = 0;
+    async function loadRepositoryCopilotModels() {
+      const select = document.getElementById("repositoryCopilotModel");
+      const button = document.getElementById("refreshRepositoryCopilotModels");
+      const requestId = ++copilotModelRequestId;
+      button.disabled = true;
+      try {
+        const [providers, models] = await Promise.all([request("/api/mobile/providers"), request("/api/mobile/models")]);
+        if (requestId !== copilotModelRequestId) return;
+        const previous = select.value;
+        select.replaceChildren(new Option("Use Connection model", ""));
+        for (const model of models) {
+          const provider = providers.find((entry) => entry.id === model.provider_id);
+          if (!model.enabled || !provider?.enabled) continue;
+          select.add(new Option(provider.name + " · " + model.name, JSON.stringify([provider.id, model.name])));
+        }
+        if (previous && !Array.from(select.options).some((option) => option.value === previous)) {
+          const unavailable = new Option("Previously selected model is unavailable", previous);
+          unavailable.disabled = true; select.add(unavailable);
+        }
+        select.value = previous;
+      } catch (error) { if (requestId === copilotModelRequestId) setStatus(error.message || String(error), "error"); }
+      finally { if (requestId === copilotModelRequestId) button.disabled = false; }
+    }
+    document.getElementById("refreshRepositoryCopilotModels").addEventListener("click", () => void loadRepositoryCopilotModels());
     function clearPatchReview() {
       reviewedPatch = null;
       const review = document.getElementById("repositoryPatchReview"), apply = document.getElementById("repositoryPatchApply");
@@ -3264,7 +3982,7 @@
     }
     function activateRepositoryFile(file) {
       if (fileSaving || copilotBusy) { setStatus("Wait for the current operation before switching files", "warn"); return; }
-      saveActiveBuffer(); fileRequestId++; openedFile = file;
+      saveActiveBuffer(); fileRequestId++; fileLoading = false; openedFile = file;
       el.repositoryFileContent.value = file.working; el.repositoryFileContent.readOnly = !file.editable;
       el.repositoryInspectStatus.textContent = file.path;
       document.getElementById("repositoryCopilotResult").textContent = file.transcript || "";
@@ -3275,7 +3993,7 @@
       if (fileIsDirty(file) && !window.confirm("Discard unsaved changes to " + file.path + "?")) return;
       const active = file === openedFile; openRepositoryFiles = openRepositoryFiles.filter((entry) => entry !== file);
       if (active) {
-        openedFile = null; fileRequestId++;
+        openedFile = null; fileRequestId++; fileLoading = false;
         if (openRepositoryFiles.length) activateRepositoryFile(openRepositoryFiles[openRepositoryFiles.length - 1]);
         else { el.repositoryFileContent.value = ""; el.repositoryFileContent.readOnly = true; document.getElementById("repositoryCopilotResult").textContent = ""; clearPatchReview(); updateFileControls(); }
       }
@@ -3283,14 +4001,70 @@
     }
     function updateFileControls() {
       const dirty = !!fileIsDirty();
-      el.saveRepositoryFileButton.disabled = !dirty || fileSaving || copilotBusy || !openedFile.editable;
-      el.discardRepositoryFileButton.disabled = !dirty || fileSaving || copilotBusy;
-      document.getElementById("repositoryCopilotButton").disabled = !openedFile || fileSaving || copilotBusy || !openedFile.sha256;
+      el.saveRepositoryFileButton.disabled = !dirty || fileSaving || fileLoading || copilotBusy || !openedFile.editable;
+      el.discardRepositoryFileButton.disabled = !dirty || fileSaving || fileLoading || copilotBusy;
+      document.getElementById("repositoryCopilotButton").disabled = !openedFile || fileSaving || fileLoading || copilotBusy || !openedFile.sha256;
       document.getElementById("repositoryCopilotButton").textContent = !document.getElementById("repositoryCopilotIncludeFile").checked ? "Ask Copilot" : dirty ? "Ask about unsaved file" : "Ask about saved file";
-      document.getElementById("repositoryCopilotPatchButton").disabled = !openedFile || dirty || fileSaving || copilotBusy || !openedFile.sha256;
-      document.getElementById("repositoryPatchApply").disabled = !reviewedPatch || !openedFile || dirty || fileSaving || copilotBusy;
+      document.getElementById("repositoryCopilotPatchButton").disabled = !openedFile || dirty || fileSaving || fileLoading || copilotBusy || !openedFile.sha256;
+      document.getElementById("repositoryPatchApply").disabled = !reviewedPatch || !openedFile || dirty || fileSaving || fileLoading || copilotBusy;
       document.getElementById("repositoryCopilotReset").disabled = !openedFile || copilotBusy;
+      syncCodeEditor();
     }
+    let codeEditor = null, codeEditorActive = false, codeEditorLoading = false, syncingCodeEditor = false;
+    const codeEditorModels = new Map();
+    function syncCodeEditor() {
+      if (!codeEditor) return;
+      const keyFor = (file) => file.repositoryId + "\u0000" + file.path;
+      const activeKeys = new Set(openRepositoryFiles.map(keyFor));
+      syncingCodeEditor = true;
+      try {
+        for (const [key, model] of codeEditorModels) if (!activeKeys.has(key)) { model.dispose(); codeEditorModels.delete(key); }
+        let model = null;
+        if (openedFile) {
+          const key = keyFor(openedFile);
+          model = codeEditorModels.get(key);
+          if (!model) {
+            const uri = window.monaco.Uri.from({scheme:"file", path:"/" + openedFile.repositoryId + "/" + openedFile.path});
+            model = window.monaco.editor.createModel(el.repositoryFileContent.value, undefined, uri);
+            codeEditorModels.set(key, model);
+          }
+        }
+        if (codeEditor.getModel() !== model) codeEditor.setModel(model);
+        if (model && model.getValue() !== el.repositoryFileContent.value) model.setValue(el.repositoryFileContent.value);
+        codeEditor.updateOptions({ readOnly: el.repositoryFileContent.readOnly });
+      } finally { syncingCodeEditor = false; }
+    }
+    async function toggleCodeEditor() {
+      const button = document.getElementById("toggleCodeEditor"), status = document.getElementById("codeEditorStatus");
+      if (codeEditorLoading) return;
+      if (codeEditorActive) {
+        codeEditorActive = false; document.getElementById("repositoryCodeEditor").hidden = true;
+        document.getElementById("repositoryPlainEditor").hidden = false; button.textContent = "Use code editor"; status.textContent = ""; return;
+      }
+      codeEditorLoading = true; button.disabled = true; status.textContent = "Loading code editor…";
+      try {
+        if (!codeEditor) {
+          await new Promise((resolve, reject) => {
+            const script = document.createElement("script"); script.src = "/assets/monaco/loader.js";
+            script.onload = resolve; script.onerror = () => reject(new Error("Code editor assets are unavailable on this server")); document.head.appendChild(script);
+          });
+          window.require.config({ paths:{vs:"/assets/monaco"} });
+          await new Promise((resolve, reject) => window.require(["vs/editor/editor.main"], resolve, () => reject(new Error("Could not load code editor assets"))));
+          codeEditor = window.monaco.editor.create(document.getElementById("repositoryCodeEditor"), { model:null, theme:"vs-dark", automaticLayout:true, minimap:{enabled:false}, ariaLabel:"Selected code file" });
+          codeEditor.onDidChangeModelContent(() => {
+            if (syncingCodeEditor || !openedFile || !codeEditor.getModel()) return;
+            el.repositoryFileContent.value = codeEditor.getValue();
+            el.repositoryFileContent.dispatchEvent(new Event("input", {bubbles:true}));
+          });
+          codeEditor.addCommand(window.monaco.KeyMod.CtrlCmd | window.monaco.KeyCode.KeyS, () => void saveRepositoryFile());
+        }
+        codeEditorActive = true; document.getElementById("repositoryPlainEditor").hidden = true;
+        document.getElementById("repositoryCodeEditor").hidden = false; syncCodeEditor(); codeEditor.layout();
+        button.textContent = "Use plain text editor"; status.textContent = "Code editor active";
+      } catch (error) { status.textContent = error.message || String(error); }
+      finally { codeEditorLoading = false; button.disabled = false; }
+    }
+    document.getElementById("toggleCodeEditor").addEventListener("click", () => void toggleCodeEditor());
     function canLeaveFile() {
       if (copilotBusy) { setStatus("Wait for Copilot before opening another file or workspace", "warn"); return false; }
       if (fileSaving || openRepositoryFiles.some((file) => fileIsDirty(file))) { setStatus("Save or discard file edits before opening another workspace", "warn"); return false; }
@@ -3350,7 +4124,7 @@
       openedFile = null; openRepositoryFiles = []; renderFileTabs(); el.repositoryFileContent.readOnly = true; updateFileControls();
       clearPatchReview();
       const requestId = ++inspectRequestId;
-      fileRequestId++;
+      fileRequestId++; fileLoading = false;
       inspectedRepositoryId = repository.id;
       el.repositoryInspectStatus.textContent = "Loading " + repository.name + "...";
       document.getElementById("refreshRepositoryTree").disabled = true;
@@ -3391,6 +4165,8 @@
       if (existing) { activateRepositoryFile(existing); return; }
       if (openRepositoryFiles.length >= 25) { setStatus("Close a file before opening more than 25 files", "warn"); return; }
       const requestId = ++fileRequestId;
+      fileLoading = true; el.repositoryFileContent.readOnly = true; updateFileControls();
+      el.repositoryInspectStatus.textContent = "Opening " + path + "…";
       try {
         const file = await request("/api/mobile/repository-inspect", { method: "POST", body: { action: "read_repository_file", repository_id: repositoryId, relative_path: path } });
         if (requestId !== fileRequestId || repositoryId !== inspectedRepositoryId) return;
@@ -3399,16 +4175,18 @@
         const display = file.content.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
         const entry = { repositoryId, path, expected: file.content, displayBaseline: display, working: display,
           crlf: file.content.includes("\r\n") && !mixed, editable: !mixed, sha256: file.sha256, history: [], copilotScope: "", transcript: "" };
-        openRepositoryFiles.push(entry); activateRepositoryFile(entry);
+        fileLoading = false; openRepositoryFiles.push(entry); activateRepositoryFile(entry);
         if (mixed) setStatus("This file has mixed line endings and is available for reading only", "warn");
         updateFileControls();
       } catch (error) {
         if (requestId === fileRequestId) setStatus(error.message || String(error), "error");
+      } finally {
+        if (requestId === fileRequestId) { fileLoading = false; el.repositoryFileContent.readOnly = !openedFile?.editable; el.repositoryInspectStatus.textContent = openedFile?.path || "No file selected"; updateFileControls(); }
       }
     }
 
     async function saveRepositoryFile() {
-      if (!openedFile || !fileIsDirty() || fileSaving || !openedFile.editable) return;
+      if (!openedFile || !fileIsDirty() || fileSaving || fileLoading || !openedFile.editable) return;
       const file = openedFile;
       const content = file.crlf ? el.repositoryFileContent.value.replace(/\n/g, "\r\n") : el.repositoryFileContent.value;
       fileSaving = true; el.repositoryFileContent.readOnly = true; updateFileControls();
@@ -3463,8 +4241,10 @@
     async function askRepositoryCopilot(patchMode = false) {
       if (!openedFile || (patchMode && fileIsDirty()) || fileSaving || copilotBusy || !openedFile.sha256) return;
       const question = document.getElementById("repositoryCopilotQuestion").value.trim();
-      const provider = el.providerInput.value.trim(), model = el.modelInput.value.trim();
-      if (!question || !provider || !model) { setStatus("Select a provider and model in Connection and enter a question", "warn"); return; }
+      const selectedModel = document.getElementById("repositoryCopilotModel");
+      if (selectedModel.selectedOptions[0]?.disabled) { setStatus("Selected Copilot model is unavailable; choose another model", "warn"); return; }
+      const [provider, model] = selectedModel.value ? JSON.parse(selectedModel.value) : [el.providerInput.value.trim(), el.modelInput.value.trim()];
+      if (!question || !provider || !model) { setStatus("Select a Copilot or Connection model and enter a question", "warn"); return; }
       const file = openedFile, result = document.getElementById("repositoryCopilotResult");
       clearPatchReview();
       const includeFile = document.getElementById("repositoryCopilotIncludeFile").checked;
@@ -3827,6 +4607,11 @@
           const label = document.createElement("label"), input = document.createElement("input");
           input.type = "checkbox"; input.checked = entry.enabled;
           label.append(input, document.createTextNode(" " + labels[entry.key])); list.appendChild(label);
+          if (entry.key === "workflow.auto_approve_test_review") {
+            const note = document.createElement("div"); note.className = "empty";
+            note.textContent = "When enabled, a passing configured command can approve test review automatically. Its coverage depends on the command; syntax checks alone do not verify behavior.";
+            list.appendChild(note);
+          }
           input.addEventListener("change", async () => {
             if (workflowAutomationBusy) { input.checked = entry.enabled; return; }
             workflowAutomationBusy = true; ++workflowAutomationSequence;
@@ -3851,26 +4636,56 @@
       return policy ? { id: policy.id, primary_roles: policy.primary_roles, fallback_roles: policy.fallback_roles, coordinator_required: policy.coordinator_required } : null;
     }
     let routingRequestId = 0;
-    async function loadDatabaseSettings() {
+    let databaseSettingsSequence = 0;
+    let databaseEditVersion = 0, databaseSyncedVersion = 0;
+    let databaseOverrideSnapshot = null, databaseSnapshotLoaded = false, databaseUpdateInFlight = false;
+    document.getElementById("databaseOverride").addEventListener("input", () => { databaseEditVersion++; });
+    async function loadDatabaseSettings(savedEditVersion, discardDraft = false) {
       const status = document.getElementById("databaseStatus");
+      const input = document.getElementById("databaseOverride");
+      const requestEditVersion = databaseEditVersion;
+      const sequence = ++databaseSettingsSequence;
       try {
         const data = await request("/api/mobile/database-settings");
-        document.getElementById("databaseOverride").value = data.override_path || "";
+        if (sequence !== databaseSettingsSequence) return;
+        const expectedVersion = typeof savedEditVersion === "number" ? savedEditVersion : databaseSyncedVersion;
+        if ((databaseEditVersion === expectedVersion && requestEditVersion === expectedVersion) ||
+            (discardDraft && databaseEditVersion === requestEditVersion)) {
+          input.value = data.override_path || "";
+          databaseSyncedVersion = databaseEditVersion;
+          databaseOverrideSnapshot = data.override_path ?? null;
+          databaseSnapshotLoaded = true;
+        }
         const health = data.health;
         document.getElementById("databaseMigrations").textContent = health.migrations.map((item) => `${item.version}: ${item.description} — ${item.success ? "applied" : "failed"} (${item.installed_on})`).join("\n") || "No migrations recorded.";
         status.textContent = `Active: ${data.active_path || "(memory)"}. Migrations: ${health.applied_migrations}; latest: ${health.latest_version ?? "none"}. ${data.environment_path_set ? "The server environment controls the database path." : "The saved override applies after restart."}`;
-      } catch (error) { status.textContent = error.message || String(error); }
+      } catch (error) { if (sequence === databaseSettingsSequence) status.textContent = error.message || String(error); }
     }
 
     async function updateDatabaseOverride(clear) {
-      const path = document.getElementById("databaseOverride").value.trim();
+      if (databaseUpdateInFlight) return;
+      if (!databaseSnapshotLoaded) { document.getElementById("databaseStatus").textContent = "Load the saved database override before changing it."; return; }
+      const submittedValue = document.getElementById("databaseOverride").value;
+      const submittedVersion = databaseEditVersion;
+      const path = submittedValue.trim();
       if (!clear && !path) { document.getElementById("databaseStatus").textContent = "Enter an absolute server path."; return; }
       if (!confirm(clear ? "Clear the saved database path override? This affects the next restart." : "Save this database path override? It may change the database opened after restart.")) return;
+      databaseUpdateInFlight = true;
+      document.getElementById("saveDatabaseOverride").disabled = true;
+      document.getElementById("clearDatabaseOverride").disabled = true;
+      document.getElementById("reloadDatabaseOverride").disabled = true;
       try {
-        await request("/api/mobile/database-settings", { method: "POST", body: { path: clear ? null : path } });
-        await loadDatabaseSettings();
+        await request("/api/mobile/database-settings", { method: "POST", body: { path: clear ? null : path, expected: { path: databaseOverrideSnapshot } } });
+        databaseOverrideSnapshot = clear ? null : path;
+        await loadDatabaseSettings(submittedVersion);
         setStatus("Database override saved", "ok");
       } catch (error) { document.getElementById("databaseStatus").textContent = error.message || String(error); }
+      finally {
+        databaseUpdateInFlight = false;
+        document.getElementById("saveDatabaseOverride").disabled = false;
+        document.getElementById("clearDatabaseOverride").disabled = false;
+        document.getElementById("reloadDatabaseOverride").disabled = false;
+      }
     }
 
     async function loadRouting() {
@@ -3931,6 +4746,62 @@
       } catch (error) { if (requestId === routingRequestId) setStatus(error.message || String(error), "error"); }
     }
 
+    function makePromptTemplateForm(template) {
+      const creating = !template, suffix = creating ? "" : " " + template.name;
+      const form = document.createElement("form"); form.className = "stack";
+      const addField = (label, value, multiline, max) => {
+        const wrapper = document.createElement("label"), caption = document.createElement("span"); caption.className = "label"; caption.textContent = label;
+        const input = document.createElement(multiline ? "textarea" : "input"); input.value = value; input.required = true; input.maxLength = max; input.setAttribute("aria-label", label + suffix);
+        wrapper.append(caption, input); form.appendChild(wrapper); return input;
+      };
+      const name = addField("Template name", template?.name || "", false, 200);
+      const role = addField("Template role", template?.role || "*", false, 100);
+      const instructions = addField("Template instructions", template?.template_text || "", true, 1000);
+      if (template) {
+        const reference = document.createElement("code"); reference.textContent = "template:" + template.id; form.appendChild(reference);
+        const use = document.createElement("button"); use.type = "button"; use.className = "secondary"; use.textContent = "Use for new agent";
+        use.addEventListener("click", () => { el.createAgentEditor.querySelector('[aria-label="Prompt template reference"]').value = reference.textContent; setStatus("Template selected for new agent", "ok"); }); form.appendChild(use);
+      }
+      const save = document.createElement("button"); save.type = "submit"; save.textContent = creating ? "Create template" : "Save template"; form.appendChild(save);
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault(); save.disabled = true;
+        const fields = {name:name.value, role:role.value, template_text:instructions.value};
+        try {
+          await request(creating ? "/api/mobile/prompt-templates" : "/api/mobile/prompt-templates/update", {method:"POST", body:creating ? fields : {id:template.id, expected_version:template.version, fields}});
+          if (creating) { form.reset(); role.value = "*"; }
+          await loadPromptTemplates(); setStatus(creating ? "Template created" : "Template saved", "ok");
+        } catch (error) { setStatus(error.message || String(error), "error"); }
+        finally { save.disabled = false; }
+      });
+      if (template) {
+        const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Delete template";
+        remove.addEventListener("click", async () => {
+          if (!window.confirm("Delete template " + template.name + "? Assigned templates cannot be deleted.")) return;
+          remove.disabled = true;
+          try { await request("/api/mobile/prompt-templates/delete", {method:"POST", body:{id:template.id, expected_version:template.version}}); await loadPromptTemplates(); setStatus("Template deleted", "ok"); }
+          catch (error) { setStatus(error.message || String(error), "error"); }
+          finally { remove.disabled = false; }
+        });
+        form.appendChild(remove);
+      }
+      return form;
+    }
+    let promptTemplateRequestId = 0;
+    async function loadPromptTemplates() {
+      const requestId = ++promptTemplateRequestId;
+      try {
+        const items = await request("/api/mobile/prompt-templates");
+        if (requestId !== promptTemplateRequestId) return;
+        const list = document.getElementById("promptTemplateList"); list.replaceChildren();
+        if (!items.length) list.textContent = "No prompt templates configured.";
+        items.forEach((template) => {
+          const details = document.createElement("details"), summary = document.createElement("summary");
+          details.className = "tool-card"; summary.textContent = template.name + " · " + template.role + " · version " + template.version;
+          details.append(summary, makePromptTemplateForm(template)); list.appendChild(details);
+        });
+      } catch (error) { if (requestId === promptTemplateRequestId) setStatus(error.message || String(error), "error"); }
+    }
+
     function agentFields(agent) {
       return { name: agent.name, role: agent.role, description: agent.description, prompt_template_ref: agent.prompt_template_ref,
         allowed_tools: agent.allowed_tools, skill_tags: agent.skill_tags, boundaries: agent.boundaries, enabled: agent.enabled, employment_status: agent.employment_status };
@@ -3950,6 +4821,9 @@
       const role = field("Agent role", source.role, false); role.required = true;
       const description = field("Agent description", source.description, true);
       const prompt = field("Prompt template reference", source.prompt_template_ref, false);
+      const promptHint = document.createElement("div"); promptHint.className = "empty";
+      promptHint.textContent = "Use template:<id> from Agent prompt templates. Older references remain inactive metadata.";
+      form.appendChild(promptHint);
       const tools = field("Allowed tools (JSON array)", JSON.stringify(source.allowed_tools, null, 2), true);
       const tags = field("Skill tags (JSON array)", JSON.stringify(source.skill_tags, null, 2), true);
       const boundaries = field("Execution boundaries (JSON object)", JSON.stringify(source.boundaries, null, 2), true);
@@ -4365,14 +5239,16 @@
           const edit = document.createElement("details"); const editSummary = document.createElement("summary"); editSummary.textContent = "Manage provider";
           const form = document.createElement("form"); form.className = "stack";
           const nameInput = document.createElement("input"); nameInput.value = provider.name; nameInput.required = true; nameInput.setAttribute("aria-label", "Edit provider name " + provider.name);
-          const urlInput = document.createElement("input"); urlInput.type = "url"; urlInput.value = provider.base_url; urlInput.required = true; urlInput.setAttribute("aria-label", "Edit provider URL " + provider.name);
+          const urlInput = document.createElement("input"); urlInput.type = provider.provider_type === "local_runtime" ? "text" : "url"; urlInput.value = provider.base_url; urlInput.required = true; urlInput.setAttribute("aria-label", (provider.provider_type === "local_runtime" ? "Edit server model path " : "Edit provider URL ") + provider.name);
+          const dockerHost = document.createElement("button"); dockerHost.type = "button"; dockerHost.className = "secondary"; dockerHost.textContent = "Use Docker Desktop host address"; dockerHost.hidden = provider.provider_type === "local_runtime";
+          dockerHost.addEventListener("click", () => useDockerDesktopHost(urlInput));
           const protocolSelect = document.createElement("select"); protocolSelect.setAttribute("aria-label", "Edit provider protocol " + provider.name);
           [["openai_compatible", "OpenAI compatible"], ["openai_reasoning", "OpenAI reasoning models (no temperature)"], ["anthropic", "Anthropic Messages"]].forEach(([value, label]) => { const option = document.createElement("option"); option.value = value; option.textContent = label; protocolSelect.appendChild(option); });
           protocolSelect.value = provider.protocol !== "anthropic" && provider.completion_profile === "openai_reasoning" ? "openai_reasoning" : (provider.protocol || "openai_compatible"); protocolSelect.disabled = provider.provider_type === "local_runtime";
           const enabledLabel = document.createElement("label"); const enabled = document.createElement("input"); enabled.type = "checkbox"; enabled.checked = provider.enabled; enabledLabel.append(enabled, document.createTextNode(" Provider enabled"));
           const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save provider";
           const remove = document.createElement("button"); remove.type = "button"; remove.className = "danger"; remove.textContent = "Delete provider";
-          form.append(nameInput, urlInput, protocolSelect, enabledLabel, save, remove); edit.append(editSummary, form);
+          form.append(nameInput, urlInput, dockerHost, protocolSelect, enabledLabel, save, remove); edit.append(editSummary, form);
           form.addEventListener("submit", async (event) => {
             event.preventDefault(); save.disabled = true;
             try {
@@ -4556,6 +5432,20 @@
     el.bindingAgent.addEventListener("change", () => { agentReadinessRequestId++; document.getElementById("agentModelReadiness").textContent = "Discovery does not test inference or model quality."; });
     document.getElementById("checkAgentModelButton").addEventListener("click", () => void checkAgentModel());
 
+    function useDockerDesktopHost(input) {
+      try {
+        const url = new URL(input.value.trim());
+        if (!(["http:", "https:"].includes(url.protocol)) || !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname) || url.username || url.password || url.search || url.hash) {
+          throw new Error("Enter a loopback HTTP(S) URL without credentials, query or fragment first.");
+        }
+        url.hostname = "host.docker.internal";
+        input.value = url.toString();
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        setStatus("Docker Desktop host address filled; save the provider to apply it.", "ok");
+      } catch (error) { setStatus(error.message || "Enter a valid loopback URL first.", "error"); }
+    }
+    document.getElementById("providerDockerHost").addEventListener("click", () => useDockerDesktopHost(el.providerUrl));
+
     async function createProvider(event) {
       event.preventDefault();
       el.createProviderButton.disabled = true;
@@ -4704,8 +5594,7 @@
       fillCiSelect(product, ciData.products.map((p) => [p.id, p.name]), "Select product");
       const attached = ciData.attachments.filter((a) => a.scope_type === "product" && a.scope_id === product.value).map((a) => a.repository_id);
       fillCiSelect(repository, ciData.repositories.filter((r) => attached.includes(r.id)).map((r) => [r.id, r.name]), "Select attached workspace");
-      const selected = ciData.repositories.find((r) => r.id === repository.value);
-      fillCiSelect(target, ciData.targets.filter((t) => selected && t.repository && t.repository.replace(/\/+$/, "") === selected.local_path.replace(/\/+$/, "")).map((t) => [t.id, t.id + (t.approval?.approved ? " · pipeline approved" : " · pipeline not approved")]), "Select matching target");
+      fillCiSelect(target, (repository.value ? ciData.targets : []).map((t) => [t.id, t.id + (t.approval?.approved ? " · pipeline approved" : " · pipeline not approved")]), "Select target");
       const list = document.getElementById("ciBindings"); list.replaceChildren();
       ciData.bindings.forEach((binding) => {
         const row = document.createElement("div"), label = document.createElement("span"), button = document.createElement("button");
@@ -4791,7 +5680,74 @@
             catch (error) { result.textContent = "Artifact verification unavailable: " + error.message; }
             finally { button.disabled = false; }
           });
-          details.append(button, result);
+          const download = document.createElement("button");
+          download.type = "button"; download.className = "secondary"; download.textContent = `Download artifact #${artifact.id}`;
+          download.addEventListener("click", async () => {
+            download.disabled = true;
+            try {
+              if (!globalThis.crypto?.subtle) throw new Error("Artifact verification requires HTTPS or localhost");
+              const base = `/api/mobile/ci/artifacts/${encodeURIComponent(artifact.id)}/data/`;
+              const meta = await request(base + "metadata");
+              const size = meta.size, expected = meta.sha256;
+              if (!Number.isSafeInteger(size) || size < 0 || size > 256 * 1024 * 1024 || typeof expected !== "string" || !/^[a-f0-9]{64}$/.test(expected)) throw new Error("Invalid artifact metadata or artifact exceeds the 256 MiB browser limit");
+              const bytes = new Uint8Array(size);
+              let offset = 0;
+              do {
+                const part = await request(base + "chunk?offset=" + offset);
+                if (part.offset !== offset || part.sha256 !== expected || !Array.isArray(part.bytes) || part.bytes.length > 65536 || part.bytes.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255) || offset + part.bytes.length > size || part.next_offset !== offset + part.bytes.length || typeof part.eof !== "boolean" || (!part.eof && !part.bytes.length)) throw new Error("Invalid artifact chunk");
+                bytes.set(part.bytes, offset); offset = part.next_offset;
+                if (part.eof !== (offset === size)) throw new Error("Artifact size changed during download");
+              } while (offset < size);
+              const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), byte => byte.toString(16).padStart(2, "0")).join("");
+              if (hash !== expected) throw new Error("Artifact digest mismatch");
+              const url = URL.createObjectURL(new Blob([bytes], {type:"application/octet-stream"}));
+              const filename = typeof meta.path === "string" ? meta.path.split(/[\\/]/).pop().replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 180) : "";
+              const link = document.createElement("a"); link.href = url; link.download = filename && filename !== "." && filename !== ".." ? filename : `ci-artifact-${artifact.id}`; link.click();
+              setTimeout(() => URL.revokeObjectURL(url), 60000);
+              result.textContent = `Verified ${size} bytes · SHA-256 ${hash}`;
+            } catch (error) { result.textContent = "Artifact download failed: " + (error.message || String(error)); }
+            finally { download.disabled = false; }
+          });
+          const streamDownload = document.createElement("button");
+          streamDownload.type = "button"; streamDownload.className = "secondary"; streamDownload.textContent = `Save large artifact #${artifact.id}`;
+          streamDownload.hidden = !window.showSaveFilePicker;
+          streamDownload.addEventListener("click", async () => {
+            streamDownload.disabled = true;
+            let writable;
+            try {
+              if (typeof window.sha256?.create !== "function") throw new Error("Streaming verification is unavailable");
+              const handle = await window.showSaveFilePicker({suggestedName: `ci-artifact-${artifact.id}`});
+              const base = `/api/mobile/ci/artifacts/${encodeURIComponent(artifact.id)}/data/`;
+              const meta = await request(base + "metadata"), size = meta.size, expected = meta.sha256;
+              if (!Number.isSafeInteger(size) || size < 0 || typeof expected !== "string" || !/^[a-f0-9]{64}$/.test(expected)) throw new Error("Invalid artifact metadata");
+              writable = await handle.createWritable();
+              const hash = window.sha256.create();
+              let offset = 0, fast = true;
+              do {
+                let part;
+                try { part = await request(base + (fast ? "fast-chunk" : "chunk") + "?offset=" + offset); }
+                catch (error) { if (!fast || offset !== 0) throw error; fast = false; part = await request(base + "chunk?offset=0"); }
+                let bytes;
+                if (fast) {
+                  if (typeof part.data_base64 !== "string" || part.data_base64.length > 699052) throw new Error("Invalid artifact chunk");
+                  const decoded = atob(part.data_base64); bytes = Uint8Array.from(decoded, character => character.charCodeAt(0));
+                } else {
+                  if (!Array.isArray(part.bytes) || part.bytes.some(byte => !Number.isInteger(byte) || byte < 0 || byte > 255)) throw new Error("Invalid artifact chunk");
+                  bytes = Uint8Array.from(part.bytes);
+                }
+                if (part.offset !== offset || part.sha256 !== expected || bytes.length > (fast ? 524288 : 65536) || offset + bytes.length > size || part.next_offset !== offset + bytes.length || typeof part.eof !== "boolean" || (!part.eof && !bytes.length)) throw new Error("Invalid artifact chunk");
+                hash.update(bytes); await writable.write(bytes); offset = part.next_offset;
+                if (part.eof !== (offset === size)) throw new Error("Artifact size changed during download");
+              } while (offset < size);
+              if (hash.hex() !== expected) throw new Error("Artifact digest mismatch");
+              await writable.close(); writable = null;
+              result.textContent = `Verified ${size} bytes · SHA-256 ${expected}`;
+            } catch (error) {
+              if (writable) { try { await writable.abort(); } catch {} }
+              if (error.name !== "AbortError") result.textContent = "Artifact download failed: " + (error.message || String(error));
+            } finally { streamDownload.disabled = false; }
+          });
+          details.append(button, download, streamDownload, result);
         }
         const action = ["queued", "running"].includes(run.status) ? "cancel" : ["failed", "blocked", "cancelled", "interrupted"].includes(run.status) ? "retry" : null;
         if (action) {
@@ -4979,6 +5935,8 @@
     el.copyLinkButton.addEventListener("click", copySetupLink);
     el.healthButton.addEventListener("click", checkHealth);
     el.sendButton.addEventListener("click", () => submitPrompt("planner"));
+    document.getElementById("externalCliRun").addEventListener("click", runExternalCli);
+    document.getElementById("externalCliRefresh").addEventListener("click", refreshExternalCliRuns);
     el.chatSendButton.addEventListener("click", () => submitPrompt("chat"));
     el.voiceProvider.addEventListener("change", () => localStorage.setItem(storageKeys.voiceProvider, el.voiceProvider.value));
     el.voiceModel.addEventListener("input", () => localStorage.setItem(storageKeys.voiceModel, el.voiceModel.value));
@@ -5008,10 +5966,15 @@
     document.getElementById("refreshDatabaseSettings").addEventListener("click", loadDatabaseSettings);
     document.getElementById("saveDatabaseOverride").addEventListener("click", () => void updateDatabaseOverride(false));
     document.getElementById("clearDatabaseOverride").addEventListener("click", () => void updateDatabaseOverride(true));
+    document.getElementById("reloadDatabaseOverride").addEventListener("click", () => {
+      if (confirm("Discard the database path draft and load the saved override?")) void loadDatabaseSettings(undefined, true);
+    });
     el.refreshRoutingButton.addEventListener("click", loadRouting);
     document.getElementById("refreshWorkflowAutomation").addEventListener("click", () => void loadWorkflowAutomation());
     el.createAgentEditor.appendChild(makeAgentForm(null));
     el.refreshAgentsButton.addEventListener("click", loadAgents);
+    document.getElementById("createPromptTemplate").appendChild(makePromptTemplateForm(null));
+    document.getElementById("refreshPromptTemplates").addEventListener("click", loadPromptTemplates);
     el.refreshSkillsButton.addEventListener("click", loadSkills);
     el.createSkillForm.addEventListener("submit", createSkill);
     el.refreshTeamsButton.addEventListener("click", loadTeams);
@@ -5026,6 +5989,12 @@
     document.getElementById("repositoryPatchApply").addEventListener("click", () => void applyReviewedPatch());
     document.getElementById("repositoryCopilotReset").addEventListener("click", resetRepositoryCopilot);
     el.saveRepositoryFileButton.addEventListener("click", saveRepositoryFile);
+    el.repositoryFileContent.addEventListener("keydown", (event) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveRepositoryFile();
+      }
+    });
     el.discardRepositoryFileButton.addEventListener("click", discardRepositoryFileEdits);
     window.addEventListener("beforeunload", (event) => { if (openRepositoryFiles.some((file) => fileIsDirty(file))) { event.preventDefault(); event.returnValue = ""; } });
     el.repositoryForm.addEventListener("submit", registerWorkspace);
@@ -5036,19 +6005,40 @@
     el.localModelForm.addEventListener("submit", registerLocalModel);
     el.localPresetForm.addEventListener("submit", installLocalPreset);
     el.modelForm.addEventListener("submit", createModel);
+    el.modelPreset.addEventListener("change", () => {
+      const presets = {
+        "deepseek-flash": ["coding,planning,analysis", "DeepSeek Flash; verify current availability and pricing with the provider."],
+        "deepseek-v4-pro": ["coding,planning,analysis", "DeepSeek V4 Pro; verify current availability and pricing with the provider."],
+        "deepseek-voice-transcription": ["speech_to_text,transcription,audio", "Studio selector for DeepSeek transcription; the service detects language."],
+        "whisper-base.en": ["speech_to_text,transcription,audio", "Local Whisper runtime for voice transcription through whisper.cpp."],
+      };
+      const preset = presets[el.modelPreset.value];
+      if (!preset) return;
+      el.newModelName.value = el.modelPreset.value;
+      el.newModelContext.value = "";
+      el.newModelTags.value = preset[0];
+      el.newModelNotes.value = preset[1];
+      el.modelPreset.value = "";
+    });
     el.modelProvider.addEventListener("change", resetModelDiscovery);
     el.discoverModelsButton.addEventListener("click", () => discoverModels(false));
     el.discoverMoreModelsButton.addEventListener("click", () => discoverModels(true));
     el.discoveredModels.addEventListener("change", () => { if (el.discoveredModels.value) el.newModelName.value = el.discoveredModels.value; });
     el.agentBindingForm.addEventListener("submit", saveAgentBinding);
     el.workProductSelect.addEventListener("change", () => {
+      cancelWorkWorkspace();
       resetWorkScope();
       state.selectedProductId = el.workProductSelect.value;
       localStorage.setItem(storageKeys.selectedProduct, state.selectedProductId);
       state.selectedWorkItemId = "";
+      document.getElementById("externalCliRuns").textContent = "";
+      document.getElementById("externalCliEvents").textContent = "";
       localStorage.removeItem(storageKeys.selectedWorkItem);
       void loadWorkItems();
     });
+    document.getElementById("workStatusFilter").addEventListener("change", () => void loadWorkItems());
+    document.getElementById("approveSelectedWork").addEventListener("click", () => void decideSelectedWork("approve"));
+    document.getElementById("rejectSelectedWork").addEventListener("click", () => void decideSelectedWork("reject"));
     el.createWorkButton.addEventListener("click", createWorkItem);
     el.editWorkButton.addEventListener("click", editWorkItem);
     el.editWorkForm.addEventListener("submit", saveWorkItemEdit);
@@ -5057,6 +6047,8 @@
     el.workflowTestMode.addEventListener("change", updateWorkflowTestControls);
     el.refreshWorkButton.addEventListener("click", loadWorkItems);
     el.approveWorkButton.addEventListener("click", approveAndStartWork);
+    document.getElementById("approveDecisionButton").addEventListener("click", () => void decideWorkItem("approve"));
+    document.getElementById("rejectDecisionButton").addEventListener("click", () => void decideWorkItem("reject"));
     el.startWorkButton.addEventListener("click", startWork);
     el.refreshDeliveryButton.addEventListener("click", () => loadDelivery());
     el.retryGitDeliveryButton.addEventListener("click", retryGitDelivery);

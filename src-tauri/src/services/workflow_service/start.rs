@@ -118,29 +118,16 @@ impl WorkflowService {
             }
         }
 
-        let workflow_run_id = uuid::Uuid::new_v4().to_string();
-        let workflow_run =
-            workflow_repo::create_workflow_run(&self.db, &workflow_run_id, work_item_id).await?;
-        info!(workflow_run_id = %workflow_run.id, work_item_id = %work_item_id, "Created workflow run for work item");
-
         let assigned_team = agent_repo::resolve_team_for_work_item(&self.db, &work_item).await?;
         let coordinator = match &assigned_team {
             Some(team) => agent_repo::find_team_coordinator(&self.db, &team.id).await?,
             None => None,
         };
-        if let Some(team) = &assigned_team {
-            let active_count =
-                agent_repo::count_active_workflows_for_team(&self.db, &team.id).await?;
-            if active_count >= i64::from(team.max_concurrent_workflows) {
-                return Err(AppError::Validation(format!(
-                    "Team {} is at capacity ({}/{})",
-                    team.name, active_count, team.max_concurrent_workflows
-                )));
-            }
-        }
-        workflow_repo::set_workflow_assignment(
+        let workflow_run_id = uuid::Uuid::new_v4().to_string();
+        let workflow_run = workflow_repo::create_assigned_workflow_run(
             &self.db,
-            &workflow_run.id,
+            &workflow_run_id,
+            work_item_id,
             assigned_team.as_ref().map(|team| team.id.as_str()),
             coordinator.as_ref().map(|agent| agent.id.as_str()),
         )

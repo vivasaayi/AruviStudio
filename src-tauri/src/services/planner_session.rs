@@ -163,7 +163,7 @@ pub(crate) async fn lock_planner_session(
     // Do not create lock files for nonexistent, attacker-supplied session IDs.
     planner_repo::get_session(db, session_id).await?;
     #[cfg(unix)]
-    let file = acquire_planner_file_lock(db, session_id).await?;
+    let file = acquire_database_file_lock(db, "planner", session_id).await?;
     Ok(PlannerSessionGuard {
         _task_guard: task_guard,
         #[cfg(unix)]
@@ -172,9 +172,10 @@ pub(crate) async fn lock_planner_session(
 }
 
 #[cfg(unix)]
-async fn acquire_planner_file_lock(
+pub(crate) async fn acquire_database_file_lock(
     db: &SqlitePool,
-    session_id: &str,
+    domain: &str,
+    key: &str,
 ) -> Result<Option<std::fs::File>, AppError> {
     use sha2::{Digest, Sha256};
     use std::os::fd::AsRawFd;
@@ -193,13 +194,18 @@ async fn acquire_planner_file_lock(
     let database = std::fs::canonicalize(path)?;
     let parent = database
         .parent()
-        .ok_or_else(|| AppError::Internal("Planner database has no parent directory".into()))?;
+        .ok_or_else(|| AppError::Internal("Database has no parent directory".into()))?;
     let filename = database
         .file_name()
-        .ok_or_else(|| AppError::Internal("Planner database has no filename".into()))?;
+        .ok_or_else(|| AppError::Internal("Database has no filename".into()))?;
+    let suffix = match domain {
+        "planner" => ".planner-locks",
+        "workflow-delivery" => ".workflow-delivery-locks",
+        _ => return Err(AppError::Internal("Invalid database lock domain".into())),
+    };
     let mut directory_name = std::ffi::OsString::from(".");
     directory_name.push(filename);
-    directory_name.push(".planner-locks");
+    directory_name.push(suffix);
     let directory = parent.join(directory_name);
     let mut builder = std::fs::DirBuilder::new();
     builder.mode(0o700);
@@ -211,10 +217,10 @@ async fn acquire_planner_file_lock(
     let metadata = std::fs::symlink_metadata(&directory)?;
     if !metadata.is_dir() || metadata.file_type().is_symlink() || metadata.mode() & 0o077 != 0 {
         return Err(AppError::Internal(
-            "Planner lock directory must be private and must not be a symlink".into(),
+            "Database lock directory must be private and must not be a symlink".into(),
         ));
     }
-    let digest = Sha256::digest(session_id.as_bytes());
+    let digest = Sha256::digest(key.as_bytes());
     let lock_name = digest
         .iter()
         .map(|byte| format!("{byte:02x}"))
@@ -227,7 +233,7 @@ async fn acquire_planner_file_lock(
         .open(directory.join(lock_name))?;
     if !file.metadata()?.is_file() {
         return Err(AppError::Internal(
-            "Planner lock must be a regular file".into(),
+            "Database lock must be a regular file".into(),
         ));
     }
     loop {

@@ -30,7 +30,11 @@ limitations and validation items below are not complete.
   reachable references and all work items. One SQLite read transaction prevents
   concurrent changes from mixing versions. Desktop exports and the authenticated
   MCP catalog action use it. Database tests exercise concurrent writes, reference
-  scope and more than 2,000 work items; the snapshot is still unbounded in size.
+  scope and more than 2,000 work items. A preflight in the same transaction
+  rejects snapshots over 64 MiB of raw database values or 100,000 candidate rows
+  before loading them; it does not truncate them. It includes all table columns
+  and some reference candidates that may later be filtered out, so it can reject
+  a snapshot whose final renderer input would be smaller.
 - [x] Move EPUB archive packaging into a reusable Rust service and use it for
   desktop export. This no longer invokes the system `zip` utility or writes a
   temporary source tree; archive tests inspect the first uncompressed mimetype,
@@ -57,8 +61,9 @@ limitations and validation items below are not complete.
   from their generation timestamps (`scripts/test-product-book-renderer`).
   Bundled output is checked against source in the frontend test suite. The
   runtime limits input to 64 MiB, JavaScript heap to 256 MiB, execution to 30
-  seconds, and simultaneous snapshots/renders to two. Source snapshot creation
-  and serialization are currently unbounded before the input-size check.
+  seconds, and simultaneous snapshots/renders to two. Serialization now stops
+  at the input limit. The source snapshot also has the conservative raw-data and
+  row limits described above; neither limit is a strict process-memory cap.
   Desktop HTML, EPUB and PDF exports call this same backend renderer and retain
   their native file writers. Browser and MCP HTML/EPUB/PDF exports use it as well;
   image-resource packaging and broad visual comparison remain open.
@@ -107,8 +112,9 @@ limitations and validation items below are not complete.
   disabled there because this Mac's container runtime denies its namespace
   operation; the container is an additional isolation boundary, not a proof of
   Chromium sandboxing. The app fails closed if the renderer is unavailable.
-  Staging and production adapters have not been updated or validated for this
-  sidecar and must not be treated as release-ready on this evidence.
+  Staging and production adapters include the sidecar; disposable local fixtures
+  exercised PDF rendering and restart persistence. Actual staging and production
+  deployments remain unvalidated and are not release-ready on this evidence.
   Other servers can use `ARUVI_PDF_SOCKET` for an isolated service, or configure
   `ARUVI_PDF_NODE`, `ARUVI_PDF_BROWSER`, and `ARUVI_PDF_PLAYWRIGHT_PATH` for a
   local worker; local `ARUVI_PDF_SANDBOX` defaults to `1`.

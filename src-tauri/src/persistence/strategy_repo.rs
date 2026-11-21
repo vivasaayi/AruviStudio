@@ -3,7 +3,7 @@ use crate::domain::strategy::{
     StrategyNode, StrategyNodeKind,
 };
 use crate::error::AppError;
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqlitePool, SqliteConnection};
 
 const STRATEGY_NODE_COLUMNS: &str = "id, parent_node_id, node_kind, name, description, owner_label, sort_order, created_at, updated_at";
 const PRODUCT_STRATEGY_LINK_COLUMNS: &str =
@@ -83,25 +83,21 @@ pub async fn list_strategy_nodes(pool: &SqlitePool) -> Result<Vec<StrategyNode>,
     rows.into_iter().map(row_to_strategy_node).collect()
 }
 
-pub async fn get_strategy_node(pool: &SqlitePool, id: &str) -> Result<StrategyNode, AppError> {
-    let row = sqlx::query(&format!(
-        "SELECT {STRATEGY_NODE_COLUMNS} FROM strategy_nodes WHERE id = ?"
-    ))
-    .bind(id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Strategy node {id} not found")))?;
+async fn strategy_node_on(conn: &mut SqliteConnection, id: &str) -> Result<StrategyNode, AppError> {
+    let row = sqlx::query(&format!("SELECT {STRATEGY_NODE_COLUMNS} FROM strategy_nodes WHERE id = ?"))
+        .bind(id).fetch_optional(&mut *conn).await?
+        .ok_or_else(|| AppError::NotFound(format!("Strategy node {id} not found")))?;
     row_to_strategy_node(row)
 }
 
 async fn validate_strategy_parent(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     parent_node_id: Option<&str>,
     node_kind: &StrategyNodeKind,
 ) -> Result<(), AppError> {
     match parent_node_id {
         Some(parent_id) => {
-            let parent = get_strategy_node(pool, parent_id).await?;
+            let parent = strategy_node_on(conn, parent_id).await?;
             if !parent.node_kind.supports_child_kind(node_kind) {
                 return Err(AppError::Validation(format!(
                     "{} cannot contain {} strategy nodes.",
@@ -131,12 +127,13 @@ pub async fn create_strategy_node(
     owner_label: &str,
 ) -> Result<StrategyNode, AppError> {
     let kind = parse_strategy_node_kind(node_kind)?;
-    validate_strategy_parent(pool, parent_node_id, &kind).await?;
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+    validate_strategy_parent(&mut transaction, parent_node_id, &kind).await?;
     let sort_order: i64 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM strategy_nodes WHERE parent_node_id IS ?",
     )
     .bind(parent_node_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *transaction)
     .await?;
 
     sqlx::query(
@@ -150,10 +147,12 @@ pub async fn create_strategy_node(
     .bind(description)
     .bind(owner_label)
     .bind(sort_order)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
-    get_strategy_node(pool, id).await
+    let node = strategy_node_on(&mut transaction, id).await?;
+    transaction.commit().await?;
+    Ok(node)
 }
 
 pub async fn update_strategy_node(
@@ -165,13 +164,38 @@ pub async fn update_strategy_node(
     description: Option<&str>,
     owner_label: Option<&str>,
 ) -> Result<StrategyNode, AppError> {
-    let existing = get_strategy_node(pool, id).await?;
+    update_strategy_node_guarded(pool, id, parent_node_id, node_kind, name, description, owner_label, None).await
+}
+
+pub async fn update_strategy_node_guarded(
+    pool: &SqlitePool, id: &str, parent_node_id: Option<Option<&str>>, node_kind: Option<&str>,
+    name: Option<&str>, description: Option<&str>, owner_label: Option<&str>, expected: Option<&StrategyNode>,
+) -> Result<StrategyNode, AppError> {
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let existing = strategy_node_on(&mut transaction, id).await?;
+    if let Some(expected) = expected {
+        if expected.id != existing.id || expected.parent_node_id != existing.parent_node_id || expected.node_kind != existing.node_kind || expected.name != existing.name || expected.description != existing.description || expected.owner_label != existing.owner_label || expected.sort_order != existing.sort_order {
+            return Err(AppError::Validation("Strategy changed; refresh before saving.".into()));
+        }
+    }
     let next_kind = match node_kind {
         Some(value) => parse_strategy_node_kind(value)?,
-        None => existing.node_kind,
+        None => existing.node_kind.clone(),
     };
     let next_parent = parent_node_id.unwrap_or(existing.parent_node_id.as_deref());
-    validate_strategy_parent(pool, next_parent, &next_kind).await?;
+    validate_strategy_parent(&mut transaction, next_parent, &next_kind).await?;
+    if let Some(parent_id) = next_parent {
+        let cycle: i64 = sqlx::query_scalar("WITH RECURSIVE descendants(id) AS (SELECT id FROM strategy_nodes WHERE id=? UNION SELECT s.id FROM strategy_nodes s JOIN descendants d ON s.parent_node_id=d.id) SELECT EXISTS(SELECT 1 FROM descendants WHERE id=?)")
+            .bind(id).bind(parent_id).fetch_one(&mut *transaction).await?;
+        if cycle != 0 { return Err(AppError::Validation("A strategy node cannot be moved under itself or its descendants.".into())); }
+    }
+    let child_kinds: Vec<String> = sqlx::query_scalar("SELECT DISTINCT node_kind FROM strategy_nodes WHERE parent_node_id=?")
+        .bind(id).fetch_all(&mut *transaction).await?;
+    for child in child_kinds {
+        if !next_kind.supports_child_kind(&parse_strategy_node_kind(&child)?) {
+            return Err(AppError::Validation("The selected kind cannot contain the existing child nodes.".into()));
+        }
+    }
 
     sqlx::query(
         "UPDATE strategy_nodes
@@ -189,10 +213,12 @@ pub async fn update_strategy_node(
     .bind(description)
     .bind(owner_label)
     .bind(id)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
-    get_strategy_node(pool, id).await
+    let node = strategy_node_on(&mut transaction, id).await?;
+    transaction.commit().await?;
+    Ok(node)
 }
 
 pub async fn delete_strategy_node(pool: &SqlitePool, id: &str) -> Result<(), AppError> {
@@ -200,6 +226,23 @@ pub async fn delete_strategy_node(pool: &SqlitePool, id: &str) -> Result<(), App
         .bind(id)
         .execute(pool)
         .await?;
+    Ok(())
+}
+
+/// Delete only the subtree and links that the caller confirmed, under one write lock.
+pub async fn delete_strategy_node_guarded(pool: &SqlitePool, id: &str, expected_nodes: &[StrategyNode], expected_links: &[ProductStrategyLink]) -> Result<(), AppError> {
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let nodes = sqlx::query(&format!("WITH RECURSIVE subtree(id) AS (SELECT id FROM strategy_nodes WHERE id=? UNION SELECT s.id FROM strategy_nodes s JOIN subtree t ON s.parent_node_id=t.id) SELECT {STRATEGY_NODE_COLUMNS} FROM strategy_nodes WHERE id IN (SELECT id FROM subtree) ORDER BY id"))
+        .bind(id).fetch_all(&mut *transaction).await?.into_iter().map(row_to_strategy_node).collect::<Result<Vec<_>, _>>()?;
+    let links: Vec<_> = sqlx::query(&format!("WITH RECURSIVE subtree(id) AS (SELECT id FROM strategy_nodes WHERE id=? UNION SELECT s.id FROM strategy_nodes s JOIN subtree t ON s.parent_node_id=t.id) SELECT {PRODUCT_STRATEGY_LINK_COLUMNS} FROM product_strategy_links WHERE strategy_node_id IN (SELECT id FROM subtree) ORDER BY id"))
+        .bind(id).fetch_all(&mut *transaction).await?.into_iter().map(row_to_product_strategy_link).collect();
+    let mut expected_nodes = expected_nodes.to_vec(); expected_nodes.sort_by(|a,b| a.id.cmp(&b.id));
+    let mut expected_links = expected_links.to_vec(); expected_links.sort_by(|a,b| a.id.cmp(&b.id));
+    if nodes.is_empty() || nodes != expected_nodes || links != expected_links {
+        return Err(AppError::Validation("Strategy subtree or links changed; refresh before deleting.".into()));
+    }
+    sqlx::query("DELETE FROM strategy_nodes WHERE id=?").bind(id).execute(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(())
 }
 
@@ -214,6 +257,16 @@ pub async fn list_product_strategy_links(
     Ok(rows.into_iter().map(row_to_product_strategy_link).collect())
 }
 
+async fn validate_product_links(conn: &mut SqliteConnection, product_id: &str, expected: Option<&[ProductStrategyLink]>) -> Result<(), AppError> {
+    if let Some(expected) = expected {
+        let current: Vec<_> = sqlx::query(&format!("SELECT {PRODUCT_STRATEGY_LINK_COLUMNS} FROM product_strategy_links WHERE product_id=? ORDER BY id"))
+            .bind(product_id).fetch_all(&mut *conn).await?.into_iter().map(row_to_product_strategy_link).collect();
+        let mut expected = expected.to_vec(); expected.sort_by(|a,b| a.id.cmp(&b.id));
+        if current != expected { return Err(AppError::Validation("Product strategy links changed; refresh before saving.".into())); }
+    }
+    Ok(())
+}
+
 pub async fn link_product_to_strategy(
     pool: &SqlitePool,
     id: &str,
@@ -221,10 +274,18 @@ pub async fn link_product_to_strategy(
     strategy_node_id: &str,
     is_primary: bool,
 ) -> Result<ProductStrategyLink, AppError> {
+    link_product_to_strategy_guarded(pool, id, product_id, strategy_node_id, is_primary, None).await
+}
+
+pub async fn link_product_to_strategy_guarded(
+    pool: &SqlitePool, id: &str, product_id: &str, strategy_node_id: &str, is_primary: bool, expected: Option<&[ProductStrategyLink]>,
+) -> Result<ProductStrategyLink, AppError> {
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+    validate_product_links(&mut transaction, product_id, expected).await?;
     if is_primary {
         sqlx::query("UPDATE product_strategy_links SET is_primary = 0 WHERE product_id = ?")
             .bind(product_id)
-            .execute(pool)
+            .execute(&mut *transaction)
             .await?;
     }
 
@@ -238,7 +299,7 @@ pub async fn link_product_to_strategy(
     .bind(product_id)
     .bind(strategy_node_id)
     .bind(if is_primary { 1 } else { 0 })
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
     let row = sqlx::query(&format!(
@@ -246,9 +307,11 @@ pub async fn link_product_to_strategy(
     ))
     .bind(product_id)
     .bind(strategy_node_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *transaction)
     .await?;
-    Ok(row_to_product_strategy_link(row))
+    let link = row_to_product_strategy_link(row);
+    transaction.commit().await?;
+    Ok(link)
 }
 
 pub async fn unlink_product_from_strategy(
@@ -256,11 +319,15 @@ pub async fn unlink_product_from_strategy(
     product_id: &str,
     strategy_node_id: &str,
 ) -> Result<(), AppError> {
+    unlink_product_from_strategy_guarded(pool, product_id, strategy_node_id, None).await
+}
+
+pub async fn unlink_product_from_strategy_guarded(pool: &SqlitePool, product_id: &str, strategy_node_id: &str, expected: Option<&[ProductStrategyLink]>) -> Result<(), AppError> {
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+    validate_product_links(&mut transaction, product_id, expected).await?;
     sqlx::query("DELETE FROM product_strategy_links WHERE product_id = ? AND strategy_node_id = ?")
-        .bind(product_id)
-        .bind(strategy_node_id)
-        .execute(pool)
-        .await?;
+        .bind(product_id).bind(strategy_node_id).execute(&mut *transaction).await?;
+    transaction.commit().await?;
     Ok(())
 }
 
@@ -297,9 +364,11 @@ pub async fn create_product_dependency(
     }
     let kind = parse_dependency_kind(input.dependency_kind)?;
     let status = parse_dependency_status(input.status)?;
-    sqlx::query(
+    let inserted = sqlx::query(
         "INSERT INTO product_dependencies (id, product_id, capability_id, depends_on_product_id, depends_on_capability_id, dependency_kind, description, status)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+         SELECT ?, ?, ?, ?, ?, ?, ?, ?
+         WHERE (? IS NULL OR EXISTS (SELECT 1 FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE c.id=? AND a.product_id=?))
+           AND (? IS NULL OR EXISTS (SELECT 1 FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE c.id=? AND a.product_id=?))",
     )
     .bind(input.id)
     .bind(input.product_id)
@@ -309,8 +378,13 @@ pub async fn create_product_dependency(
     .bind(kind.to_string())
     .bind(input.description)
     .bind(status.to_string())
+    .bind(input.capability_id).bind(input.capability_id).bind(input.product_id)
+    .bind(input.depends_on_capability_id).bind(input.depends_on_capability_id).bind(input.depends_on_product_id)
     .execute(pool)
     .await?;
+    if inserted.rows_affected() != 1 {
+        return Err(AppError::Validation("Dependency capabilities must belong to their respective products.".into()));
+    }
 
     let row = sqlx::query(&format!(
         "SELECT {PRODUCT_DEPENDENCY_COLUMNS} FROM product_dependencies WHERE id = ?"

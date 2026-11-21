@@ -1,6 +1,6 @@
 use crate::app_paths;
 use crate::persistence::settings_repo;
-use crate::services::webhook_bridge_auth::{configured_token, resolve_mcp_api_token};
+use crate::services::webhook_bridge_auth::{configured_token, external_mcp_origin_configured, resolve_mcp_api_token};
 use crate::state::AppState;
 use serde::Serialize;
 use std::net::{IpAddr, UdpSocket};
@@ -227,16 +227,19 @@ pub async fn resolve_mcp_bridge_status(state: &AppState) -> Result<McpBridgeStat
         .map(|base_url| build_mcp_endpoint(base_url));
     let bind_scope = classify_bind_scope(&bind_config.host).to_string();
     let token_configured = configured_token(resolve_mcp_api_token(state).await?).is_some();
-    let requests_allowed = token_configured || bind_scope == "localhost-only";
+    let external_origins = external_mcp_origin_configured();
+    let requests_allowed = token_configured || (bind_scope == "localhost-only" && !external_origins);
     let auth_mode = if token_configured {
         "bearer_token"
-    } else if bind_scope == "localhost-only" {
+    } else if bind_scope == "localhost-only" && !external_origins {
         "localhost_only_no_token"
     } else {
         "blocked_until_token_configured"
     }
     .to_string();
-    let origin_policy = if bind_scope == "localhost-only" {
+    let origin_policy = if external_origins {
+        "Requires the browser origin to match Host and a permitted local, LAN, or explicitly configured origin.".to_string()
+    } else if bind_scope == "localhost-only" {
         "Rejects browser origins that are not loopback or localhost.".to_string()
     } else {
         "Rejects browser origins that do not match the configured desktop or LAN bridge URL."
@@ -252,7 +255,7 @@ pub async fn resolve_mcp_bridge_status(state: &AppState) -> Result<McpBridgeStat
                 "Connect local agents to {endpoint_url} and send Authorization: Bearer <mcp.api_token>."
             )
         }
-    } else if bind_scope == "localhost-only" {
+    } else if bind_scope == "localhost-only" && !external_origins {
         format!(
             "Local agents can connect to {endpoint_url} without a token while the bridge stays on localhost. Before exposing the bridge beyond localhost, set mcp.api_token."
         )

@@ -22,7 +22,9 @@ pub async fn read_artifact_content(
     artifact_id: String,
 ) -> Result<String, AppError> {
     let artifact = artifact_repo::get_artifact(&state.db, &artifact_id).await?;
-    tokio::fs::read_to_string(&artifact.storage_path)
-        .await
-        .map_err(AppError::Io)
+    crate::services::artifact_service::read_text(
+        &state.artifact_base_path,
+        std::path::Path::new(&artifact.storage_path),
+        crate::services::artifact_service::TEXT_LIMIT,
+    ).await
 }

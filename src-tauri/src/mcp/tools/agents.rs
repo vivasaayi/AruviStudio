@@ -11,6 +11,27 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "list_prompt_templates" => action_result("list_prompt_templates", crate::persistence::prompt_template_repo::list(&state.db).await?),
+        "create_prompt_template" => {
+            let name = args.required_string(&["name"], "name")?;
+            let role = args.string_or_default(&["role"], "*")?;
+            let text = args.required_string(&["template_text", "templateText"], "template_text")?;
+            action_result("create_prompt_template", crate::persistence::prompt_template_repo::create(&state.db, &name, &role, &text).await?)
+        }
+        "update_prompt_template" => {
+            let id = args.required_string(&["id"], "id")?;
+            let version = args.optional_i64(&["expected_version", "expectedVersion"])?.ok_or_else(|| AppError::Validation("expected_version is required".into()))?;
+            let name = args.required_string(&["name"], "name")?;
+            let role = args.required_string(&["role"], "role")?;
+            let text = args.required_string(&["template_text", "templateText"], "template_text")?;
+            action_result("update_prompt_template", crate::persistence::prompt_template_repo::update(&state.db, &id, version, &name, &role, &text).await?)
+        }
+        "delete_prompt_template" => {
+            let id = args.required_string(&["id"], "id")?;
+            let version = args.optional_i64(&["expected_version", "expectedVersion"])?.ok_or_else(|| AppError::Validation("expected_version is required".into()))?;
+            crate::persistence::prompt_template_repo::delete(&state.db, &id, version).await?;
+            Ok(action_ok("delete_prompt_template"))
+        }
         "list_agent_definitions" => action_result(
             "list_agent_definitions",
             agent_repo::list_agent_definitions(&state.db).await?,

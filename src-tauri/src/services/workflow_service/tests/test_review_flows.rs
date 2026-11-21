@@ -84,7 +84,7 @@ async fn auto_test_review_continues_to_done_by_default() {
     crate::persistence::settings_repo::set_setting(&pool, "workflow.test_argv", r#"["true"]"#)
         .await.expect("configure a successful test command");
 
-    AgentService::set_test_model_outputs_for_any_workflow(vec![
+    AgentService::set_test_model_outputs_for_any_workflow(&pool, vec![
         "requirement analysis complete".to_string(),
         "planning complete".to_string(),
         json!({
@@ -147,6 +147,6 @@ async fn auto_test_review_continues_to_done_by_default() {
         "missing auto-approved pending_test_review -> push_preparation transition"
     );
 
-    AgentService::set_test_model_outputs_for_any_workflow(Vec::new());
+    AgentService::set_test_model_outputs_for_any_workflow(&pool, Vec::new());
     let _ = std::fs::remove_dir_all(temp_root);
 }

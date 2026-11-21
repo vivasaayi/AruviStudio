@@ -121,6 +121,11 @@ impl WorkflowService {
         &self,
         workflow_run_id: &str,
     ) -> Result<Option<WorkflowStage>, AppError> {
+        let _delivery_guard = crate::services::workflow_delivery_lock::acquire(self.db.as_ref(), workflow_run_id).await?;
+        let current = crate::persistence::workflow_repo::get_workflow_run(self.db.as_ref(), workflow_run_id).await?;
+        if current.status != "running" || current.current_stage != WorkflowStage::GitPush.as_str() {
+            return Ok(None);
+        }
         workflow_git_push::execute_git_push_stage(self.db.as_ref(), workflow_run_id).await?;
         self.transition_stage(
             workflow_run_id,

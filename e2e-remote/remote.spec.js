@@ -6,6 +6,455 @@ import { createHmac } from "node:crypto";
 const token = process.env.ARUVI_MOBILE_API_TOKEN;
 const mcpToken = process.env.ARUVI_MCP_API_TOKEN;
 
+test("browser rotates bridge tokens without exposing saved values", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_BRIDGE_TOKEN_ROTATION !== "1", "Requires disposable server with saved mobile token");
+  const next = process.env.ARUVI_TEST_NEW_MOBILE_TOKEN;
+  const nextMcp = process.env.ARUVI_TEST_NEW_MCP_TOKEN;
+  const headers = { Authorization: `Bearer ${token}` };
+  const before = await (await request.get("/api/mobile/bridge-tokens", { headers })).text();
+  expect(before).not.toContain(token);
+  expect(before).not.toContain(mcpToken);
+  expect(JSON.parse(before).mobile.environment_override).toBe(false);
+  expect(JSON.parse(before).mcp.environment_override).toBe(true);
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(token);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await page.getByText("Manage bridge tokens", { exact: true }).click();
+  await page.getByRole("button", { name: "Load token status" }).click();
+  await expect(page.locator("#status")).toHaveText("Bridge token status loaded");
+  await expect(page.locator("#bridgeMcpTokenStatus")).toContainText("environment variable overrides");
+  await page.locator("#bridgeMcpToken").fill(nextMcp);
+  const changed = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` },
+    data: { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key: "mcp.api_token", value: `${nextMcp}-concurrent` } } } } });
+  expect((await changed.json()).result.isError).not.toBeTruthy();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Replace MCP token" }).click();
+  await expect(page.locator("#status")).toContainText("Bridge token changed");
+  await expect(page.locator("#bridgeMcpToken")).toHaveValue(nextMcp);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Discard and reload token status" }).click();
+  await expect(page.locator("#bridgeMcpToken")).toHaveValue("");
+  await page.locator("#bridgeMcpToken").fill(nextMcp);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Replace MCP token" }).click();
+  await expect(page.locator("#status")).toContainText("environment still takes precedence");
+  await expect(page.locator("#bridgeMcpToken")).toHaveValue("");
+  const ping = { jsonrpc: "2.0", id: 1, method: "ping" };
+  expect((await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: ping })).status()).toBe(200);
+  expect((await request.post("/api/mcp", { headers: { Authorization: `Bearer ${nextMcp}` }, data: ping })).status()).toBe(401);
+  await page.locator("#bridgeMobileToken").fill(next);
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Replace mobile token" }).click();
+  await expect(page.locator("#status")).toHaveText("Bridge token updated");
+  await expect(page.locator("#bridgeMobileToken")).toHaveValue("");
+  await expect(page.locator("#tokenInput")).toHaveValue(next);
+  expect((await request.get("/api/mobile/bridge-tokens", { headers })).status()).toBe(401);
+  const after = await request.get("/api/mobile/bridge-tokens", { headers: { Authorization: `Bearer ${next}` } });
+  expect(after.ok()).toBeTruthy();
+  const text = await after.text();
+  expect(text).not.toContain(next);
+  expect(text).not.toContain(nextMcp);
+});
+
+test("browser configures bridge bind with conflict protection", async ({ page, request }) => {
+  test.skip(!token || !mcpToken || process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable server");
+  const headers = { Authorization: `Bearer ${token}` };
+  expect((await request.get("/api/mobile/bridge-bind")).status()).toBe(401);
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(token);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await page.getByText("Configure server bind", { exact: true }).click();
+  await page.getByRole("button", { name: "Load bind settings" }).click();
+  await expect(page.locator("#status")).toHaveText("Bind settings loaded");
+  await page.locator("#bridgeBindHost").fill("localhost");
+  await page.locator("#bridgeBindPort").fill("9001");
+  const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` },
+    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key: "mobile.bind_port", value: "9000" } } } } });
+  expect((await mcp.json()).result.isError).not.toBeTruthy();
+  await page.getByRole("button", { name: "Save bind settings" }).click();
+  await expect(page.locator("#status")).toContainText("Bridge settings changed");
+  await expect(page.locator("#bridgeBindHost")).toHaveValue("localhost");
+  await expect(page.locator("#bridgeBindPort")).toHaveValue("9001");
+  const current = await (await request.get("/api/mobile/bridge-bind", { headers })).json();
+  expect(current.raw[1]).toBe("9000");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Discard and reload bind settings" }).click();
+  await expect(page.locator("#bridgeBindPort")).toHaveValue("9000");
+  await page.locator("#bridgeBindHost").fill("::1");
+  await page.locator("#bridgeBindPort").fill("9002");
+  await page.getByRole("button", { name: "Save bind settings" }).click();
+  await expect(page.locator("#status")).toContainText("Restart the server");
+  expect((await (await request.get("/api/mobile/bridge-bind", { headers })).json()).raw).toEqual(["::1", "9002"]);
+});
+
+test("optional code editor preserves tabs and uses guarded saves", async ({page, request}) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const loader = await request.get("/assets/monaco/loader.js");
+  expect(loader.ok()).toBeTruthy();
+  expect(loader.headers()["content-type"]).toContain("javascript");
+  expect(loader.headers()["x-content-type-options"]).toBe("nosniff");
+  expect((await request.get("/assets/monaco/.git/config")).status()).toBe(404);
+  expect((await request.get("/assets/monaco/editor/editor.main.json")).status()).toBe(404);
+  const headers = {Authorization:`Bearer ${token}`};
+  const registered = await request.post("/api/mobile/repositories", {headers, data:{name:"Code editor fixture",local_path:"/repositories/code-editor-fixture"}});
+  expect(registered.ok(), await registered.text()).toBeTruthy();
+  const repository = await registered.json();
+  let failLoader = true;
+  const external = [];
+  const origin = new URL(process.env.ARUVI_REMOTE_URL || "http://127.0.0.1:8787").origin;
+  page.on("request", (req) => { if (!req.url().startsWith(origin + "/") && !req.url().startsWith("blob:")) external.push(req.url()); });
+  await page.route("**/assets/monaco/loader.js", (route) => {
+    if (failLoader) { failLoader = false; return route.fulfill({status:404,body:"unavailable"}); }
+    return route.continue();
+  });
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button", {name:"Workspaces",exact:true}).click();
+  await page.locator("#repositoryList .tool-card").filter({hasText:"Code editor fixture"}).getByRole("button", {name:"Browse workspace"}).click();
+  await page.locator("#repositoryTree").getByRole("button", {name:"first.js",exact:true}).click();
+  await expect(page.getByLabel("Selected file contents")).toHaveValue("const first = 1;\n");
+  await page.getByRole("button", {name:"Use code editor"}).click();
+  await expect(page.locator("#codeEditorStatus")).toContainText("unavailable");
+  await expect(page.getByLabel("Selected file contents")).toBeVisible();
+  await page.getByRole("button", {name:"Use code editor"}).click();
+  await expect(page.locator("#codeEditorStatus")).toHaveText("Code editor active", {timeout:30000});
+  await expect(page.locator("#repositoryCodeEditor .monaco-editor")).toBeVisible();
+  await expect.poll(() => page.evaluate(() => codeEditor.getModel()?.getLanguageId())).toBe("javascript");
+  const input = page.locator("#repositoryCodeEditor textarea.inputarea");
+  await input.focus(); await page.keyboard.press("ControlOrMeta+A"); await page.keyboard.insertText("const first = 42;\n");
+  await expect(page.locator("#repositoryFileTabs")).toContainText("first.js • unsaved");
+  let releaseFile, arrivedFile;
+  const fileHeld = new Promise((resolve) => { arrivedFile = resolve; });
+  await page.route("**/api/mobile/repository-inspect", async (route) => {
+    const body = route.request().postDataJSON();
+    if (body?.action === "read_repository_file" && body.relative_path === "second.js") {
+      await new Promise((resolve) => { releaseFile = resolve; arrivedFile(); });
+    }
+    return route.continue();
+  });
+  await page.locator("#repositoryTree").getByRole("button", {name:"second.js",exact:true}).click();
+  await fileHeld;
+  try {
+    await expect.poll(() => page.evaluate(() => codeEditor.getOption(monaco.editor.EditorOption.readOnly))).toBe(true);
+    await input.focus(); await page.keyboard.insertText("should-not-appear");
+  } finally { releaseFile(); }
+  await expect(page.locator("#repositoryFileTabs").getByRole("button", {name:"second.js",exact:true})).toHaveAttribute("aria-pressed", "true");
+  await input.focus(); await page.keyboard.press("ControlOrMeta+A"); await page.keyboard.insertText("const second = 99;\n");
+  await page.locator("#repositoryFileTabs").getByRole("button", {name:"first.js • unsaved"}).click();
+  await expect(page.locator("#repositoryFileTabs").getByRole("button", {name:"first.js • unsaved"})).toHaveAttribute("aria-pressed", "true");
+  await input.focus(); await page.keyboard.press("ControlOrMeta+Z");
+  await expect.poll(() => page.evaluate(() => codeEditor.getValue())).not.toBe("const first = 42;\n");
+  await page.keyboard.press("ControlOrMeta+Shift+Z");
+  await expect.poll(() => page.evaluate(() => codeEditor.getValue())).toBe("const first = 42;\n");
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect(page.locator("#status")).toHaveText("File saved");
+  const result = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"aruvi_repositories",arguments:{action:"read_repository_file",arguments:{repository_id:repository.id,relative_path:"first.js"}}}}});
+  expect((await result.json()).result.structuredContent.result.content).toBe("const first = 42;\n");
+  const externalEdit = await request.post("/api/mobile/repository-file/save", {headers,data:{repository_id:repository.id,relative_path:"first.js",expected_content:"const first = 42;\n",content:"const first = 88;\n"}});
+  expect(externalEdit.ok()).toBeTruthy();
+  await input.focus(); await page.keyboard.press("ControlOrMeta+A"); await page.keyboard.insertText("const first = 7;\n");
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect(page.locator("#status")).toContainText("File changed since it was opened");
+  const preserved = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:2,method:"tools/call",params:{name:"aruvi_repositories",arguments:{action:"read_repository_file",arguments:{repository_id:repository.id,relative_path:"first.js"}}}}});
+  expect((await preserved.json()).result.structuredContent.result.content).toBe("const first = 88;\n");
+  await page.getByRole("button", {name:"Discard file edits"}).click();
+  await page.locator("#repositoryFileTabs").getByRole("button", {name:"second.js • unsaved"}).click();
+  await page.getByRole("button", {name:"Use plain text editor"}).click();
+  await expect(page.getByLabel("Selected file contents")).toHaveValue("const second = 99;\n");
+  await page.getByRole("button", {name:"Discard file edits"}).click();
+  await page.locator("#repositoryTree").getByRole("button", {name:"mixed.js",exact:true}).click();
+  await expect(page.locator("#repositoryFileTabs").getByRole("button", {name:"mixed.js",exact:true})).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", {name:"Use code editor"}).click();
+  await expect.poll(() => page.evaluate(() => codeEditor.getOption(monaco.editor.EditorOption.readOnly))).toBe(true);
+  await page.locator("#repositoryTree").getByRole("button", {name:"windows.js",exact:true}).click();
+  await expect(page.locator("#repositoryFileTabs").getByRole("button", {name:"windows.js",exact:true})).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => page.evaluate(() => codeEditor.getOption(monaco.editor.EditorOption.readOnly))).toBe(false);
+  await input.focus(); await page.keyboard.press("ControlOrMeta+A"); await page.keyboard.insertText("alpha\nbeta\n");
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect(page.locator("#status")).toHaveText("File saved");
+  const windows = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:3,method:"tools/call",params:{name:"aruvi_repositories",arguments:{action:"read_repository_file",arguments:{repository_id:repository.id,relative_path:"windows.js"}}}}});
+  expect((await windows.json()).result.structuredContent.result.content).toBe("alpha\r\nbeta\r\n");
+  expect(external).toEqual([]);
+});
+
+test("browser approves and rejects work with stale decision protection", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const headers = {Authorization:`Bearer ${token}`};
+  const post = async (path, data) => { const response = await request.post(path, {headers,data}); expect(response.ok(), await response.text()).toBeTruthy(); return response.json(); };
+  const call = async (name, action, args) => {
+    const response = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:{action,arguments:args}}}});
+    const body = await response.json(); expect(body.result.isError,JSON.stringify(body.result)).not.toBeTruthy(); return body.result.structuredContent.result;
+  };
+  await call("aruvi_settings","set_setting",{key:"workflow.auto_start_after_work_item_approval",value:"false"});
+  try {
+    const product = await post("/api/mobile/products",{name:"Decision fixture"});
+    const item = await post("/api/mobile/work-items",{product_id:product.id,title:"Decision task"});
+    await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+    await page.getByRole("button",{name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
+    await page.locator("#workList .work-card").filter({hasText:"Decision task"}).click();
+    page.once("dialog",dialog => dialog.accept()); await page.getByRole("button",{name:"Approve",exact:true}).click();
+    await expect(page.locator("#status")).toHaveText("Work item approved");
+    expect((await (await request.get(`/api/mobile/work-items/${item.id}`,{headers})).json()).status).toBe("approved");
+    await call("aruvi_work_items","update_work_item",{id:item.id,description:"Concurrent edit"});
+    page.once("dialog",dialog => dialog.accept("Needs revision")); await page.getByRole("button",{name:"Reject",exact:true}).click();
+    await expect(page.locator("#status")).toContainText("changed");
+    await page.locator("#refreshDeliveryButton").click();
+    page.once("dialog",dialog => dialog.accept("Needs revision")); await page.getByRole("button",{name:"Reject",exact:true}).click();
+    await expect(page.locator("#status")).toHaveText("Work item rejected");
+    const delivery = await (await request.get(`/api/mobile/work-items/${item.id}/delivery`,{headers})).json();
+    expect(delivery.work_item.status).toBe("draft");
+    expect(delivery.approvals.filter((entry) => entry.approval_type === "task_approval").map((entry) => entry.status).sort()).toEqual(["approved","rejected"]);
+  } finally {
+    await call("aruvi_settings","set_setting",{key:"workflow.auto_start_after_work_item_approval",value:"true"});
+  }
+});
+
+test("browser manages versioned agent templates and detects MCP edits", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const mcp = async (action, args) => {
+    const response = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"aruvi_agents",arguments:{action,arguments:args}}}});
+    const result = (await response.json()).result; expect(result.isError,JSON.stringify(result)).not.toBeTruthy(); return result.structuredContent.result;
+  };
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button",{name:"Agents",exact:true}).click();
+  const create = page.locator("#createPromptTemplate");
+  await create.getByLabel("Template name").fill("Browser template fixture");
+  await create.getByLabel("Template instructions").fill("Explain decisions clearly.");
+  const response = page.waitForResponse((r)=>r.url().endsWith("/api/mobile/prompt-templates") && r.request().method()==="POST");
+  await create.getByRole("button",{name:"Create template"}).click();
+  const template = await (await response).json();
+  await expect(page.locator("#status")).toHaveText("Template created");
+  let card = page.locator("#promptTemplateList details").filter({hasText:"Browser template fixture"});
+  await card.locator("summary").click();
+  await card.getByRole("button",{name:"Use for new agent"}).click();
+  await expect(page.locator("#createAgentEditor").getByLabel("Prompt template reference")).toHaveValue(`template:${template.id}`);
+  await card.getByLabel("Template instructions Browser template fixture").fill("Unsaved draft");
+  await mcp("update_prompt_template", {id:template.id,expected_version:1,name:template.name,role:"*",template_text:"Changed through MCP"});
+  await card.getByRole("button",{name:"Save template"}).click();
+  await expect(page.locator("#status")).toContainText("changed");
+  await expect(card.getByLabel("Template instructions Browser template fixture")).toHaveValue("Unsaved draft");
+  await page.getByRole("button",{name:"Refresh templates"}).click();
+  card = page.locator("#promptTemplateList details").filter({hasText:"Browser template fixture"});
+  await card.locator("summary").click();
+  await expect(card.getByLabel("Template instructions Browser template fixture")).toHaveValue("Changed through MCP");
+  const agentForm = page.locator("#createAgentEditor");
+  await agentForm.getByLabel("Agent name",{exact:true}).fill("Template assigned fixture");
+  const agentResponse = page.waitForResponse((r)=>r.url().endsWith("/api/mobile/agents") && r.request().method()==="POST");
+  await agentForm.getByRole("button",{name:"Create agent"}).click();
+  const agent = await (await agentResponse).json(); expect(agent.prompt_template_ref).toBe(`template:${template.id}`);
+  const blocked = await request.post("/api/mobile/prompt-templates/delete",{headers:{Authorization:`Bearer ${token}`},data:{id:template.id,expected_version:2}});
+  expect(blocked.status()).toBe(409);
+  await mcp("delete_agent_definition",{id:agent.id});
+  page.once("dialog",dialog=>dialog.accept()); await card.getByRole("button",{name:"Delete template"}).click();
+  await expect(page.locator("#status")).toHaveText("Template deleted");
+});
+
+test("browser reorders work with drag and keyboard buttons while detecting stale order", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const headers = {Authorization:`Bearer ${token}`};
+  const post = async (path, data) => { const response = await request.post(path,{headers,data}); expect(response.ok(),await response.text()).toBeTruthy(); return response.json(); };
+  const product = await post("/api/mobile/products", {name:"Order fixture"});
+  for (const title of ["Order A", "Order B", "Order C"]) await post("/api/mobile/work-items", {product_id:product.id,title});
+  const cards = page.locator("#workList .work-card");
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button",{name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
+  await expect(cards).toHaveCount(3); await expect(page.locator("#refreshWorkButton")).toBeEnabled();
+  let titles = await cards.locator(".work-title").allTextContents();
+  const original = [...titles];
+  await page.getByRole("button",{name:`Move ${titles[1]} up`}).click();
+  await expect(page.locator("#status")).toHaveText("Work item order saved");
+  titles = await cards.locator(".work-title").allTextContents(); expect(titles).toEqual([original[1],original[0],original[2]]);
+  await cards.nth(2).dragTo(cards.nth(0));
+  await expect(page.locator("#status")).toHaveText("Work item order saved");
+  titles = await cards.locator(".work-title").allTextContents(); expect(titles).toEqual([original[2],original[1],original[0]]);
+  await page.locator("#workStatusFilter").selectOption("draft");
+  await expect(page.getByRole("button",{name:`Move ${titles[1]} up`})).toBeDisabled();
+  await page.locator("#workStatusFilter").selectOption(""); await expect(page.locator("#refreshWorkButton")).toBeEnabled();
+  const response = await request.get(`/api/mobile/work-items?product_id=${product.id}&limit=100`,{headers});
+  const fresh = (await response.json()).items;
+  const moved = await request.post("/api/mobile/work-items/move",{headers,data:{product_id:product.id,offset:0,items:fresh.slice(0,2).map(({id,sort_order})=>({id,sort_order})),source_id:fresh[1].id}});
+  expect(moved.ok(),await moved.text()).toBeTruthy();
+  await page.getByRole("button",{name:`Move ${titles[1]} up`}).click();
+  await expect(page.locator("#status")).toContainText("order changed");
+  await page.locator("#refreshWorkButton").click(); await expect(page.locator("#status")).toHaveText("Connected");
+  expect(await cards.locator(".work-title").allTextContents()).toEqual([original[1],original[2],original[0]]);
+});
+
+test("browser filters work and applies atomic batch decisions", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const headers = {Authorization:`Bearer ${token}`};
+  const post = async (path, data) => { const response = await request.post(path,{headers,data}); expect(response.ok(),await response.text()).toBeTruthy(); return response.json(); };
+  const call = async (name, action, args) => {
+    const response = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:{action,arguments:args}}}});
+    const body=await response.json(); expect(body.result.isError,JSON.stringify(body.result)).not.toBeTruthy(); return body.result.structuredContent.result;
+  };
+  await call("aruvi_settings","set_setting",{key:"workflow.auto_start_after_work_item_approval",value:"false"});
+  try {
+    const product=await post("/api/mobile/products",{name:"Batch fixture"});
+    const a=await post("/api/mobile/work-items",{product_id:product.id,title:"Batch A"});
+    const b=await post("/api/mobile/work-items",{product_id:product.id,title:"Batch B"});
+    const c=await post("/api/mobile/work-items",{product_id:product.id,title:"Batch C"});
+    await call("aruvi_work_items","update_work_item",{id:c.id,status:"approved"});
+    await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+    await page.getByRole("button",{name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
+    await page.locator("#workStatusFilter").selectOption("draft");
+    await expect(page.locator("#workList .work-card")).toHaveCount(2);
+    await expect(page.locator("#workList")).not.toContainText("Batch C");
+    await page.getByLabel("Select Batch A",{exact:true}).check(); await page.getByLabel("Select Batch B",{exact:true}).check();
+    await call("aruvi_work_items","update_work_item",{id:b.id,description:"Concurrent change"});
+    page.once("dialog",dialog=>dialog.accept()); await page.getByRole("button",{name:"Approve selected"}).click();
+    await expect(page.locator("#status")).toContainText("changed");
+    expect((await (await request.get(`/api/mobile/work-items/${a.id}`,{headers})).json()).status).toBe("draft");
+    await page.locator("#refreshWorkButton").click();
+    await page.getByLabel("Select Batch A",{exact:true}).check(); await page.getByLabel("Select Batch B",{exact:true}).check();
+    page.once("dialog",dialog=>dialog.accept()); await page.getByRole("button",{name:"Approve selected"}).click();
+    await expect(page.locator("#status")).toHaveText("2 work item(s) approved");
+    await expect(page.locator("#workList .work-card")).toHaveCount(0);
+    await page.locator("#workStatusFilter").selectOption("approved");
+    await expect(page.locator("#workList .work-card")).toHaveCount(3);
+    await page.getByLabel("Select Batch A",{exact:true}).check(); await page.getByLabel("Select Batch B",{exact:true}).check();
+    page.once("dialog",dialog=>dialog.accept("Revise scope")); await page.getByRole("button",{name:"Reject selected"}).click();
+    await expect(page.locator("#status")).toHaveText("2 work item(s) rejected");
+    expect((await (await request.get(`/api/mobile/work-items/${a.id}`,{headers})).json()).status).toBe("draft");
+    expect((await (await request.get(`/api/mobile/work-items/${b.id}`,{headers})).json()).status).toBe("draft");
+  } finally {
+    await call("aruvi_settings","set_setting",{key:"workflow.auto_start_after_work_item_approval",value:"true"});
+  }
+});
+
+test("browser deletes a work item only after confirmation and stale checks", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const headers = { Authorization:`Bearer ${token}` };
+  const post = async (path, data) => { const response = await request.post(path, { headers, data }); expect(response.ok(), await response.text()).toBeTruthy(); return response.json(); };
+  const product = await post("/api/mobile/products", {name:"Delete work fixture"});
+  const parent = await post("/api/mobile/work-items", {product_id:product.id,title:"Delete parent fixture"});
+  const child = await post("/api/mobile/work-items", {product_id:product.id,title:"Retained child fixture",parent_work_item_id:parent.id,work_item_type:"task"});
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button", {name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
+  await page.locator("#workList .work-card").filter({hasText:"Delete parent fixture"}).click();
+  let prompt = "";
+  page.once("dialog", (dialog) => { prompt = dialog.message(); return dialog.dismiss(); });
+  await page.getByRole("button", {name:"Delete work item"}).click();
+  await expect.poll(() => prompt).toContain("Direct child work items will be detached");
+  expect((await request.get(`/api/mobile/work-items/${parent.id}`, {headers})).ok()).toBeTruthy();
+  const mcp = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"aruvi_work_items",arguments:{action:"update_work_item",arguments:{id:parent.id,description:"Concurrent edit"}}}}});
+  expect((await mcp.json()).result.isError).not.toBeTruthy();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", {name:"Delete work item"}).click();
+  await expect(page.locator("#status")).toContainText("changed");
+  expect((await request.get(`/api/mobile/work-items/${parent.id}`, {headers})).ok()).toBeTruthy();
+  await page.locator("#refreshDeliveryButton").click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", {name:"Delete work item"}).click();
+  await expect(page.locator("#status")).toHaveText("Work item deleted");
+  expect((await request.get(`/api/mobile/work-items/${parent.id}`, {headers})).ok()).toBeFalsy();
+  expect((await (await request.get(`/api/mobile/work-items/${child.id}`, {headers})).json()).parent_work_item_id).toBeNull();
+});
+
+test("work item workspace can be assigned in browser and MCP with conflict protection", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const headers = { Authorization: `Bearer ${token}` };
+  async function create(path, data) {
+    const response = await request.post(path, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy(); return response.json();
+  }
+  const product = await create("/api/mobile/products", { name: "Workspace selection fixture" });
+  const item = await create("/api/mobile/work-items", { product_id: product.id, title: "Workspace task" });
+  const first = await create("/api/mobile/repositories", { name: "Choice A", local_path: "/repositories/workspace-choice-a" });
+  const second = await create("/api/mobile/repositories", { name: "Choice B", local_path: "/repositories/workspace-choice-b" });
+  const mcp = async (arguments_) => {
+    const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc:"2.0", id:1, method:"tools/call", params:{name:"aruvi_work_items", arguments:{action:"assign_work_item_workspace", arguments:arguments_}} } });
+    return (await response.json()).result;
+  };
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Work", exact: true }).click();
+  await page.locator("#workProductSelect").selectOption(product.id);
+  await page.getByRole("button", { name: "Change work item workspace" }).click();
+  await page.getByLabel("Work item workspace", { exact: true }).selectOption(first.id);
+  await page.getByLabel("Work item branch option").selectOption("work_item");
+  await expect(page.locator("#workWorkspacePreview")).toContainText("work/workspace-task");
+  await page.getByRole("button", { name: "Save work item workspace" }).click();
+  await expect(page.locator("#status")).toHaveText("Work item workspace saved");
+  let saved = await (await request.get(`/api/mobile/work-items/${item.id}`, { headers })).json();
+  expect(saved).toMatchObject({ repo_override_id:first.id, active_repo_id:first.id, branch_name:"work/workspace-task" });
+  await page.getByRole("button", { name: "Change work item workspace" }).click();
+  const changed = await mcp({ id:item.id, repository_id:second.id, branch_name:"feature/from-mcp" });
+  expect(changed.isError).not.toBeTruthy();
+  await page.getByRole("button", { name: "Save work item workspace" }).click();
+  await expect(page.locator("#status")).toContainText("changed");
+  saved = await (await request.get(`/api/mobile/work-items/${item.id}`, { headers })).json();
+  expect(saved).toMatchObject({ repo_override_id:second.id, branch_name:"feature/from-mcp" });
+  await page.getByRole("button", { name: "Cancel workspace edit" }).click();
+  await page.locator("#refreshDeliveryButton").click();
+  await page.getByRole("button", { name: "Change work item workspace" }).click();
+  await page.getByRole("button", { name: "Use scope default" }).click();
+  await expect(page.locator("#status")).toHaveText("Work item workspace saved");
+  saved = await (await request.get(`/api/mobile/work-items/${item.id}`, { headers })).json();
+  expect(saved).toMatchObject({ repo_override_id:null, active_repo_id:null, branch_name:null });
+});
+
+test("work list loads later pages and can retry a failed page", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  test.setTimeout(60000);
+  const headers = { Authorization: `Bearer ${token}` };
+  const productResponse = await request.post("/api/mobile/products", { headers, data: { name: "Paged work fixture" } });
+  expect(productResponse.ok()).toBeTruthy();
+  const product = await productResponse.json();
+  const other = await (await request.post("/api/mobile/products", { headers, data: { name: "Other paged product" } })).json();
+  expect((await request.post("/api/mobile/work-items", { headers, data: { product_id: other.id, title: "Other product item" } })).ok()).toBeTruthy();
+  for (let i = 0; i < 101; i++) {
+    const created = await request.post("/api/mobile/work-items", { headers, data: { product_id: product.id, title: `Paged item ${String(i).padStart(3, "0")}` } });
+    expect(created.ok(), await created.text()).toBeTruthy();
+  }
+  const first = await (await request.get(`/api/mobile/work-items?product_id=${product.id}&limit=100`, { headers })).json();
+  const second = await (await request.get(`/api/mobile/work-items?product_id=${product.id}&limit=100&offset=100`, { headers })).json();
+  expect(first.items).toHaveLength(100); expect(first.has_more).toBe(true);
+  expect(second.items).toHaveLength(1); expect(second.has_more).toBe(false);
+  let failPage = true, holdPage = false, releasePage, pageArrived;
+  const heldPage = new Promise((resolve) => { pageArrived = resolve; });
+  await page.route("**/api/mobile/work-items?*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.searchParams.get("product_id") === product.id && url.searchParams.get("offset") === "100" && failPage) {
+      failPage = false; return route.fulfill({ status: 503, body: "Temporary page failure" });
+    }
+    if (url.searchParams.get("product_id") === product.id && url.searchParams.get("offset") === "100" && holdPage) {
+      await new Promise((resolve) => { releasePage = resolve; pageArrived(); });
+    }
+    return route.continue();
+  });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(token);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Work", exact: true }).click();
+  await page.locator("#workProductSelect").selectOption(product.id);
+  await expect(page.locator("#workList .work-card")).toHaveCount(100);
+  const more = page.getByRole("button", { name: "Load more work items" });
+  await expect(more).toBeVisible();
+  await more.click();
+  await expect(page.locator("#status")).toContainText("Temporary page failure");
+  await expect(page.locator("#workList .work-card")).toHaveCount(100);
+  await more.click();
+  await expect(page.locator("#workList .work-card")).toHaveCount(101);
+  await expect(page.locator("#workList")).toContainText(second.items[0].title);
+  await expect(more).toBeHidden();
+  await page.locator("#refreshWorkButton").click();
+  await expect(page.locator("#workList .work-card")).toHaveCount(100);
+  await expect(more).toBeVisible();
+  holdPage = true;
+  await more.click();
+  await heldPage;
+  const delayedResponse = page.waitForResponse((response) => response.url().includes(`product_id=${product.id}`) && response.url().includes("offset=100"));
+  try {
+    await page.locator("#workProductSelect").selectOption(other.id);
+    await expect(page.locator("#workList")).toContainText("Other product item");
+  } finally { releasePage(); }
+  await delayedResponse;
+  await expect(page.locator("#workList .work-card")).toHaveCount(1);
+  await expect(page.locator("#workList")).not.toContainText(second.items[0].title);
+});
+
 test("remote UI connects and opens each operational section", async ({ page }) => {
   test.skip(!token, "Set ARUVI_MOBILE_API_TOKEN for a running remote server");
   const errors = [];
@@ -15,6 +464,10 @@ test("remote UI connects and opens each operational section", async ({ page }) =
   await page.locator("#saveButton").click();
   await page.locator("#healthButton").click();
   await expect(page.locator("#status")).toHaveText("Connected");
+  await page.getByRole("button", { name: "Activity", exact: true }).click();
+  await expect(page.locator("#bridgeConfiguration")).toContainText(`${new URL(page.url()).origin}/api/mcp`);
+  await expect(page.locator("#bridgeConfiguration")).toContainText("Configured server bind:");
+  await expect(page.locator("#bridgeConfiguration")).not.toContainText(token);
 
   for (const name of ["Products", "Workspaces", "Work", "Chat", "Voice", "Models", "Agents", "Teams", "Skills", "Routing", "CI", "Activity", "Planner"]) {
     await page.getByRole("button", { name, exact: true }).click();
@@ -266,6 +719,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
   const otherProduct = await call("aruvi_catalog", "create_product", { name: `Other ${name}` });
   const otherArea = await call("aruvi_catalog", "create_product_area", { product_id: otherProduct.id, name: "Other area" });
   const copilotProvider = process.env.ARUVI_TEST_MODEL_URL ? await call("aruvi_models", "create_provider", { name: `Copilot ${Date.now()}`, base_url: process.env.ARUVI_TEST_MODEL_URL }) : null;
+  const copilotModel = copilotProvider ? await call("aruvi_models", "create_model_definition", { provider_id: copilotProvider.id, name: "independent-copilot-model" }) : null;
   let repositoryId;
   let secondRepositoryId;
   let staleCopilotPayload;
@@ -439,7 +893,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       await page.locator("#repositoryTree").getByRole("button", { name: "inspection.txt" }).click();
       await expect(page.getByLabel("Selected file contents")).toHaveValue("workspace inspection fixture\n");
       await page.getByLabel("Selected file contents").fill("saved from browser\n");
-      await page.getByRole("button", { name: "Save file", exact: true }).click();
+      await page.getByLabel("Selected file contents").press("ControlOrMeta+s");
       await expect(page.locator("#status")).toHaveText("File saved");
       expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: "inspection.txt" })).content).toBe("saved from browser\n");
       await page.getByLabel("Selected file contents").fill("unsaved during refresh\n");
@@ -487,6 +941,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("alpha\nmiddle\nbeta\n");
       if (copilotProvider) {
         await page.getByText("Copilot settings", { exact: true }).click();
+        await page.locator("#repositoryCopilotModel").selectOption(JSON.stringify([copilotProvider.id, "independent-copilot-model"]));
         await page.getByLabel("Include file context").uncheck();
         await page.getByLabel("Copilot temperature").fill("0.5");
         await page.getByLabel("Copilot max tokens").fill("512");
@@ -495,6 +950,17 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         await page.getByRole("button", { name: "Ask Copilot", exact: true }).click();
         await expect(page.locator("#status")).toHaveText("Copilot reply ready");
         const settingsRequest = await (await request.get(process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/copilot/last"))).json();
+        expect(settingsRequest.model).toBe("independent-copilot-model");
+        expect(await page.locator("#modelInput").inputValue()).toBe("browser-test-model");
+        await call("aruvi_models", "update_model_definition", { id: copilotModel.id, enabled: false });
+        await page.getByRole("button", { name: "Refresh Copilot models" }).click();
+        await expect(page.getByRole("option", { name: "Previously selected model is unavailable" })).toHaveAttribute("disabled", "");
+        await page.getByLabel("Copilot question").fill("Must not route to the connection model");
+        await page.getByRole("button", { name: "Ask Copilot", exact: true }).click();
+        await expect(page.locator("#status")).toHaveText("Selected Copilot model is unavailable; choose another model");
+        await call("aruvi_models", "update_model_definition", { id: copilotModel.id, enabled: true });
+        await page.getByRole("button", { name: "Refresh Copilot models" }).click();
+        await expect(page.getByRole("option", { name: new RegExp("independent-copilot-model") })).not.toHaveAttribute("disabled", "");
         expect(settingsRequest.temperature).toBe(0.5);
         expect(settingsRequest.max_tokens).toBe(512);
         expect(JSON.stringify(settingsRequest.messages)).toContain("Use concise explanations.");
@@ -504,8 +970,14 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         await page.getByLabel("Copilot temperature").fill("0.2");
         await page.getByLabel("Copilot max tokens").fill("4096");
         await page.getByLabel("Additional Copilot instructions").fill("");
+        await page.locator("#repositoryCopilotModel").selectOption("");
         await page.getByText("Copilot settings", { exact: true }).click();
-        await page.getByLabel("Selected file contents").fill("unsaved working copy\n");
+        await page.getByRole("button", { name: "Use code editor" }).click();
+        await expect(page.locator("#codeEditorStatus")).toHaveText("Code editor active", { timeout: 30000 });
+        const copilotEditorInput = page.locator("#repositoryCodeEditor textarea.inputarea");
+        await copilotEditorInput.focus();
+        await page.keyboard.press("ControlOrMeta+A");
+        await page.keyboard.insertText("unsaved working copy\n");
         await expect(page.getByRole("button", { name: "Propose changes" })).toBeDisabled();
         await page.getByLabel("Copilot question").fill("Explain my unsaved edits");
         const unsavedResponse = page.waitForResponse((response) => response.url().endsWith("/api/mobile/repository-file/copilot") && response.request().method() === "POST");
@@ -517,6 +989,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         expect(JSON.stringify(unsaved.messages)).toContain("Unsaved file data");
         expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: "inspection.txt" })).content).toContain("saved from browser");
         await page.getByRole("button", { name: "Discard file edits" }).click();
+        await page.getByRole("button", { name: "Use plain text editor" }).click();
         await page.getByLabel("Copilot question").fill("Explain this file");
         await page.getByRole("button", { name: "Ask about saved file" }).click();
         await expect(page.locator("#repositoryCopilotResult")).toContainText("Container provider reply");
@@ -819,6 +1292,7 @@ test("browser edits workflow automation with conflict protection", async ({ page
   expect(initial).toHaveLength(3);
   await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
   await page.getByRole("button", { name: "Routing", exact: true }).click();
+  await expect(page.locator("#workflowAutomation")).toContainText("syntax checks alone do not verify behavior");
   const toggle = page.getByLabel("Auto-approve planning", { exact: true });
   await expect(toggle).toBeChecked();
   await toggle.uncheck();
@@ -917,6 +1391,49 @@ test("signed external channel turns use the configured planner model", async ({ 
   expect(JSON.stringify(calls[2].messages)).not.toContain("Other channel fixture product");
 });
 
+test("Docker Desktop host address is an explicit provider draft", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const headers = { Authorization: `Bearer ${token}` };
+  const name = `Docker host fixture ${Date.now()}`;
+  const created = await request.post("/api/mobile/providers", { headers, data: { name, base_url: "http://localhost:1234/v1" } });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const provider = await created.json();
+  try {
+    await page.goto("/remote");
+    await page.locator("#tokenInput").fill(token);
+    await page.locator("#saveButton").click();
+    await page.getByRole("button", { name: "Models", exact: true }).click();
+    const input = page.getByLabel("API base URL", { exact: true });
+    await input.fill("http://127.0.0.1:4321/v1");
+    await page.locator("#providerDockerHost").click();
+    await expect(input).toHaveValue("http://host.docker.internal:4321/v1");
+    await input.fill("http://[::1]:9876/custom/v1");
+    await page.locator("#providerDockerHost").click();
+    await expect(input).toHaveValue("http://host.docker.internal:9876/custom/v1");
+    await input.fill("http://localhost:1234/v1?secret=synthetic");
+    await page.locator("#providerDockerHost").click();
+    await expect(input).toHaveValue("http://localhost:1234/v1?secret=synthetic");
+    await expect(page.locator("#status")).toContainText("without credentials, query or fragment");
+    await input.fill("https://remote.example/v1");
+    await page.locator("#providerDockerHost").click();
+    await expect(input).toHaveValue("https://remote.example/v1");
+    await expect(page.locator("#status")).toContainText("loopback");
+    const card = page.locator("#providerList .tool-card").filter({ hasText: name });
+    await card.getByText("Manage provider", { exact: true }).click();
+    await card.getByRole("button", { name: "Use Docker Desktop host address" }).click();
+    await expect(card.getByLabel("Edit provider URL " + name)).toHaveValue("http://host.docker.internal:1234/v1");
+    let providers = await (await request.get("/api/mobile/providers", { headers })).json();
+    expect(providers.find(item => item.id === provider.id).base_url).toBe("http://localhost:1234/v1");
+    await card.getByRole("button", { name: "Save provider" }).click();
+    await expect(page.locator("#status")).toHaveText("Provider saved");
+    providers = await (await request.get("/api/mobile/providers", { headers })).json();
+    expect(providers.find(item => item.id === provider.id).base_url).toBe("http://host.docker.internal:1234/v1");
+  } finally {
+    const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "delete_provider", arguments: { id: provider.id } } } } });
+    expect((await response.json()).result.isError).not.toBeTruthy();
+  }
+});
+
 test("browser configures and selects a model", async ({ page, request }) => {
   test.skip(!token || !mcpToken, "Set mobile and MCP tokens for a running remote server");
   const name = `Provider test ${Date.now()}`;
@@ -965,6 +1482,20 @@ test("browser configures and selects a model", async ({ page, request }) => {
       await expect(page.locator("#status")).toHaveText("Connection successful");
     }
     await page.getByLabel("Provider for model").selectOption(providerId);
+    for (const [preset, tags] of [
+      ["deepseek-flash", "coding,planning,analysis"],
+      ["deepseek-v4-pro", "coding,planning,analysis"],
+      ["deepseek-voice-transcription", "speech_to_text,transcription,audio"],
+      ["whisper-base.en", "speech_to_text,transcription,audio"],
+    ]) {
+      await page.getByLabel("Context window (optional)").fill("1024");
+      await page.getByLabel("Model preset (optional)").selectOption(preset);
+      await expect(page.getByLabel("Provider for model")).toHaveValue(providerId);
+      await expect(page.getByLabel("Model name", { exact: true })).toHaveValue(preset);
+      await expect(page.getByLabel("Context window (optional)")).toHaveValue("");
+      await expect(page.getByLabel("Capability tags (comma-separated)")).toHaveValue(tags);
+      await expect(page.getByLabel("Notes", { exact: true })).not.toHaveValue("");
+    }
     if (process.env.ARUVI_TEST_MODEL_URL) {
       let releaseOld, startedOld;
       const oldStarted = new Promise((resolve) => { startedOld = resolve; });
@@ -1108,6 +1639,19 @@ test("mobile and MCP APIs require their configured tokens", async ({ request }) 
     data: { jsonrpc: "2.0", id: 1, method: "tools/list" },
   });
   expect(mcp.status()).toBe(401);
+});
+
+test("configured reverse-proxy origin requires matching host and MCP token", async ({ request }) => {
+  test.skip(!mcpToken || process.env.ARUVI_TEST_INSPECT !== "1", "Requires disposable origin fixture");
+  const body = { jsonrpc: "2.0", id: 1, method: "ping" };
+  const send = (host, origin, tokenValue) => request.post("/api/mcp", {
+    headers: { Host: host, Origin: origin, ...(tokenValue ? { Authorization: `Bearer ${tokenValue}` } : {}) }, data: body,
+  });
+  expect((await send("studio.example", "https://studio.example", mcpToken)).status()).toBe(200);
+  expect((await send("studio.example", "https://studio.example", null)).status()).toBe(401);
+  expect((await send("studio.example", "http://studio.example", mcpToken)).status()).toBe(403);
+  expect((await send("other.example", "https://studio.example", mcpToken)).status()).toBe(403);
+  expect((await send("other.example", "https://other.example", mcpToken)).status()).toBe(403);
 });
 
 test("activity displays model calls and their details", async ({ page }) => {
@@ -1429,6 +1973,7 @@ test("browser builds a product hierarchy", async ({ page, request }) => {
     await page.locator("#productList").getByRole("button", { name: new RegExp(product.name) }).click();
     await expect(page.locator("#productStatus")).toHaveText(product.name);
     await page.getByLabel("New product area").fill("Browser area");
+    await page.getByLabel("Product area purpose (optional)").fill("Initial purpose");
     await page.getByRole("button", { name: "Add product area" }).click();
     await expect(page.locator("#productTree")).toContainText("product area: Browser area");
     await page.locator("#productTree summary").filter({ hasText: "Browser area" }).click();
@@ -1443,6 +1988,7 @@ test("browser builds a product hierarchy", async ({ page, request }) => {
     const treeResponse = await request.get(`/api/mobile/products/${product.id}/tree`, { headers: { Authorization: `Bearer ${token}` } });
     const tree = await treeResponse.json();
     const area = tree.product_areas.find((entry) => entry.product_area.name === "Browser area");
+    expect(area.product_area.purpose).toBe("Initial purpose");
     expect(area.features[0].capability.name).toBe("Browser capability");
     expect(area.features[0].children[0].capability.name).toBe("Browser feature");
     const update = { node_type: "product_area", id: area.product_area.id, expected_name: "Browser area", expected_description: "", name: "Wrong scope", description: "" };
@@ -1455,23 +2001,44 @@ test("browser builds a product hierarchy", async ({ page, request }) => {
     await feature.getByText("Edit details", { exact: true }).click();
     await feature.getByLabel("Edit name for Browser feature").fill("Renamed feature");
     await feature.getByLabel("Edit description for Browser feature").fill("Browser-edited description");
+    await feature.getByLabel("Edit acceptance criteria for Browser feature").fill("It should work");
+    await feature.getByLabel("Edit technical notes for Browser feature").fill("Use a bounded queue");
     await feature.getByRole("button", { name: "Save details" }).click();
     await expect(page.locator("#productTree")).toContainText("Renamed feature");
     const current = await (await request.get(`/api/mobile/products/${product.id}/tree`, { headers: { Authorization: `Bearer ${token}` } })).json();
-    expect(current.product_areas[0].features[0].children[0].capability.description).toBe("Browser-edited description");
+    const savedFeature = current.product_areas[0].features[0].children[0].capability;
+    expect(savedFeature.description).toBe("Browser-edited description");
+    expect(savedFeature.acceptance_criteria).toBe("It should work");
+    expect(savedFeature.technical_notes).toBe("Use a bounded queue");
+    const guarded = {node_type:"capability",id:savedFeature.id,expected_name:savedFeature.name,expected_description:savedFeature.description,name:savedFeature.name,description:savedFeature.description,expected_acceptance_criteria:savedFeature.acceptance_criteria,acceptance_criteria:"Stale",expected_technical_notes:savedFeature.technical_notes,technical_notes:"Stale"};
+    await catalog("update_capability", {id:savedFeature.id, technical_notes:"Changed through MCP"});
+    expect((await request.post(`/api/mobile/products/${product.id}/hierarchy/update`, {headers:{Authorization:`Bearer ${token}`},data:guarded})).status()).toBe(409);
+    expect((await request.post(`/api/mobile/products/${other.id}/hierarchy/update`, {headers:{Authorization:`Bearer ${token}`},data:guarded})).status()).toBe(409);
+    expect((await request.post(`/api/mobile/products/${product.id}/hierarchy/update`, {headers:{Authorization:`Bearer ${token}`},data:{...guarded,expected_technical_notes:null}})).status()).toBe(400);
     await page.locator("#productTree summary").filter({ hasText: "Browser area" }).click();
     const areaElement = page.locator("#productTree > details").first();
     const areaEdit = areaElement.locator(":scope > details > summary").filter({ hasText: "Edit details" }).locator("..");
     await areaEdit.locator(":scope > summary").click();
     await areaElement.getByLabel("Edit name for Browser area").fill("Unsaved area edit");
-    await catalog("update_product_area", { id: area.product_area.id, description: "Concurrent description" });
+    await areaElement.getByLabel("Edit purpose for Browser area").fill("Unsaved purpose");
+    await catalog("update_product_area", { id: area.product_area.id, purpose: "Concurrent purpose" });
     const conflict = page.waitForResponse((response) => response.url().endsWith("/hierarchy/update") && response.request().method() === "POST");
     await areaEdit.getByRole("button", { name: "Save details" }).click();
     expect((await conflict).status()).toBe(409);
     await expect(areaElement.getByLabel("Edit name for Browser area")).toHaveValue("Unsaved area edit");
     const latest = await (await request.get(`/api/mobile/products/${product.id}/tree`, { headers: { Authorization: `Bearer ${token}` } })).json();
-    expect(latest.product_areas[0].product_area.description).toBe("Concurrent description");
+    expect(latest.product_areas[0].product_area.purpose).toBe("Concurrent purpose");
     expect(latest.product_areas[0].product_area.name).toBe("Browser area");
+    await page.locator('#refreshProductsButton').click();
+    await page.getByRole('button',{name:'Load product tree'}).click();
+    await page.locator('#productTree > details > summary').first().click();
+    const refreshedArea = page.locator('#productTree > details').first();
+    await refreshedArea.locator(':scope > details > summary').filter({hasText:'Edit details'}).click();
+    await refreshedArea.getByLabel('Edit purpose for Browser area').fill('Updated purpose');
+    await refreshedArea.getByRole('button',{name:'Save details'}).click();
+    await expect(page.locator('#status')).toHaveText('Hierarchy details saved');
+    const savedArea = await (await request.get(`/api/mobile/products/${product.id}/tree`, {headers:{Authorization:`Bearer ${token}`}})).json();
+    expect(savedArea.product_areas[0].product_area.purpose).toBe('Updated purpose');
   } finally {
     await catalog("archive_product", { id: product.id });
     await catalog("archive_product", { id: other.id });
@@ -1802,4 +2369,200 @@ test("planner contact asks before sending and displays routed outcomes", async (
   expect(direct[1]).toEqual({ channel: "voice", body: { to: "+15550000000", content: null } });
   await page.locator("#plannerContactMethod").selectOption("planner");
   await expect(page.locator("#plannerContactChannel")).toBeEnabled();
+});
+
+test("browser manages portfolio strategy and product dependencies", async ({ page, request }) => {
+  test.skip(!token || !mcpToken, "Requires disposable authenticated fixture");
+  async function call(action, args) {
+    const response = await request.post('/api/mcp', {headers:{Authorization:`Bearer ${mcpToken}`}, data:{jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'aruvi_catalog',arguments:{action,arguments:args}}}});
+    const body = await response.json();
+    if (!response.ok() || body.error || body.result?.isError) throw new Error(`MCP ${action} failed`);
+    return body.result.structuredContent.result;
+  }
+  const suffix = Date.now();
+  const a = await call('create_product', {name:`Portfolio A ${suffix}`});
+  const b = await call('create_product', {name:`Portfolio B ${suffix}`});
+  const areaA = await call('create_product_area', {product_id:a.id, name:'Alpha area'});
+  const areaB = await call('create_product_area', {product_id:b.id, name:'Beta area'});
+  const capA = await call('create_capability', {product_area_id:areaA.id, name:'Alpha capability'});
+  const capB = await call('create_capability', {product_area_id:areaB.id, name:'Beta capability'});
+  let node;
+  try {
+    await page.goto('/remote'); await page.locator('#tokenInput').fill(token); await page.locator('#saveButton').click();
+    await page.getByRole('button',{name:'Products',exact:true}).click();
+    await expect(page.locator('#productList')).toContainText(a.name);
+    await page.locator('#portfolioSection summary').click();
+    await page.getByLabel('Strategy name').fill(`Strategy ${suffix}`);
+    const creation = page.waitForResponse(r => r.url().endsWith('/api/mobile/portfolio') && r.request().postDataJSON()?.action === 'create_strategy_node');
+    await page.getByRole('button',{name:'Add strategy node'}).click();
+    const response = await creation; expect(response.ok(), await response.text()).toBeTruthy(); node = await response.json();
+    await expect(page.locator('#strategyList')).toContainText(node.name);
+    await page.getByText('Edit strategy', {exact:true}).click();
+    await page.getByLabel('Edit strategy name').fill(`Stale strategy ${suffix}`);
+    await call('update_strategy_node', {id:node.id, name:`Concurrent strategy ${suffix}`});
+    await page.getByRole('button',{name:'Save strategy'}).click();
+    await expect(page.locator('#status')).toContainText('refresh before saving');
+    await expect(page.getByLabel('Edit strategy name')).toHaveValue(`Stale strategy ${suffix}`);
+    await page.getByRole('button',{name:'Refresh portfolio'}).click();
+    await expect(page.locator('#strategyList')).toContainText(`Concurrent strategy ${suffix}`);
+    await page.getByText('Edit strategy', {exact:true}).click();
+    await page.getByLabel('Edit strategy name').fill(`Edited strategy ${suffix}`);
+    await page.getByRole('button',{name:'Save strategy'}).click();
+    await expect(page.locator('#strategyList')).toContainText(`Edited strategy ${suffix}`);
+    node.name = `Edited strategy ${suffix}`;
+    await page.getByLabel('Product to link').selectOption(a.id); await page.getByLabel('Strategy to link').selectOption(node.id);
+    await call('link_product_to_strategy',{product_id:a.id,strategy_node_id:node.id,is_primary:false});
+    await page.getByLabel('Primary strategy').check(); await page.getByRole('button',{name:'Link product'}).click();
+    await expect(page.locator('#status')).toContainText('links changed; refresh');
+    await page.getByRole('button',{name:'Refresh portfolio'}).click();
+    await expect(page.locator('#strategyLinks')).toContainText(a.name);
+    await page.getByRole('button',{name:'Link product'}).click();
+    await expect(page.locator('#strategyLinks')).toContainText('primary');
+    let releaseOld, markStarted;
+    const oldStarted = new Promise(resolve => { markStarted = resolve; });
+    const oldGate = new Promise(resolve => { releaseOld = resolve; });
+    await page.route('**/api/mobile/products/*/tree', async route => {
+      if (route.request().url().includes(`/products/${a.id}/`)) { markStarted(); await oldGate; }
+      await route.continue();
+    });
+    await page.getByLabel('Dependent product').selectOption(a.id); await oldStarted;
+    await page.getByLabel('Dependent product').selectOption(b.id);
+    await expect(page.getByLabel('Dependent capability (optional)')).toContainText('Beta area › Beta capability');
+    const oldResponse = page.waitForResponse(response => response.url().includes(`/products/${a.id}/tree`));
+    releaseOld();
+    await (await oldResponse).finished();
+    await page.unroute('**/api/mobile/products/*/tree');
+    await expect(page.getByLabel('Dependent capability (optional)')).not.toContainText('Alpha area › Alpha capability');
+    await page.route('**/api/mobile/products/*/tree', route => route.fulfill({status:503, body:'fixture outage'}));
+    await page.getByLabel('Dependent product').selectOption(a.id);
+    await expect(page.locator('#dependencyCapabilityStatus')).toContainText('Could not load');
+    await expect(page.getByRole('button',{name:'Add dependency'})).toBeDisabled();
+    await page.unroute('**/api/mobile/products/*/tree');
+    await page.getByLabel('Dependent product').selectOption(b.id);
+    await page.getByLabel('Dependent product').selectOption(a.id); await page.getByLabel('Depends on product').selectOption(b.id);
+    await expect(page.getByLabel('Dependent capability (optional)')).toContainText('Alpha area › Alpha capability');
+    await expect(page.getByLabel('Target capability (optional)')).toContainText('Beta area › Beta capability');
+    await page.getByLabel('Dependent capability (optional)').selectOption(capA.id);
+    await page.getByLabel('Target capability (optional)').selectOption(capB.id);
+    await page.getByLabel('Dependency kind').selectOption('data'); await page.getByRole('button',{name:'Add dependency'}).click();
+    await expect(page.locator('#dependencyList')).toContainText(b.name);
+    expect((await call('list_product_dependencies',{})).some(d => d.product_id === a.id && d.depends_on_product_id === b.id && d.capability_id === capA.id && d.depends_on_capability_id === capB.id && d.dependency_kind === 'data')).toBe(true);
+    page.once('dialog', dialog => dialog.accept()); await page.getByRole('button',{name:'Delete dependency'}).click();
+    await expect(page.locator('#dependencyList')).not.toContainText(b.name);
+    await call('link_product_to_strategy',{product_id:a.id,strategy_node_id:node.id,is_primary:false});
+    page.once('dialog', dialog => dialog.accept()); await page.getByRole('button',{name:'Unlink',exact:true}).click();
+    await expect(page.locator('#status')).toContainText('links changed; refresh');
+    await page.getByRole('button',{name:'Refresh portfolio'}).click();
+    await expect(page.locator('#strategyLinks')).not.toContainText('primary');
+    page.once('dialog', dialog => dialog.accept()); await page.getByRole('button',{name:'Unlink',exact:true}).click();
+    await expect(page.locator('#strategyLinks')).not.toContainText(a.name);
+    await call('create_strategy_node',{parent_node_id:node.id,node_kind:'domain',name:`Concurrent child ${suffix}`});
+    page.once('dialog', dialog => dialog.accept()); await page.getByRole('button',{name:'Delete strategy'}).click();
+    await expect(page.locator('#status')).toContainText('refresh before deleting');
+    await expect(page.locator('#strategyList')).toContainText(node.name);
+    await page.getByRole('button',{name:'Refresh portfolio'}).click();
+    await expect(page.locator('#strategyList')).toContainText(`Concurrent child ${suffix}`);
+    page.once('dialog', dialog => dialog.accept()); await page.locator('#strategyList .tool-card').filter({has:page.getByText(`${node.name} · strategic_product_area · root`, {exact:true})}).getByRole('button',{name:'Delete strategy'}).click();
+    await expect(page.locator('#strategyList')).not.toContainText(node.name); node = null;
+  } finally {
+    if (node) await call('delete_strategy_node',{id:node.id});
+    await call('archive_product',{id:a.id}); await call('archive_product',{id:b.id});
+  }
+});
+
+test("browser edits product details and preserves a conflicting draft", async ({page,request}) => {
+  test.skip(!token || !mcpToken, "Requires disposable authenticated fixture");
+  async function call(action,args) {
+    const response = await request.post('/api/mcp',{headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'aruvi_catalog',arguments:{action,arguments:args}}}});
+    const data = await response.json(); expect(data.result?.isError).not.toBeTruthy(); return data.result.structuredContent.result;
+  }
+  const product = await call('create_product',{name:`Product editor ${Date.now()}`});
+  try {
+    expect((await request.post(`/api/mobile/products/${product.id}/update`,{data:{expected:product,fields:product}})).status()).toBe(401);
+    const headers = {Authorization:`Bearer ${token}`};
+    expect((await request.post('/api/mobile/products/other/update',{headers,data:{expected:product,fields:product}})).status()).toBe(400);
+    expect((await request.post(`/api/mobile/products/${product.id}/update`,{headers,data:{expected:product,fields:{...product,name:' '}}})).status()).toBe(400);
+    expect((await request.post(`/api/mobile/products/${product.id}/update`,{headers,data:{expected:product,fields:{...product,status:'archived'}}})).status()).toBe(400);
+    await page.goto('/remote'); await page.locator('#tokenInput').fill(token); await page.locator('#saveButton').click();
+    await page.getByRole('button',{name:'Products',exact:true}).click();
+    await page.locator('#productList').getByRole('button',{name:new RegExp(product.name)}).click();
+    await page.locator('#productEditSection summary').click();
+    const editor = page.locator('#productEditForm');
+    await editor.getByLabel('Edit product name').fill('Unsaved product');
+    await call('update_product',{id:product.id,vision:'Concurrent vision'});
+    await page.getByRole('button',{name:'Save product'}).click();
+    await expect(page.locator('#status')).toContainText('Product changed');
+    await expect(editor.getByLabel('Edit product name')).toHaveValue('Unsaved product');
+    await page.locator('#productEditSection summary').click();
+    await page.getByRole('button',{name:'Refresh',exact:true}).first().click();
+    await page.locator('#productEditSection summary').click();
+    await expect(editor.getByLabel('Vision',{exact:true})).toHaveValue('Concurrent vision');
+    await editor.getByLabel('Edit product name').fill('Updated product');
+    await editor.getByLabel('Product description').fill('Description');
+    await editor.getByLabel('Vision',{exact:true}).fill('Vision');
+    await editor.getByLabel('Goals (comma-separated)').fill('First, Second');
+    await editor.getByLabel('Tags (comma-separated)').fill('alpha, beta');
+    await editor.getByLabel('Lifecycle').selectOption('active'); await editor.getByLabel('Health').selectOption('watch');
+    await editor.getByLabel('Owner',{exact:true}).fill('Owner'); await editor.getByLabel('Investment').selectOption('invest');
+    await editor.getByLabel('Roadmap').fill('Roadmap'); await editor.getByLabel('Evidence').fill('Evidence');
+    await page.getByRole('button',{name:'Save product'}).click(); await expect(page.locator('#status')).toHaveText('Product saved');
+    expect(await call('get_product',{id:product.id})).toMatchObject({name:'Updated product',description:'Description',vision:'Vision',goals:['First','Second'],tags:['alpha','beta'],lifecycle:'active',health:'watch',owner_label:'Owner',investment_status:'invest',roadmap:'Roadmap',evidence:'Evidence'});
+  } finally { await call('archive_product',{id:product.id}); }
+});
+
+test("browser displays product-scoped references on demand", async ({page,request}) => {
+  test.skip(!token || !mcpToken, "Requires disposable authenticated fixture");
+  async function call(action,args) {
+    const response = await request.post('/api/mcp',{headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'aruvi_catalog',arguments:{action,arguments:args}}}});
+    const data = await response.json(); expect(data.result?.isError).not.toBeTruthy(); return data.result.structuredContent.result;
+  }
+  const product = await call('create_product',{name:`Reference product ${Date.now()}`});
+  const other = await call('create_product',{name:`Other references ${Date.now()}`});
+  try {
+    const area = await call('create_product_area',{product_id:product.id,name:'Reference area'});
+    const cap = await call('create_capability',{product_area_id:area.id,name:'Reference capability'});
+    await call('create_reference',{scope_type:'product',scope_id:product.id,title:'Product ref',content:'Product reference content',uri:'javascript:alert(1)'});
+    for (let index=0; index<51; index++) await call('create_reference',{scope_type:'product',scope_id:product.id,title:`Paged reference ${index}`});
+    await call('create_reference',{scope_type:'capability',scope_id:cap.id,title:'Capability ref',content:'Scoped capability content',uri:'https://example.com/guide'});
+    const url = `/api/mobile/products/${product.id}/references?scope_type=capability&scope_id=${cap.id}`;
+    expect((await request.get(url)).status()).toBe(401);
+    expect((await request.get(`/api/mobile/products/${other.id}/references?scope_type=capability&scope_id=${cap.id}`,{headers:{Authorization:`Bearer ${token}`}})).status()).toBe(404);
+    expect((await request.get(`/api/mobile/products/${product.id}/references?scope_type=feature&scope_id=${cap.id}`,{headers:{Authorization:`Bearer ${token}`}})).status()).toBe(404);
+    const create = {scope_type:'capability',scope_id:cap.id,title:'Cross scope',reference_kind:'note',uri:'',content:''};
+    expect((await request.post(`/api/mobile/products/${product.id}/references`,{data:create})).status()).toBe(401);
+    expect((await request.post(`/api/mobile/products/${other.id}/references`,{headers:{Authorization:`Bearer ${token}`},data:create})).status()).toBe(404);
+    await page.goto('/remote'); await page.locator('#tokenInput').fill(token); await page.locator('#saveButton').click();
+    await page.getByRole('button',{name:'Products',exact:true}).click();
+    await page.locator('#productList').getByRole('button',{name:new RegExp(product.name)}).click();
+    const productRefs = page.locator('#productReferences details'); await productRefs.locator('summary').click();
+    await productRefs.getByRole('button',{name:'Load references'}).click();
+    await expect(productRefs.locator('.tool-card')).toHaveCount(50);
+    await productRefs.getByRole('button',{name:'Load more references'}).click();
+    await expect(productRefs.locator('.tool-card')).toHaveCount(52);
+    await expect(productRefs).toContainText('Product reference content');
+    await expect(productRefs.locator('a')).toHaveCount(0);
+    await page.getByRole('button',{name:'Load product tree'}).click();
+    await page.locator('#productTree summary').filter({hasText:'Reference area'}).click();
+    const node = page.locator('#productTree details').filter({has:page.locator(':scope > summary').filter({hasText:'Reference capability'})}).last();
+    await node.locator(':scope > summary').click();
+    const nodeRefs = node.locator(':scope > details').filter({has:page.getByText('References',{exact:true})});
+    await nodeRefs.locator(':scope > summary').click(); await nodeRefs.getByRole('button',{name:'Load references'}).click();
+    await expect(nodeRefs).toContainText('Scoped capability content');
+    await expect(nodeRefs.locator('a')).toHaveAttribute('href','https://example.com/guide');
+    await nodeRefs.getByLabel('Reference title').fill('Browser-created reference');
+    await nodeRefs.getByLabel('Reference kind').selectOption('architecture');
+    await nodeRefs.getByLabel('Reference content').fill('Created from the browser');
+    const responsePromise = page.waitForResponse(response => response.url().endsWith('/references') && response.request().method() === 'POST');
+    await nodeRefs.getByRole('button',{name:'Add reference'}).click();
+    const createdResponse = await responsePromise; expect(createdResponse.status()).toBe(201);
+    const created = await createdResponse.json();
+    await expect(nodeRefs).toContainText('Browser-created reference');
+    const deleteUrl = `/api/mobile/products/${product.id}/references/delete`;
+    expect((await request.post(deleteUrl,{data:{expected:created}})).status()).toBe(401);
+    expect((await request.post(`/api/mobile/products/${other.id}/references/delete`,{headers:{Authorization:`Bearer ${token}`},data:{expected:created}})).status()).toBe(409);
+    expect((await request.post(deleteUrl,{headers:{Authorization:`Bearer ${token}`},data:{expected:{...created,content:'stale'}}})).status()).toBe(409);
+    page.once('dialog', dialog => dialog.accept());
+    await nodeRefs.locator('.tool-card').filter({hasText:'Browser-created reference'}).getByRole('button',{name:'Delete reference'}).click();
+    await expect(nodeRefs).not.toContainText('Browser-created reference');
+  } finally { await call('archive_product',{id:product.id}); await call('archive_product',{id:other.id}); }
 });

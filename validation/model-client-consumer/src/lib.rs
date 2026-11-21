@@ -5,8 +5,27 @@ mod tests {
     use std::{io::{Read, Write}, net::TcpListener, thread};
 
     #[tokio::test]
+    async fn rejects_openai_choice_after_finish_without_emitting_it() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 4096]; let _ = socket.read(&mut request).unwrap();
+            let body = "data: {\"choices\":[{\"delta\":{\"content\":\"first\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"unexpected\"}}]}\n\ndata: [DONE]\n\n";
+            let _ = write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+        });
+        let client = OpenAiCompatibleClient::new(format!("http://{address}"), None);
+        let request = CompletionRequest { model:"fixture".into(), messages:vec![ChatMessage {role:"user".into(),content:"hello".into()}], temperature:None, max_tokens:Some(10) };
+        let mut partial = String::new();
+        let error = client.stream_completion(request, &mut |delta: &str| partial.push_str(delta)).await.unwrap_err();
+        assert_eq!(partial, "first");
+        assert!(error.to_string().contains("after its finish reason"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
     async fn independent_consumer_selects_proxy_transcription_language_array() {
-        use aruvi_model_client::{openai_compatible::TranscriptionLanguageMode, TranscriptionRequest};
+        use aruvi_model_client::{create_gateway, ClientOptions, GatewayConfig, openai_compatible::{CompletionOptions, TranscriptionLanguageMode}, TranscriptionRequest};
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let address = listener.local_addr().unwrap();
         let server = thread::spawn(move || {
@@ -25,8 +44,11 @@ mod tests {
             let reply = r#"{"text":"fixture"}"#;
             write!(socket, "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", reply.len(), reply).unwrap();
         });
-        let gateway: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(format!("http://{address}"), None)
-            .with_transcription_language_mode(TranscriptionLanguageMode::Array));
+        let gateway = create_gateway(GatewayConfig::OpenAiCompatible {
+            base_url: format!("http://{address}"), api_key: None, options: ClientOptions::default(),
+            completion: CompletionOptions::default(), stream_usage: false,
+            transcription_language: TranscriptionLanguageMode::Array,
+        }).unwrap();
         let transcript = gateway.transcribe(TranscriptionRequest { model: "gpt-transcribe".into(), audio: vec![1], mime_type: "audio/wav".into(), filename: "audio.wav".into(), language: Some("en".into()) }).await.unwrap();
         assert_eq!(transcript, "fixture");
         server.join().unwrap();
@@ -200,6 +222,44 @@ mod tests {
         let error = client.run_completion(request).await.unwrap_err();
         assert_eq!(error.http_status(), Some(401));
         assert!(!format!("{error:?}").contains("private provider detail"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_anthropic_initial_content_instead_of_losing_it() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 4096]; let _ = socket.read(&mut request).unwrap();
+            let body = "data: {\"type\":\"message_start\",\"message\":{\"content\":[{\"type\":\"tool_use\",\"name\":\"fixture\"}]}}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n";
+            let _ = write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body);
+        });
+        let client: Box<dyn ModelGateway> = Box::new(AnthropicClient::new(format!("http://{address}"), "synthetic-key".into()).unwrap());
+        let request = CompletionRequest { model:"fixture".into(), messages:vec![ChatMessage {role:"user".into(),content:"hello".into()}], temperature:None, max_tokens:Some(10) };
+        let mut partial = String::new();
+        let error = client.stream_completion(request, &mut |delta| partial.push_str(delta)).await.unwrap_err();
+        assert!(partial.is_empty());
+        assert!(error.to_string().contains("initial message contains unsupported content"));
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn rejects_unclosed_anthropic_indexed_block_after_partial_text() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = [0; 4096]; let _ = socket.read(&mut request).unwrap();
+            let body = "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"partial\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n";
+            write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+        });
+        let client: Box<dyn ModelGateway> = Box::new(AnthropicClient::new(format!("http://{address}"), "synthetic-key".into()).unwrap());
+        let request = CompletionRequest { model: "fixture".into(), messages: vec![ChatMessage { role: "user".into(), content: "hello".into() }], temperature: None, max_tokens: Some(10) };
+        let mut partial = String::new();
+        let error = client.stream_completion(request, &mut |delta| partial.push_str(delta)).await.unwrap_err();
+        assert_eq!(partial, "partial");
+        assert!(error.to_string().contains("open content block"));
         server.join().unwrap();
     }
 

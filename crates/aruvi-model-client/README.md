@@ -31,6 +31,14 @@ callback may already have received partial text before that error.
 Malformed Anthropic stream envelopes and non-object message deltas are rejected,
 including after text has been emitted; unknown named event types remain ignored
 for compatibility with future provider events.
+When content blocks carry indices, text deltas must refer to an open text block,
+and the stream must close indexed blocks before its terminal event. Unindexed
+events remain accepted for compatibility with proxies, so this does not enforce
+the complete Anthropic event sequence in those streams.
+An initial Anthropic `message_start` may omit content or provide an empty list;
+nonempty or malformed initial content is rejected rather than silently dropping
+text or tool-use blocks. The [Anthropic streaming documentation](https://platform.claude.com/docs/en/build-with-claude/streaming)
+shows the normal empty initial list and subsequent content-block events.
 Mixed Anthropic content rejects invalid or unsupported blocks instead of returning
 partial text as a complete response. Documented `thinking` and `redacted_thinking`
 blocks are omitted from text-only responses; tool-use turns remain unsupported.
@@ -44,6 +52,11 @@ SSE choices are checked for non-text or malformed content in both `delta` and
 When an SSE choice supplies a full message, it is emitted once if no deltas
 preceded it; otherwise it must match the accumulated deltas and is not appended
 again. Conflicting full messages or later text deltas fail the request.
+After an OpenAI-compatible SSE choice reports `finish_reason: stop`, any later
+choice event fails the request; usage-only events and the terminal marker remain
+valid. A streaming callback may already have received earlier deltas when a
+later protocol error is reported, so callers must treat the final result as the
+completion outcome.
 See the [Anthropic Messages reference](https://platform.claude.com/docs/en/api/messages/create)
 for provider content-block types.
 For Anthropic, a supplied stop reason indicating token truncation, a paused turn,
@@ -162,6 +175,14 @@ language hint, unsupported output formats, speed and unknown voices instead of
 silently applying them. Studio retains its existing behavior of omitting the
 browser locale for DeepSeek transcription, whose service detects the language.
 
+Use `create_gateway` with `GatewayConfig::OpenAiCompatible`, `::Anthropic`, or
+`::DeepSeekVoice` to construct a provider-independent `Box<dyn ModelGateway>`.
+The caller explicitly supplies the endpoint, credential, timeouts and any
+OpenAI-compatible request options. Configuration is neither serialized nor
+debug-formatted by the library, and the caller remains responsible for its own
+credential storage. Provider capabilities describe transport support, not the
+capabilities of every model hosted by that provider.
+
 Use `Box<dyn ModelGateway>` when a caller needs to switch providers without
 matching on concrete client types. Its methods cover text completion, opt-in
 JSON-object completion, text streaming, model discovery, remote transcription
@@ -233,7 +254,7 @@ Studio Git repository as the shared source and pin an immutable, tested commit:
 
 ```toml
 [dependencies]
-aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev = "12791e9fcd018ea4847ff7a2591535d4de07914e" }
+aruvi-model-client = { git = "https://github.com/vivasaayi/AruviStudio.git", rev = "342520c95f4481d72646f83f9394c45134dc2864" }
 ```
 
 This revision is an integration checkpoint, not a release or a promise of API
@@ -247,8 +268,15 @@ cargo vendor --locked vendor > .cargo/config.toml
 cargo test --locked --offline
 ```
 
+Run `bash scripts/test shared-client-package` to package the current crate offline,
+verify that the packaged crate builds, and run its tests from the unpacked package.
+This is a local packaging check; it neither publishes the crate nor establishes a
+release policy. It needs the locked dependencies already in the local Cargo cache.
+
 The `validation/model-client-consumer` fixture pins this revision and its own
-lockfile; `bash scripts/test shared-client-consumer` builds it in Docker, vendors
+lockfile. `bash scripts/test shared-client-pin` checks the local manifest, license
+and source files against that revision, which must be available in the local Git
+object store. `bash scripts/test shared-client-consumer` also builds it in Docker, vendors
 dependencies and runs its tests with networking disabled. When promoting another
 client revision, first push it, update the fixture's Git revision and lockfile,
 then rerun the check before updating consumers. Do not use a mutable branch as a

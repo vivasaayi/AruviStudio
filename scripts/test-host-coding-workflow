@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Run a real local coding workflow in a disposable Studio fixture container."""
+"""Run a real local coding workflow in a disposable Studio fixture container.
+
+ARUVI_TEST_APP_IMAGE optionally selects an already-built candidate image.
+"""
 import argparse
 import json
 import os
@@ -16,13 +19,19 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-model-host-studio-validation")
 parser.add_argument("--scenario", choices=("new-module", "extend-module"), default="new-module")
 parser.add_argument("--json-mode", action="store_true", help="Opt the disposable coding agent into JSON-object output")
+parser.add_argument("--prompt-template", action="store_true", help="Assign and verify a managed coding prompt template in the disposable fixture")
+parser.add_argument("--expect-edit-guidance", action="store_true", help="Verify coding model request snapshots include the duplicate-definition guidance")
 parser.add_argument("--verify-gate-rejects-invalid", action="store_true", help="Prove an invalid JavaScript fixture fails the workflow test gate")
 parser.add_argument("--verify-behavior-rejection", action="store_true", help="Prove the independent behavioral review blocks delivery of invalid exports")
 parser.add_argument("--verify-duplicate-rejection", action="store_true", help="Prove a behaviorally correct duplicate declaration is rejected before delivery")
 parser.add_argument("--other-stage-model", help="Use another installed model for non-coding agents in this disposable fixture")
+parser.add_argument("--workspace-override", action="store_true", help="Run against a work-item workspace distinct from the product default")
+parser.add_argument("--non-coding-max-tokens", type=int, help="Set the response budget for non-coding agents in the disposable fixture")
 args = parser.parse_args()
 if args.verify_duplicate_rejection and (args.scenario != "extend-module" or args.verify_behavior_rejection or args.verify_gate_rejects_invalid):
     parser.error("--verify-duplicate-rejection requires extend-module without other rejection flags")
+if args.non_coding_max_tokens is not None and not 256 <= args.non_coding_max_tokens <= 16384:
+    parser.error("--non-coding-max-tokens must be between 256 and 16384")
 host = args.host.expanduser().resolve()
 container = None
 volume = None
@@ -59,7 +68,8 @@ try:
     if subprocess.run(["docker", "volume", "inspect", pdf_volume], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
         raise ValueError("Disposable PDF fixture volume name is already in use")
     volume_owned = True
-    compose_env = dict(os.environ, APP_IMAGE=studio_env["APP_IMAGE"], PRODUCT_SOURCE=str(root), TEST_SOCKET_NAME=volume, TEST_PDF_SOCKET_NAME=pdf_volume, COMPOSE_IGNORE_ORPHANS="true")
+    image = os.environ.get("ARUVI_TEST_APP_IMAGE") or studio_env["APP_IMAGE"]
+    compose_env = dict(os.environ, APP_IMAGE=image, PRODUCT_SOURCE=str(root), TEST_SOCKET_NAME=volume, TEST_PDF_SOCKET_NAME=pdf_volume, COMPOSE_IGNORE_ORPHANS="true")
     compose = ["docker", "compose", "--project-name", studio["project"], "--project-directory", str(root), "--env-file", str(envfile), "-f", str(root / "deploy/compose.test.yaml")]
     command(compose + ["run", "--rm", "-d", "--name", container, "-p", "127.0.0.1::8787", "fixture"], env=compose_env)
     container_created = True
@@ -79,6 +89,8 @@ try:
     if args.verify_gate_rejects_invalid:
         subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "cat > /tmp/aruvi-invalid-syntax.js"], input="function broken( {\n", text=True, check=True)
     command(["docker", "exec", container, "sh", "-c", 'mkdir -p /repositories/coding-fixture && git init -q -b main /repositories/coding-fixture && git -C /repositories/coding-fixture config user.name "Fixture" && git -C /repositories/coding-fixture config user.email "fixture@example.invalid" && printf "# Fixture\\n" > /repositories/coding-fixture/README.md && git -C /repositories/coding-fixture add README.md && git -C /repositories/coding-fixture commit -q -m initial && git init -q --bare /repositories/coding-origin.git && git -C /repositories/coding-fixture remote add origin /repositories/coding-origin.git && git -C /repositories/coding-fixture push -q -u origin main'])
+    if args.workspace_override:
+        command(["docker", "exec", container, "sh", "-c", 'mkdir -p /repositories/coding-default && git init -q -b main /repositories/coding-default && printf "default fixture\\n" > /repositories/coding-default/README.md'])
     if args.scenario == "extend-module":
         original = "function sumEven(numbers) { return numbers.filter(n => n % 2 === 0).reduce((a, b) => a + b, 0); }\nmodule.exports = { sumEven };\n"
         subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "mkdir -p /repositories/coding-fixture/src && cat > /repositories/coding-fixture/src/math.js"], input=original, text=True, check=True)
@@ -112,18 +124,29 @@ try:
         if agent["enabled"]:
             selected = model if agent["id"] == "coding-agent" else other
             call("aruvi_agents", "set_primary_agent_model_binding", {"agent_id": agent["id"], "model_id": selected["id"]})
+            if args.non_coding_max_tokens is not None and agent["id"] != "coding-agent":
+                boundaries = dict(agent["boundaries"])
+                boundaries["max_tokens"] = args.non_coding_max_tokens
+                call("aruvi_agents", "update_agent_definition", {"id": agent["id"], "boundaries": boundaries})
     if args.json_mode:
         coding = next((agent for agent in agents if agent["id"] == "coding-agent" and agent["enabled"]), None)
         if not coding: raise ValueError("Disposable coding agent is unavailable")
         boundaries = dict(coding["boundaries"])
         boundaries["json_object_output"] = True
         call("aruvi_agents", "update_agent_definition", {"id": coding["id"], "boundaries": boundaries})
+    template_instruction = "Prefer small, clear functions and preserve all requested exports."
+    if args.prompt_template:
+        template = call("aruvi_agents", "create_prompt_template", {"name": "Real coding fixture", "role": "coding", "template_text": template_instruction})
+        call("aruvi_agents", "update_agent_definition", {"id": "coding-agent", "prompt_template_ref": "template:" + template["id"]})
     test_file = "/tmp/aruvi-invalid-syntax.js" if args.verify_gate_rejects_invalid else "src/math.js"
     for key, value in [("workflow.auto_start_after_work_item_approval", "false"), ("workflow.auto_approve_plan", "false"), ("workflow.auto_approve_test_review", "false"), ("workflow.test_argv", json.dumps(["/tmp/aruvi-fixture-node", "--check", test_file]))]:
         call("aruvi_settings", "set_setting", {"key": key, "value": value})
     product = call("aruvi_catalog", "create_product", {"name": "Disposable real coding evaluation"})
     repo = call("aruvi_repositories", "register_repository", {"name": "Coding fixture", "local_path": "/repositories/coding-fixture", "default_branch": "main"})
-    call("aruvi_repositories", "attach_repository", {"scope_type": "product", "scope_id": product["id"], "repository_id": repo["id"], "is_default": True})
+    default_repo = repo
+    if args.workspace_override:
+        default_repo = call("aruvi_repositories", "register_repository", {"name": "Default fixture", "local_path": "/repositories/coding-default", "default_branch": "main"})
+    call("aruvi_repositories", "attach_repository", {"scope_type": "product", "scope_id": product["id"], "repository_id": default_repo["id"], "is_default": True})
     if args.scenario == "extend-module":
         title = "Extend existing math module"
         description = ("Edit the existing src/math.js. Preserve sumEven and add clamp(value, min, max). "
@@ -133,6 +156,9 @@ try:
         title = "Add sumEven"
         description = "Create src/math.js containing function sumEven(numbers) that returns the sum of even integers, and export it as module.exports = { sumEven }. Return 0 for an empty array."
     item = call("aruvi_work_items", "create_work_item", {"product_id": product["id"], "title": title, "description": description, "work_item_type": "task"})
+    if args.workspace_override:
+        assigned = call("aruvi_work_items", "assign_work_item_workspace", {"id": item["id"], "repository_id": repo["id"], "branch_name": "main"})
+        if assigned.get("repo_override_id") != repo["id"]: raise ValueError("Work item workspace assignment failed")
     call("aruvi_checkpoints", "approve_work_item", {"work_item_id": item["id"]})
     run_id = call("aruvi_workflows", "start_work_item_workflow", {"work_item_id": item["id"]})["workflow_run_id"]
     run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
@@ -144,10 +170,34 @@ try:
             if artifact.get("artifact_type") == "coding_tool_trace":
                 trace = call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": artifact["id"]})
                 print("Coding trace:", trace["content"][:5000], flush=True)
+    def verify_prompt_template():
+        if not args.prompt_template: return
+        artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
+        prompts = [artifact for artifact in artifacts if artifact.get("artifact_type") == "coding_prompt" and artifact.get("workflow_run_id") == run_id]
+        if len(prompts) != 1: raise ValueError("Expected one coding prompt artifact")
+        prompt = call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": prompts[0]["id"]})
+        if template_instruction not in prompt["content"]: raise ValueError("Coding prompt did not contain the configured template")
+        print("Configured prompt template reached the real coding workflow", flush=True)
+    def verify_edit_guidance():
+        if not args.expect_edit_guidance: return
+        calls = call("aruvi_models", "list_model_calls", {"limit": 200})
+        coding_calls = [entry for entry in calls if entry.get("workflow_run_id") == run_id and entry.get("stage") == "coding" and entry.get("request_snapshot_path")]
+        for entry in coding_calls:
+            snapshot = call("aruvi_models", "read_model_call_snapshot", {"id": entry["id"], "kind": "request"})
+            if "do not add a duplicate definition merely to preserve it" in snapshot:
+                print("Duplicate-definition guidance reached the real coding model", flush=True)
+                return
+        raise ValueError("Coding model request did not contain the expected edit guidance")
     try:
         call("aruvi_workflows", "handle_workflow_user_action", {"workflow_run_id": run_id, "action": "approve"})
     except ValueError as failure:
         print_coding_trace()
+        if args.expect_edit_guidance:
+            try: verify_edit_guidance()
+            except ValueError as error: print("Edit guidance could not be verified:", error, flush=True)
+        if args.prompt_template:
+            try: verify_prompt_template()
+            except ValueError as error: print("Prompt template could not be verified:", error, flush=True)
         if args.verify_gate_rejects_invalid:
             artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
             matches = [artifact for artifact in artifacts if artifact.get("artifact_type") == "workflow_test_result" and artifact.get("workflow_run_id") == run_id]
@@ -155,8 +205,9 @@ try:
             report = json.loads(call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": matches[0]["id"]})["content"])
             if report.get("status") != "failed" or report.get("exit_code") in (None, 0): raise ValueError("Invalid syntax was not rejected by the workflow test gate") from failure
             if "aruvi-invalid-syntax.js" not in report.get("stderr", ""): raise ValueError("Workflow test failed for an unexpected reason") from failure
-            remote_has_file = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "cat-file", "-e", "main:src/math.js"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if remote_has_file.returncode == 0: raise ValueError("Failed test was delivered to the remote") from failure
+            remote = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"], text=True, capture_output=True)
+            unchanged = (remote.returncode == 0 and remote.stdout == original) if args.scenario == "extend-module" else remote.returncode != 0
+            if not unchanged: raise ValueError("Failed test changed the disposable remote") from failure
             print("Workflow test gate rejected invalid syntax and did not deliver", flush=True)
             sys.exit(0)
         try:
@@ -179,12 +230,18 @@ try:
                     print("Model call:", json.dumps({key: entry.get(key) for key in ("stage", "source_label", "status", "max_tokens", "token_count_input", "token_count_output")}), flush=True)
         except (OSError, ValueError, TypeError):
             print("Model call diagnostics unavailable", flush=True)
+        remote = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"], text=True, capture_output=True)
+        unchanged = (remote.returncode == 0 and remote.stdout == original) if args.scenario == "extend-module" else remote.returncode != 0
+        if not unchanged: raise ValueError("Failed coding workflow changed the disposable remote") from failure
+        print("Failed workflow did not change the disposable Git remote", flush=True)
         raise
     run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
     print("Stage after coding:", run["current_stage"], flush=True)
     if run["current_stage"] != "pending_test_review": raise ValueError("Workflow did not reach test review")
     print_coding_trace()
+    verify_edit_guidance()
     artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
+    verify_prompt_template()
     test_artifacts = [artifact for artifact in artifacts if artifact.get("artifact_type") == "workflow_test_result" and artifact.get("workflow_run_id") == run_id]
     if len(test_artifacts) != 1: raise ValueError("Expected one workflow test result artifact")
     test_result = json.loads(call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": test_artifacts[0]["id"]})["content"])
@@ -192,6 +249,10 @@ try:
         raise ValueError("Workflow syntax check did not pass")
     print("Workflow syntax check passed", flush=True)
     file = call("aruvi_repositories", "read_repository_file", {"repository_id": repo["id"], "relative_path": "src/math.js"})
+    if args.workspace_override:
+        untouched = subprocess.run(["docker", "exec", container, "test", "!", "-e", "/repositories/coding-default/src/math.js"])
+        if untouched.returncode: raise ValueError("Product default workspace was modified")
+        print("Work item override received the generated file; product default workspace was untouched", flush=True)
     code = file["content"]
     assertions = "\nconst assert = require('node:assert/strict'); const f = module.exports.sumEven; assert.equal(f([1,2,3,4,-2]),4); assert.equal(f([]),0);\n"
     if args.scenario == "extend-module":

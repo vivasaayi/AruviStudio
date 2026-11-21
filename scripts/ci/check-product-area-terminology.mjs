@@ -30,6 +30,12 @@ const frontendLegacyWorkItemListTerms = /\b(listWorkItems)\b|["']list_work_items
 function isAllowedLegacyProductAreaTerm(normalizedPath, content, matchIndex) {
   // CommonJS export syntax is unrelated to the legacy product hierarchy.
   if (/^module\.exports\b/.test(content.slice(matchIndex))) return true;
+  // The vendored upstream UMD wrapper checks whether the CommonJS module exists.
+  if (normalizedPath === path.normalize("src-tauri/src/services/vendor/js-sha256.min.js") &&
+      content.slice(matchIndex).startsWith("module?module.exports")) return true;
+  // This prompt refers to source-code exports, not a product hierarchy node.
+  if (normalizedPath === path.normalize("src-tauri/src/services/agent_service/tool_loop_contract.rs") &&
+      content.slice(matchIndex).startsWith("module, preserve its required existing exports")) return true;
   if (normalizedPath === path.normalize("src-tauri/src/persistence/db/db_tests.rs")) {
     return true;
   }
@@ -72,11 +78,16 @@ function* walk(relativeDir) {
 
 const violations = [];
 const performanceViolations = [];
+const technicalNameViolations = [];
 for (const root of scanRoots) {
   for (const filePath of walk(root)) {
     const normalizedPath = path.normalize(filePath);
 
     const content = readFileSync(path.join(repoRoot, normalizedPath), "utf8");
+    for (const match of content.matchAll(/\bnode_product_areas\b/g)) {
+      const lineNumber = content.slice(0, match.index).split("\n").length;
+      technicalNameViolations.push(`${normalizedPath}:${lineNumber}`);
+    }
     for (const match of content.matchAll(legacyTerms)) {
       if (isAllowedLegacyProductAreaTerm(normalizedPath, content, match.index)) {
         continue;
@@ -104,6 +115,12 @@ for (const filePath of targetedFiles) {
     const line = content.split("\n")[lineNumber - 1].trim();
     violations.push(`${normalizedPath}:${lineNumber}: ${line}`);
   }
+}
+
+if (technicalNameViolations.length > 0) {
+  console.error("Incorrect dependency directory name; use node_modules:");
+  for (const violation of technicalNameViolations) console.error(`- ${violation}`);
+  process.exit(1);
 }
 
 if (violations.length > 0) {

@@ -55,7 +55,7 @@ pub async fn synthesize_remote_speech(
     }
     if model.trim().eq_ignore_ascii_case(DEEPSEEK_SYNTHESIS) {
         let client = crate::services::model_service::create_deepseek_voice_client(provider)?;
-        return aruvi_model_client::ModelGateway::generate_speech(&client, aruvi_model_client::SpeechRequest {
+        return client.generate_speech(aruvi_model_client::SpeechRequest {
             model, input, voice, speed, response_format: "wav".into(),
         }).await.map_err(|error| match error {
             aruvi_model_client::ClientError::InvalidInput(message) => AppError::Validation(message),
@@ -125,7 +125,7 @@ pub(crate) async fn transcribe_audio_with_provider_mode(
     if deepseek {
         let client = crate::services::model_service::create_deepseek_voice_client(provider)?;
         let filename = format!("planner-recording.{}", mime_extension_for_mime_type(&request.mime_type));
-        return aruvi_model_client::ModelGateway::transcribe(&client, aruvi_model_client::TranscriptionRequest {
+        return client.transcribe(aruvi_model_client::TranscriptionRequest {
             model: model_name.into(), audio: file_bytes, filename, mime_type: request.mime_type, language: None,
         }).await
             .map(|transcript| SpeechToTextResponse { transcript })

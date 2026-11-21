@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check a disposable native Studio server against a real, empty Aruvici service."""
 import argparse
+import base64
 import contextlib
 import fcntl
 import hashlib
@@ -22,9 +23,30 @@ parser.add_argument("aruvici_binary", type=Path)
 parser.add_argument("--docker-image", help="Optionally probe the temporary socket from this local image as UID 10001")
 parser.add_argument("--audit-protocol", action="store_true", help="Inspect a disposable target and report protocol support without queueing a build")
 parser.add_argument("--exercise-protocol", action="store_true", help="With --audit-protocol, verify retry and artifact records with worker execution locked")
+parser.add_argument("--execute-build", action="store_true", help="With --audit-protocol, execute a disposable Rust/OCI build")
+parser.add_argument("--relay-image", help="Test an authenticated Docker-to-host relay with this Studio image")
+parser.add_argument("--browser", action="store_true", help="Inspect the completed build in a real headless browser (requires --execute-build)")
+parser.add_argument("--browser-executable", help="Optional Chromium executable for the browser check")
+parser.add_argument("--artifact-browser", help="Chromium executable for the disposable multi-chunk artifact browser check")
+parser.add_argument("--large-real-artifact", action="store_true", help="Also create and stream a disposable artifact just over 256 MiB")
+parser.add_argument("--relay-artifact", action="store_true", help="Verify a full fast chunk through the host relay and a second Studio instance")
 args = parser.parse_args()
-if args.exercise_protocol and not args.audit_protocol:
-    parser.error("--exercise-protocol requires --audit-protocol")
+if (args.exercise_protocol or args.execute_build) and not args.audit_protocol:
+    parser.error("--exercise-protocol and --execute-build require --audit-protocol")
+if args.exercise_protocol and args.execute_build:
+    parser.error("Choose either --exercise-protocol or --execute-build")
+if args.browser and not args.execute_build:
+    parser.error("--browser requires --execute-build")
+if args.browser_executable and not args.browser:
+    parser.error("--browser-executable requires --browser")
+if args.artifact_browser and not args.exercise_protocol:
+    parser.error("--artifact-browser requires --exercise-protocol")
+if args.large_real_artifact and not args.artifact_browser:
+    parser.error("--large-real-artifact requires --artifact-browser")
+if args.relay_artifact and not args.exercise_protocol:
+    parser.error("--relay-artifact requires --exercise-protocol")
+if args.relay_artifact and args.large_real_artifact:
+    parser.error("Run relay and real large artifact fixtures separately")
 studio = args.studio_binary.resolve(strict=True)
 aruvici = args.aruvici_binary.resolve(strict=True)
 
@@ -60,21 +82,30 @@ try:
         repository.mkdir()
         config = 'state_dir = ' + json.dumps(str(state)) + '\n'
         if args.audit_protocol:
-            profile = "rust-docker@1" if args.exercise_protocol else "native-ios@1"
+            profile = "rust-docker@1" if args.exercise_protocol or args.execute_build else "native-ios@1"
             config += '[[targets]]\nid = "fixture"\nrepository = ' + json.dumps(str(repository)) + '\nprofile = ' + json.dumps(profile) + '\n'
-        if args.exercise_protocol:
+        if args.exercise_protocol or args.execute_build:
             (repository / "Cargo.toml").write_text("[package]\nname='fixture'\nversion='0.1.0'\n")
-            (repository / "Dockerfile").write_text("FROM scratch\n")
+            (repository / "Dockerfile").write_text("FROM scratch\n" + ("COPY fixture.txt /fixture.txt\n" if args.execute_build else ""))
+            if args.execute_build:
+                (repository / "src").mkdir()
+                (repository / "src/lib.rs").write_text("pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n")
+                (repository / "fixture.txt").write_text("Disposable CI fixture\n")
+                subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=repository, check=True, capture_output=True)
             def git(*arguments):
                 return subprocess.run(["git", *arguments], cwd=repository, check=True, capture_output=True, text=True).stdout.strip()
             git("init", "-q")
             git("add", ".")
             git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture")
             commit = git("rev-parse", "HEAD")
-            locks = state / "locks"
-            locks.mkdir()
-            release_lock = cleanup.enter_context((locks / "release.lock").open("w"))
-            fcntl.flock(release_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            if args.browser:
+                git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-qm", "browser revision")
+                browser_commit = git("rev-parse", "HEAD")
+            if args.exercise_protocol:
+                locks = state / "locks"
+                locks.mkdir()
+                release_lock = cleanup.enter_context((locks / "release.lock").open("w"))
+                fcntl.flock(release_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         if not args.audit_protocol:
             config += 'targets = []\n'
         platform.write_text(config)
@@ -123,6 +154,56 @@ try:
         with opener.open(request, timeout=10) as response: mobile = json.load(response)
         if mobile.get("status") != "online" or mobile.get("protocol") != 1: raise RuntimeError("Unexpected browser CI health response")
         print("Disposable native Studio and Aruvici: MCP health, targets, runs and browser API health passed.")
+        if args.relay_image:
+            relay_token = secrets.token_urlsafe(32)
+            relay_env = dict(base_env, ARUVI_CI_RELAY_TOKEN=relay_token)
+            relay = subprocess.Popen(["python3", str(Path(__file__).resolve().parent / "ci-relay"), "--socket", str(ci_socket)], env=relay_env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            cleanup.callback(stop, relay)
+            line = relay.stdout.readline().strip()
+            prefix = "CI relay listening on 127.0.0.1:"
+            if not line.startswith(prefix) or not line[len(prefix):].isdigit(): raise RuntimeError("Disposable CI relay did not start")
+            relay_port = int(line[len(prefix):])
+            def relay_request(credential, method):
+                with socket.create_connection(("127.0.0.1", relay_port), timeout=5) as client:
+                    client.sendall(json.dumps({"token": credential, "request": {"method": method}}).encode() + b"\n")
+                    return json.loads(client.makefile("rb").readline())
+            if relay_request("incorrect-token-" + "x" * 32, "health").get("ok") is not False:
+                raise RuntimeError("CI relay accepted an incorrect token")
+            if relay_request(relay_token, "deploy").get("ok") is not False:
+                raise RuntimeError("CI relay accepted a disallowed operation")
+            image_token = secrets.token_urlsafe(32)
+            container_args = ["docker", "run", "--rm", "-d", "--tmpfs", "/data:mode=1777", "--tmpfs", "/repositories:mode=1777", "-p", "127.0.0.1::8787", "-e", "ARUVI_MOBILE_API_TOKEN=" + image_token, "-e", "ARUVI_MCP_API_TOKEN=" + image_token, "-e", "ARUVI_CI_RELAY_URL=http://host.docker.internal:" + str(relay_port), "-e", "ARUVI_CI_RELAY_TOKEN=" + relay_token]
+            if args.execute_build:
+                container_args += ["--mount", f"type=bind,src={repository},dst=/repositories/ci-fixture,readonly", "-e", "ARUVI_CI_HOST_REPOSITORY_ROOT=" + str(repository), "-e", "ARUVI_CI_CONTAINER_REPOSITORY_ROOT=/repositories/ci-fixture"]
+            output = subprocess.run(container_args + [args.relay_image], capture_output=True, text=True, check=True)
+            container_id = output.stdout.strip()
+            cleanup.callback(lambda: subprocess.run(["docker", "stop", container_id], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+            container_address = subprocess.check_output(["docker", "port", container_id, "8787/tcp"], text=True).strip().splitlines()[0]
+            if not container_address.startswith("127.0.0.1:"): raise RuntimeError("Relay fixture is not loopback-only")
+            container_base = "http://" + container_address
+            def container_health():
+                with opener.open(container_base + "/health", timeout=2) as response: return response.status == 200
+            wait_for(container_health, [ci, relay])
+            body = {"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":"aruvi_ci", "arguments":{"action":"get_status", "arguments":{}}}}
+            req = urllib.request.Request(container_base + "/api/mcp", data=json.dumps(body).encode(), headers={"Authorization":"Bearer " + image_token, "Content-Type":"application/json"})
+            with opener.open(req, timeout=20) as response: relay_result = json.load(response)["result"]
+            if relay_result.get("isError") or relay_result["structuredContent"]["result"].get("status") != "online":
+                raise RuntimeError("Container could not reach real CI service through relay")
+            try:
+                opener.open(container_base + "/api/mobile/ci/status", timeout=10)
+                raise RuntimeError("Unauthenticated browser CI status was accepted")
+            except urllib.error.HTTPError as error:
+                if error.code != 401: raise
+            req = urllib.request.Request(container_base + "/api/mobile/ci/status", headers={"Authorization":"Bearer " + image_token})
+            with opener.open(req, timeout=10) as response: relay_mobile = json.load(response)
+            if relay_mobile.get("status") != "online": raise RuntimeError("Browser API could not reach CI through relay")
+            print("Docker Studio reached the real CI service through the authenticated loopback relay; invalid token and deploy were rejected.")
+            def container_call(tool, action, arguments):
+                payload = {"jsonrpc":"2.0", "id":1, "method":"tools/call", "params":{"name":tool, "arguments":{"action":action, "arguments":arguments}}}
+                req = urllib.request.Request(container_base + "/api/mcp", data=json.dumps(payload).encode(), headers={"Authorization":"Bearer " + image_token, "Content-Type":"application/json"})
+                with opener.open(req, timeout=20) as response: result = json.load(response)["result"]
+                if result.get("isError"): raise RuntimeError("Container MCP action failed: " + action)
+                return result["structuredContent"]["result"]
         if args.audit_protocol:
             product = call("aruvi_catalog", "create_product", {"name": "CI protocol fixture"})
             repo = call("aruvi_repositories", "register_repository", {"name": "CI fixture", "local_path": str(repository)})
@@ -140,17 +221,88 @@ try:
                 plan = json.loads(subprocess.run(cli + ["plan", "fixture"], check=True, capture_output=True, text=True).stdout)
                 if plan["issues"]: raise RuntimeError("Disposable target is not buildable")
                 subprocess.run(cli + ["approve", "fixture", "--digest", plan["digest"]], check=True, capture_output=True, text=True)
-                artifact_bytes = b"disposable CI artifact"
+                artifact_bytes = bytes(range(256)) * 300
                 run_root = state / "ci-runs" / "1"
                 run_root.mkdir(parents=True)
                 artifact_path = run_root / "package.bin"
                 artifact_path.write_bytes(artifact_bytes)
+                large_size = 256 * 1024 * 1024 + 1
+                large_hash = hashlib.sha256()
+                if args.large_real_artifact:
+                    block = bytes(range(256)) * 4096
+                    with (run_root / "large.bin").open("wb") as output:
+                        for _ in range(256):
+                            output.write(block)
+                            large_hash.update(block)
+                        output.write(b"x")
+                        large_hash.update(b"x")
+                if args.relay_artifact:
+                    relay_bytes = bytes(range(256)) * 2048 + b"tail"
+                    (run_root / "relay.bin").write_bytes(relay_bytes)
                 with sqlite3.connect(state / "ci.sqlite") as database:
                     database.execute("INSERT INTO runs(id,target,commit_hash,plan_digest,dedupe_key,context,status) VALUES (1,?,?,?,?,?,?)", ("fixture", commit, plan["digest"], "original", json.dumps({"fixture": True}), "failed"))
                     database.execute("INSERT INTO artifacts(id,run_id,stage,kind,path,sha256,size) VALUES (1,1,?,?,?,?,?)", ("package", "package", str(artifact_path), hashlib.sha256(artifact_bytes).hexdigest(), len(artifact_bytes)))
+                    if args.large_real_artifact:
+                        database.execute("INSERT INTO artifacts(id,run_id,stage,kind,path,sha256,size) VALUES (2,1,?,?,?,?,?)", ("package", "package", str(run_root / "large.bin"), large_hash.hexdigest(), large_size))
+                    if args.relay_artifact:
+                        database.execute("INSERT INTO artifacts(id,run_id,stage,kind,path,sha256,size) VALUES (2,1,?,?,?,?,?)", ("package", "package", str(run_root / "relay.bin"), hashlib.sha256(relay_bytes).hexdigest(), len(relay_bytes)))
                 readiness = call("aruvi_ci", "artifact_readiness", {"id": 1})
                 if readiness.get("sha256") != hashlib.sha256(artifact_bytes).hexdigest() or readiness.get("eligible") is not False:
                     raise RuntimeError("Unexpected artifact verification")
+                metadata = call("aruvi_ci", "artifact_metadata", {"id": 1})
+                received = bytearray()
+                while True:
+                    chunk = call("aruvi_ci", "artifact_chunk", {"id": 1, "offset": len(received)})
+                    if chunk.get("offset") != len(received) or chunk.get("sha256") != metadata.get("sha256"):
+                        raise RuntimeError("Inconsistent artifact chunk")
+                    received.extend(chunk["bytes"])
+                    if chunk.get("next_offset") != len(received): raise RuntimeError("Invalid artifact offset")
+                    if chunk.get("eof"): break
+                    if not chunk["bytes"]: raise RuntimeError("Empty non-final artifact chunk")
+                if bytes(received) != artifact_bytes or len(received) != metadata.get("size") or hashlib.sha256(received).hexdigest() != metadata.get("sha256"):
+                    raise RuntimeError("Artifact transfer did not match its metadata")
+                if not mcp_result("aruvi_ci", "artifact_chunk", {"id": 1, "offset": -1}).get("isError"):
+                    raise RuntimeError("Negative artifact offset was accepted")
+                if args.relay_artifact:
+                    relay_token = secrets.token_urlsafe(32)
+                    relay_env = dict(base_env, ARUVI_CI_RELAY_TOKEN=relay_token)
+                    relay = subprocess.Popen(["python3", str(Path(__file__).resolve().parent / "ci-relay"), "--socket", str(ci_socket)], env=relay_env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                    cleanup.callback(stop, relay)
+                    prefix = "CI relay listening on 127.0.0.1:"
+                    line = relay.stdout.readline().strip()
+                    if not line.startswith(prefix) or not line[len(prefix):].isdigit(): raise RuntimeError("Disposable CI relay did not start")
+                    relay_port = int(line[len(prefix):])
+                    def relay_probe(credential, method):
+                        with socket.create_connection(("127.0.0.1", relay_port), timeout=5) as connection:
+                            connection.sendall(json.dumps({"token": credential, "request": {"method": method}}).encode() + b"\n")
+                            return json.loads(connection.makefile("rb").readline())
+                    if relay_probe("incorrect-" + "x" * 32, "health").get("ok") is not False or relay_probe(relay_token, "deploy").get("ok") is not False:
+                        raise RuntimeError("CI relay accepted invalid credentials or a disallowed method")
+                    with socket.socket() as reserve:
+                        reserve.bind(("127.0.0.1", 0))
+                        relay_app_port = reserve.getsockname()[1]
+                    relay_env = dict(base_env, ARUVI_APP_DATA_DIR=str(root / "relay-studio"), ARUVI_DB_PATH=str(root / "relay-studio.db"), ARUVI_LLM_CONFIG_PATH=str(root / "relay-llm-config.json"), ARUVI_CI_RELAY_URL=f"http://127.0.0.1:{relay_port}", ARUVI_CI_RELAY_TOKEN=relay_token, ARUVI_WEBHOOK_HOST="127.0.0.1", ARUVI_WEBHOOK_PORT=str(relay_app_port), ARUVI_MOBILE_API_TOKEN=token, ARUVI_MCP_API_TOKEN=token)
+                    relay_app = subprocess.Popen([str(studio)], env=relay_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    cleanup.callback(stop, relay_app)
+                    relay_base = f"http://127.0.0.1:{relay_app_port}"
+                    def relay_health():
+                        with opener.open(relay_base + "/health", timeout=2) as response: return response.status == 200
+                    wait_for(relay_health, [ci, relay, relay_app])
+                    request = urllib.request.Request(relay_base + "/api/mobile/ci/artifacts/2/data/fast-chunk?offset=0", headers={"Authorization": "Bearer " + token})
+                    with opener.open(request, timeout=20) as response: part = json.load(response)
+                    if base64.b64decode(part["data_base64"], validate=True) != relay_bytes[:524288] or part["next_offset"] != 524288 or part["eof"]:
+                        raise RuntimeError("Full fast artifact chunk failed through the CI relay")
+                    print("Full 512 KiB artifact chunk passed through Studio and the authenticated CI relay.")
+                if args.artifact_browser:
+                    try:
+                        opener.open(address + "/api/mobile/ci/artifacts/1/data/chunk?offset=0", timeout=10)
+                        raise RuntimeError("Unauthenticated artifact bytes were accepted")
+                    except urllib.error.HTTPError as error:
+                        if error.code != 401: raise
+                    browser_env = dict(os.environ, ARUVI_REMOTE_URL=address, ARUVI_MOBILE_API_TOKEN=token, ARUVI_CHROME_PATH=args.artifact_browser, ARUVI_TEST_CI_DIGEST=metadata["sha256"], ARUVI_TEST_CI_PATH=str(artifact_path))
+                    if args.large_real_artifact:
+                        browser_env.update(ARUVI_TEST_CI_REAL_LARGE_SIZE=str(large_size), ARUVI_TEST_CI_REAL_LARGE_DIGEST=large_hash.hexdigest())
+                    subprocess.run(["node", "scripts/test-native-ci-artifact-browser.mjs"], env=browser_env, check=True)
                 try:
                     opener.open(address + "/api/mobile/ci/artifacts/1/readiness", timeout=10)
                     raise RuntimeError("Unauthenticated artifact verification was accepted")
@@ -167,7 +319,52 @@ try:
                 if retried.get("status") != "queued" or retried.get("commit") != commit or retried.get("context") != {"fixture": True}:
                     raise RuntimeError("Retry lost its provenance or was executed")
                 print("MCP artifact integrity and guarded retry passed; worker execution remained locked.")
-            for action in (() if args.exercise_protocol else ("retry_run", "artifact_readiness")):
+            if args.execute_build:
+                cli = [str(aruvici), "ci", "--platform", str(platform)]
+                plan = json.loads(subprocess.run(cli + ["plan", "fixture"], check=True, capture_output=True, text=True).stdout)
+                if plan["issues"]: raise RuntimeError("Disposable target is not buildable")
+                subprocess.run(cli + ["approve", "fixture", "--digest", plan["digest"]], check=True, capture_output=True, text=True)
+                build_call, build_base, build_token = call, address, token
+                if args.relay_image:
+                    container_product = container_call("aruvi_catalog", "create_product", {"name":"Container CI fixture"})
+                    container_repo = container_call("aruvi_repositories", "register_repository", {"name":"Shared fixture", "local_path":"/repositories/ci-fixture"})
+                    container_call("aruvi_repositories", "attach_repository", {"scope_type":"product", "scope_id":container_product["id"], "repository_id":container_repo["id"]})
+                    container_call("aruvi_ci", "save_binding", {"product_id":container_product["id"], "repository_id":container_repo["id"], "target_id":"fixture"})
+                    product, repo = container_product, container_repo
+                    build_call, build_base, build_token = container_call, container_base, image_token
+                queued = build_call("aruvi_ci", "queue_build", {"target_id": "fixture", "repository_id": repo["id"], "product_id": product["id"], "commit": commit})
+                run_id = queued["run_id"]
+                deadline = time.monotonic() + 300
+                while True:
+                    run = build_call("aruvi_ci", "get_run", {"id": run_id})
+                    if run["status"] in ("passed", "failed", "blocked", "cancelled", "interrupted"): break
+                    if time.monotonic() >= deadline: raise RuntimeError("Disposable build did not finish")
+                    time.sleep(.5)
+                if run["status"] != "passed":
+                    raise RuntimeError("Disposable build did not pass: " + json.dumps({"status":run["status"], "stages":run.get("stages", []), "error":run.get("error")}))
+                stages = {stage["name"]: stage["status"] for stage in run.get("stages", [])}
+                if any(stages.get(stage) != "passed" for stage in ("secrets", "fmt", "clippy", "rust-tests", "package", "verify-package")):
+                    raise RuntimeError("Disposable build did not pass all expected stages: " + json.dumps(stages))
+                artifacts = [item for item in run.get("artifacts", []) if item.get("kind") == "package"]
+                if len(artifacts) != 1: raise RuntimeError("Expected one OCI package artifact")
+                readiness = build_call("aruvi_ci", "artifact_readiness", {"id": artifacts[0]["id"]})
+                if readiness.get("run_id") != run_id or readiness.get("eligible") is not False:
+                    raise RuntimeError("Unexpected OCI artifact verification")
+                request = urllib.request.Request(build_base + "/api/mobile/ci/runs/" + str(run_id), headers={"Authorization": "Bearer " + build_token})
+                with opener.open(request, timeout=10) as response: browser_run = json.load(response)
+                if browser_run.get("status") != "passed" or browser_run.get("commit") != commit:
+                    raise RuntimeError("Browser API did not report the completed build")
+                if args.browser:
+                    browser_env = dict(base_env, ARUVI_TEST_CI_URL=build_base, ARUVI_TEST_CI_TOKEN=build_token,
+                                       ARUVI_TEST_CI_RUN=str(run_id), ARUVI_TEST_CI_ARTIFACT=str(artifacts[0]["id"]),
+                                       ARUVI_TEST_CI_COMMIT=commit, ARUVI_TEST_CI_BROWSER_COMMIT=browser_commit,
+                                       ARUVI_TEST_CI_PRODUCT=product["id"], ARUVI_TEST_CI_REPOSITORY=repo["id"])
+                    if args.browser_executable:
+                        browser_env["ARUVI_TEST_CI_BROWSER_EXECUTABLE"] = args.browser_executable
+                    subprocess.run(["node", str(Path(__file__).resolve().parent / "test-native-ci-browser.mjs")],
+                                   env=browser_env, check=True, timeout=360)
+                print(("Container" if args.relay_image else "Native") + " Studio queued a real disposable CI build; browser API and OCI integrity checks passed.")
+            for action in (() if args.exercise_protocol or args.execute_build else ("retry_run", "artifact_readiness")):
                 result = mcp_result("aruvi_ci", action, {"id": 1})
                 if result.get("isError") and "unsupported method" in json.dumps(result.get("content", [])):
                     print("Protocol gap: " + action + " is unsupported by the service.")

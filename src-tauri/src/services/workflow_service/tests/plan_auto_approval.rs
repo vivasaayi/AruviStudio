@@ -71,7 +71,7 @@ async fn planning_auto_approval_continues_directly_to_coding_by_default() {
     let workflow_service =
         WorkflowService::new(Arc::clone(&db_arc), Arc::new(Mutex::new(agent_service)));
 
-    AgentService::set_test_model_outputs_for_any_workflow(vec![
+    AgentService::set_test_model_outputs_for_any_workflow(&pool, vec![
         "requirement analysis complete".to_string(),
         "planning complete".to_string(),
         json!({
@@ -136,6 +136,6 @@ async fn planning_auto_approval_continues_directly_to_coding_by_default() {
         "missing auto-approved pending_plan_approval -> coding transition"
     );
 
-    AgentService::set_test_model_outputs_for_any_workflow(Vec::new());
+    AgentService::set_test_model_outputs_for_any_workflow(&pool, Vec::new());
     let _ = std::fs::remove_dir_all(temp_root);
 }

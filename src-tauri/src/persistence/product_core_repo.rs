@@ -123,32 +123,41 @@ pub async fn update_product(pool: &SqlitePool, patch: UpdateProductPatch<'_>) ->
 
 pub(crate) async fn update_product_in_conn(conn: &mut SqliteConnection, patch: UpdateProductPatch<'_>) -> Result<Product, AppError> {
     debug!(product_id = %patch.id, "persist update_product");
-    let existing = get_product_in_conn(conn, patch.id).await?;
-    let name = patch.name.unwrap_or(&existing.name);
-    let description = patch.description.unwrap_or(&existing.description);
-    let vision = patch.vision.unwrap_or(&existing.vision);
-    let existing_goals = serde_json::to_string(&existing.goals).unwrap_or_default();
-    let existing_tags = serde_json::to_string(&existing.tags).unwrap_or_default();
-    let goals_str = patch.goals.unwrap_or(&existing_goals);
-    let tags_str = patch.tags.unwrap_or(&existing_tags);
-    let existing_lifecycle = existing.lifecycle.to_string();
-    let existing_health = existing.health.to_string();
-    let existing_investment_status = existing.investment_status.to_string();
-    sqlx::query(
-        "UPDATE products
-         SET name=?, description=?, vision=?, goals=?, tags=?, lifecycle=?, health=?, owner_label=?, investment_status=?, roadmap=?, evidence=?, updated_at=datetime('now')
-         WHERE id=?"
+    let result = sqlx::query(
+        "UPDATE products SET name=COALESCE(?,name), description=COALESCE(?,description),
+         vision=COALESCE(?,vision), goals=COALESCE(?,goals), tags=COALESCE(?,tags),
+         lifecycle=COALESCE(?,lifecycle), health=COALESCE(?,health), owner_label=COALESCE(?,owner_label),
+         investment_status=COALESCE(?,investment_status), roadmap=COALESCE(?,roadmap),
+         evidence=COALESCE(?,evidence), updated_at=datetime('now') WHERE id=?"
     )
-        .bind(name).bind(description).bind(vision).bind(goals_str).bind(tags_str)
-        .bind(patch.lifecycle.unwrap_or(&existing_lifecycle))
-        .bind(patch.health.unwrap_or(&existing_health))
-        .bind(patch.owner_label.unwrap_or(&existing.owner_label))
-        .bind(patch.investment_status.unwrap_or(&existing_investment_status))
-        .bind(patch.roadmap.unwrap_or(&existing.roadmap))
-        .bind(patch.evidence.unwrap_or(&existing.evidence))
-        .bind(patch.id)
-        .execute(&mut *conn).await?;
+        .bind(patch.name).bind(patch.description).bind(patch.vision).bind(patch.goals).bind(patch.tags)
+        .bind(patch.lifecycle).bind(patch.health).bind(patch.owner_label).bind(patch.investment_status)
+        .bind(patch.roadmap).bind(patch.evidence).bind(patch.id).execute(&mut *conn).await?;
+    if result.rows_affected() == 0 { return Err(AppError::NotFound(format!("Product {} not found", patch.id))); }
     get_product_in_conn(conn, patch.id).await
+}
+
+/// Compare and update the entire editable product in one write transaction.
+pub async fn update_product_checked(pool: &SqlitePool, id: &str, expected: &Product, fields: &Product) -> Result<Option<Product>, AppError> {
+    if expected.id != id || fields.id != id || fields.status != expected.status {
+        return Err(AppError::Validation("Product identity and status cannot be changed here".into()));
+    }
+    if fields.name.trim().is_empty() || fields.name.len() > 200 {
+        return Err(AppError::Validation("Name must contain 1 to 200 characters".into()));
+    }
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let current = match get_product_in_conn(&mut tx, id).await {
+        Ok(product) => product,
+        Err(AppError::NotFound(_)) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if &current != expected { return Ok(None); }
+    let goals = serde_json::to_string(&fields.goals)?;
+    let tags = serde_json::to_string(&fields.tags)?;
+    let lifecycle = fields.lifecycle.to_string(); let health = fields.health.to_string(); let investment = fields.investment_status.to_string();
+    let product = update_product_in_conn(&mut tx, UpdateProductPatch {id, name:Some(fields.name.trim()), description:Some(&fields.description), vision:Some(&fields.vision), goals:Some(&goals), tags:Some(&tags), lifecycle:Some(&lifecycle), health:Some(&health), owner_label:Some(&fields.owner_label), investment_status:Some(&investment), roadmap:Some(&fields.roadmap), evidence:Some(&fields.evidence)}).await?;
+    tx.commit().await?;
+    Ok(Some(product))
 }
 
 pub async fn archive_product(pool: &SqlitePool, id: &str) -> Result<Product, AppError> {

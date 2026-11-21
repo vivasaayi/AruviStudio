@@ -212,6 +212,153 @@ pub(crate) async fn mobile_route_planner_contact(State(state): State<WebhookStat
 #[derive(Deserialize)]
 pub(crate) struct DatabaseOverrideUpdate {
     path: serde_json::Value,
+    expected: Option<crate::services::settings_database_service::DatabaseOverrideExpected>,
+}
+
+pub(crate) async fn mobile_bridge_status(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::webhook_service::resolve_mcp_bridge_status(&state.app_state).await {
+        Ok(status) => Json(serde_json::json!({
+            "configured_bind_host": status.bind_host,
+            "configured_bind_port": status.bind_port,
+            "host_source": status.host_source,
+            "port_source": status.port_source,
+            "mcp_token_configured": status.token_configured,
+            "mcp_requests_allowed": status.requests_allowed,
+            "mcp_auth_mode": status.auth_mode,
+            "bind_changes_require_restart": status.bind_changes_require_restart,
+        })).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Bridge configuration unavailable").into_response(),
+    }
+}
+
+const BRIDGE_BIND_KEYS: [&str; 2] = ["mobile.bind_host", "mobile.bind_port"];
+
+#[derive(Deserialize)]
+pub(crate) struct BridgeBindUpdate {
+    expected: [Option<String>; 2],
+    host: String,
+    port: String,
+}
+
+fn valid_bridge_bind_host(host: &str) -> bool {
+    if host.parse::<std::net::IpAddr>().is_ok() { return true; }
+    !host.is_empty() && !host.bytes().all(|b| b.is_ascii_digit() || b == b'.') && host.len() <= 253 && host.split('.').all(|part| {
+            !part.is_empty() && part.len() <= 63 && !part.starts_with('-') && !part.ends_with('-') &&
+                part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+}
+
+pub(crate) async fn mobile_bridge_bind(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let mut raw = Vec::new();
+    for key in BRIDGE_BIND_KEYS {
+        match settings_repo::get_setting(&state.app_state.db, key).await {
+            Ok(value) => raw.push(value),
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Bridge settings are unavailable").into_response(),
+        }
+    }
+    Json(serde_json::json!({"raw": raw})).into_response()
+}
+
+pub(crate) async fn mobile_update_bridge_bind(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<BridgeBindUpdate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let host = body.host.trim();
+    let port = body.port.trim().parse::<u16>();
+    if !valid_bridge_bind_host(host) || !matches!(port, Ok(1..=u16::MAX)) {
+        return (StatusCode::BAD_REQUEST, "Enter a valid bind host and port from 1 to 65535").into_response();
+    }
+    let port = port.unwrap().to_string();
+    let values = [host, port.as_str()];
+    let mut tx = match state.app_state.db.begin().await {
+        Ok(tx) => tx, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Bridge settings are unavailable").into_response(),
+    };
+    for ((key, expected), value) in BRIDGE_BIND_KEYS.into_iter().zip(body.expected).zip(values) {
+        let result = match expected {
+            Some(expected) => sqlx::query("UPDATE settings SET value=?,updated_at=datetime('now') WHERE key=? AND value=?").bind(value).bind(key).bind(expected).execute(&mut *tx).await,
+            None => sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING").bind(key).bind(value).execute(&mut *tx).await,
+        };
+        match result {
+            Ok(result) if result.rows_affected() == 1 => {},
+            Ok(_) => return (StatusCode::CONFLICT, "Bridge settings changed. Reload before saving.").into_response(),
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Bridge settings could not be saved").into_response(),
+        }
+    }
+    match tx.commit().await {
+        Ok(()) => Json(serde_json::json!({"raw": values})).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Bridge settings could not be saved").into_response(),
+    }
+}
+
+fn bridge_token_key(kind: &str) -> Option<(&'static str, &'static str)> {
+    match kind {
+        "mobile" => Some(("mobile.api_token", "ARUVI_MOBILE_API_TOKEN")),
+        "mcp" => Some(("mcp.api_token", "ARUVI_MCP_API_TOKEN")),
+        _ => None,
+    }
+}
+
+// Keep token snapshots opaque and scoped to this process and token kind.
+fn bridge_token_revision(kind: &str, value: Option<&str>) -> String {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+    static KEY: std::sync::OnceLock<uuid::Uuid> = std::sync::OnceLock::new();
+    let mut mac = Hmac::<Sha256>::new_from_slice(KEY.get_or_init(uuid::Uuid::new_v4).as_bytes()).expect("HMAC accepts keys of any length");
+    mac.update(kind.as_bytes());
+    match value { Some(value) => { mac.update(&[1]); mac.update(value.as_bytes()); }, None => mac.update(&[0]) }
+    format!("{:x}", mac.finalize().into_bytes())
+}
+
+fn bridge_token_view(kind: &str, value: Option<&str>, env_key: &str) -> serde_json::Value {
+    serde_json::json!({"revision":bridge_token_revision(kind, value),
+        "saved_configured":value.is_some_and(|v| !v.trim().is_empty()),
+        "environment_override":std::env::var(env_key).is_ok()})
+}
+
+#[derive(Deserialize)]
+pub(crate) struct BridgeTokenUpdate {
+    kind: String,
+    expected_revision: String,
+    action: String,
+    token: Option<String>,
+}
+
+pub(crate) async fn mobile_bridge_tokens(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let mut result = serde_json::Map::new();
+    for kind in ["mobile", "mcp"] {
+        let (key, env) = bridge_token_key(kind).expect("known token kind");
+        let value = match settings_repo::get_setting(&state.app_state.db, key).await {
+            Ok(value) => value, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Bridge token settings are unavailable").into_response(),
+        };
+        result.insert(kind.into(), bridge_token_view(kind, value.as_deref(), env));
+    }
+    Json(result).into_response()
+}
+
+pub(crate) async fn mobile_update_bridge_token(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<BridgeTokenUpdate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let Some((key, env)) = bridge_token_key(&body.kind) else { return (StatusCode::BAD_REQUEST, "Invalid bridge token kind").into_response(); };
+    let next = match (body.action.as_str(), body.token.as_deref()) {
+        ("replace", Some(value)) if !value.is_empty() && value.len() <= 1024 && value.bytes().all(|b| (0x21..=0x7e).contains(&b)) => value,
+        ("clear", None) => "",
+        _ => return (StatusCode::BAD_REQUEST, "Invalid bridge token action or value").into_response(),
+    };
+    let previous = match settings_repo::get_setting(&state.app_state.db, key).await {
+        Ok(value) => value, Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "Bridge token settings are unavailable").into_response(),
+    };
+    if bridge_token_revision(&body.kind, previous.as_deref()) != body.expected_revision {
+        return (StatusCode::CONFLICT, "Bridge token changed. Reload before saving.").into_response();
+    }
+    let result = match previous {
+        Some(previous) => sqlx::query("UPDATE settings SET value=?,updated_at=datetime('now') WHERE key=? AND value=?").bind(next).bind(key).bind(previous).execute(&state.app_state.db).await,
+        None => sqlx::query("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO NOTHING").bind(key).bind(next).execute(&state.app_state.db).await,
+    };
+    match result {
+        Ok(result) if result.rows_affected() == 1 => Json(bridge_token_view(&body.kind, Some(next), env)).into_response(),
+        Ok(_) => (StatusCode::CONFLICT, "Bridge token changed. Reload before saving.").into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Bridge token could not be saved").into_response(),
+    }
 }
 
 pub(crate) async fn mobile_database_settings(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
@@ -233,13 +380,15 @@ pub(crate) async fn mobile_database_settings(State(state): State<WebhookState>, 
 
 pub(crate) async fn mobile_update_database_override(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<DatabaseOverrideUpdate>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
-    let result = match body.path {
-        serde_json::Value::String(path) => crate::services::settings_database_service::set_database_path_override(&state.app_state, path).await,
-        serde_json::Value::Null => crate::services::settings_database_service::clear_database_path_override(&state.app_state).await,
+    let path = match body.path {
+        serde_json::Value::String(path) => Some(path),
+        serde_json::Value::Null => None,
         _ => return (StatusCode::BAD_REQUEST, "Path must be a string or null").into_response(),
     };
+    let result = crate::services::settings_database_service::update_database_path_override(&state.app_state, path, body.expected).await;
     match result {
-        Ok(()) => Json(serde_json::json!({"ok": true})).into_response(),
+        Ok(true) => Json(serde_json::json!({"ok": true})).into_response(),
+        Ok(false) => (StatusCode::CONFLICT, "Database override changed; reload the saved value before retrying").into_response(),
         Err(error) => {
             let status = if matches!(error, crate::error::AppError::Validation(_)) { StatusCode::BAD_REQUEST } else { StatusCode::INTERNAL_SERVER_ERROR };
             (status, error.to_string()).into_response()
@@ -563,6 +712,21 @@ pub(crate) async fn mobile_ci_artifact_readiness(State(state): State<WebhookStat
     ci_request(serde_json::json!({"method":"promotion_readiness","id":id})).await
 }
 
+#[derive(Deserialize)]
+pub(crate) struct CiArtifactQuery { offset: Option<u64> }
+
+pub(crate) async fn mobile_ci_artifact_data(State(state): State<WebhookState>, headers: HeaderMap, Path((id, action)): Path<(i64, String)>, Query(query): Query<CiArtifactQuery>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if id <= 0 { return (StatusCode::BAD_REQUEST, "Invalid artifact ID").into_response(); }
+    let payload = match action.as_str() {
+        "metadata" => serde_json::json!({"method":"artifact","id":id}),
+        "chunk" => serde_json::json!({"method":"artifact_chunk","id":id,"offset":query.offset.unwrap_or(0)}),
+        "fast-chunk" => serde_json::json!({"method":"artifact_chunk_base64","id":id,"offset":query.offset.unwrap_or(0)}),
+        _ => return (StatusCode::NOT_FOUND, "Unknown artifact action").into_response(),
+    };
+    ci_request(payload).await
+}
+
 pub(crate) async fn mobile_ci_binding_action(State(state): State<WebhookState>, headers: HeaderMap, Path(action): Path<String>, Json(arguments): Json<serde_json::Value>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let action = match action.as_str() { "save" => "save_binding", "delete" => "delete_binding", "queue" => "queue_build", _ => return (StatusCode::NOT_FOUND, "Unknown CI action").into_response() };
@@ -684,7 +848,11 @@ pub(crate) struct MobileWorkflowTestConfig {
     argv: Vec<String>,
     product_id: Option<String>,
     mode: Option<String>,
+    expected: Option<WorkflowTestSnapshot>,
 }
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct WorkflowTestSnapshot { mode: String, argv: Vec<String> }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct MobileWorkflowTestQuery { product_id: Option<String> }
@@ -714,20 +882,10 @@ pub(crate) async fn mobile_set_workflow_test_config(State(state): State<WebhookS
     let db = &state.app_state.db;
     if let Some(id) = body.product_id.as_deref() {
         if let Err(error) = product_repo::get_product(db, id).await { return (StatusCode::BAD_REQUEST, error.to_string()).into_response(); }
-        let key = crate::services::workflow_test_runner::product_command_key(id);
-        let result = match body.mode.as_deref() {
-            Some("inherit") => settings_repo::delete_setting(db, &key).await,
-            Some("disabled") => settings_repo::set_setting(db, &key, "[]").await,
-            Some("custom") => {
-                let value = serde_json::to_string(&body.argv).unwrap_or_default();
-                if let Err(error) = crate::services::workflow_test_runner::parse_command(&value) { return (StatusCode::BAD_REQUEST, error.to_string()).into_response(); }
-                settings_repo::set_setting(db, &key, &value).await
-            },
-            _ => return (StatusCode::BAD_REQUEST, "Invalid test command mode").into_response(),
-        };
-        if let Err(error) = result { return (StatusCode::BAD_REQUEST, error.to_string()).into_response(); }
-        return match crate::services::workflow_test_runner::resolve_command(db, id).await {
-            Ok((mode, argv)) => Json(serde_json::json!({"mode":mode,"argv":argv})).into_response(),
+        let expected = body.expected.as_ref().map(|snapshot| (snapshot.mode.as_str(), snapshot.argv.as_slice()));
+        return match crate::services::workflow_test_runner::set_product_command(db, id, body.mode.as_deref().unwrap_or(""), &body.argv, expected).await {
+            Ok(Some((mode, argv))) => Json(serde_json::json!({"mode":mode,"argv":argv})).into_response(),
+            Ok(None) => (StatusCode::CONFLICT, "Test command changed; refresh the product settings and try again").into_response(),
             Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
         };
     }
@@ -1314,6 +1472,29 @@ pub(crate) async fn mobile_detach_repository(State(state): State<WebhookState>, 
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct PortfolioActionRequest { action: String, #[serde(default)] arguments: serde_json::Value }
+
+pub(crate) async fn mobile_portfolio_action(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<PortfolioActionRequest>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if !matches!(body.action.as_str(), "list_strategy_nodes" | "create_strategy_node" | "update_strategy_node" | "delete_strategy_node" | "list_product_strategy_links" | "link_product_to_strategy" | "unlink_product_from_strategy" | "list_product_dependencies" | "create_product_dependency" | "delete_product_dependency") {
+        return (StatusCode::BAD_REQUEST, "Unsupported portfolio action").into_response();
+    }
+    if body.action == "update_strategy_node" && !body.arguments.get("expected").is_some_and(serde_json::Value::is_object) {
+        return (StatusCode::BAD_REQUEST, "Expected strategy snapshot is required").into_response();
+    }
+    if body.action == "delete_strategy_node" && !(body.arguments.get("expected_nodes").is_some_and(serde_json::Value::is_array) && body.arguments.get("expected_links").is_some_and(serde_json::Value::is_array)) {
+        return (StatusCode::BAD_REQUEST, "Expected strategy subtree and links are required").into_response();
+    }
+    if matches!(body.action.as_str(), "link_product_to_strategy" | "unlink_product_from_strategy") && !body.arguments.get("expected_links").is_some_and(serde_json::Value::is_array) {
+        return (StatusCode::BAD_REQUEST, "Expected product strategy links are required").into_response();
+    }
+    match crate::mcp::dispatch_tool(&state.app_state, "aruvi_catalog", serde_json::json!({"action":body.action,"arguments":body.arguments})).await {
+        Ok(result) => Json(result["result"].clone()).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
 async fn model_action(state: &WebhookState, action: &str, arguments: serde_json::Value) -> axum::response::Response {
     match crate::mcp::dispatch_tool(&state.app_state, "aruvi_models", serde_json::json!({"action": action, "arguments": arguments})).await {
         Ok(result) => {
@@ -1343,18 +1524,35 @@ pub(crate) struct ModelDeleteRequest { id: String, expected_name: String }
 pub(crate) async fn mobile_update_provider(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<ProviderEditRequest>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let f = &body.fields; let e = &body.expected;
-    let url = reqwest::Url::parse(f.base_url.trim());
-    if f.name.trim().is_empty() || !url.as_ref().is_ok_and(|u| matches!(u.scheme(), "http" | "https") && u.host_str().is_some() && u.username().is_empty() && u.password().is_none() && u.query().is_none() && u.fragment().is_none()) {
-        return (StatusCode::BAD_REQUEST, "A name and valid HTTP(S) base URL are required").into_response();
-    }
+    if f.name.trim().is_empty() { return (StatusCode::BAD_REQUEST, "A provider name is required").into_response(); }
+    let provider_type: String = match sqlx::query_scalar("SELECT provider_type FROM model_providers WHERE id=?")
+        .bind(&body.id).fetch_optional(&state.app_state.db).await {
+        Ok(Some(value)) => value,
+        Ok(None) => return (StatusCode::CONFLICT, "Provider changed or was removed. Refresh and review your edits.").into_response(),
+        Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    };
+    let base_url = if provider_type == "local_runtime" {
+        if f.base_url == e.base_url { e.base_url.clone() } else {
+            match crate::services::speech_service::resolve_local_runtime_model_path(&f.base_url) {
+                Ok(path) => path.display().to_string(),
+                Err(error) => return (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+            }
+        }
+    } else {
+        let url = reqwest::Url::parse(f.base_url.trim());
+        if provider_type != "openai_compatible" || !url.as_ref().is_ok_and(|u| matches!(u.scheme(), "http" | "https") && u.host_str().is_some() && u.username().is_empty() && u.password().is_none() && u.query().is_none() && u.fragment().is_none()) {
+            return (StatusCode::BAD_REQUEST, "A valid HTTP(S) base URL is required").into_response();
+        }
+        f.base_url.trim().to_string()
+    };
     if f.protocol.as_deref().is_some_and(|p| !matches!(p, "openai_compatible" | "anthropic")) {
         return (StatusCode::BAD_REQUEST, "Unsupported provider protocol").into_response();
     }
     if f.completion_profile.as_deref().is_some_and(|p| !matches!(p, "standard" | "openai_reasoning")) {
         return (StatusCode::BAD_REQUEST, "Unsupported provider completion profile").into_response();
     }
-    let result = sqlx::query("UPDATE model_providers SET name=?,base_url=?,enabled=?,protocol=COALESCE(?,protocol),completion_profile=COALESCE(?,completion_profile),updated_at=datetime('now') WHERE id=? AND name=? AND base_url=? AND enabled=? AND protocol=COALESCE(?,protocol) AND completion_profile=COALESCE(?,completion_profile) AND (provider_type='openai_compatible' OR COALESCE(?,protocol)='openai_compatible') AND (COALESCE(?,completion_profile)='standard' OR (provider_type='openai_compatible' AND COALESCE(?,protocol)='openai_compatible'))")
-        .bind(f.name.trim()).bind(f.base_url.trim()).bind(f.enabled).bind(&f.protocol).bind(&f.completion_profile).bind(&body.id).bind(&e.name).bind(&e.base_url).bind(e.enabled).bind(&e.protocol).bind(&e.completion_profile).bind(&f.protocol).bind(&f.completion_profile).bind(&f.protocol).execute(&state.app_state.db).await;
+    let result = sqlx::query("UPDATE model_providers SET name=?,base_url=?,enabled=?,protocol=COALESCE(?,protocol),completion_profile=COALESCE(?,completion_profile),updated_at=datetime('now') WHERE id=? AND provider_type=? AND name=? AND base_url=? AND enabled=? AND protocol=COALESCE(?,protocol) AND completion_profile=COALESCE(?,completion_profile) AND (provider_type='openai_compatible' OR COALESCE(?,protocol)='openai_compatible') AND (COALESCE(?,completion_profile)='standard' OR (provider_type='openai_compatible' AND COALESCE(?,protocol)='openai_compatible'))")
+        .bind(f.name.trim()).bind(base_url).bind(f.enabled).bind(&f.protocol).bind(&f.completion_profile).bind(&body.id).bind(provider_type).bind(&e.name).bind(&e.base_url).bind(e.enabled).bind(&e.protocol).bind(&e.completion_profile).bind(&f.protocol).bind(&f.completion_profile).bind(&f.protocol).execute(&state.app_state.db).await;
     match result { Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"ok":true})).into_response(),
         Ok(_) => (StatusCode::CONFLICT, "Provider changed or was removed. Refresh and review your edits.").into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response() }
@@ -1765,9 +1963,22 @@ pub(crate) async fn mobile_create_product(
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct MobileProductEdit { expected: crate::domain::product::Product, fields: crate::domain::product::Product }
+
+pub(crate) async fn mobile_update_product(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Json(body): Json<MobileProductEdit>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match product_repo::update_product_checked(&state.app_state.db, &product_id, &body.expected, &body.fields).await {
+        Ok(Some(product)) => Json(product).into_response(),
+        Ok(None) => (StatusCode::CONFLICT, "Product changed or was removed. Refresh and review your edits.").into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct MobileCreateHierarchyNode {
     name: String,
     description: Option<String>,
+    purpose: Option<String>,
     product_area_id: Option<String>,
     parent_capability_id: Option<String>,
 }
@@ -1777,6 +1988,7 @@ pub(crate) async fn mobile_create_hierarchy_node(State(state): State<WebhookStat
     let db = &state.app_state.db;
     if body.name.trim().is_empty() || body.name.len() > 200 { return (StatusCode::BAD_REQUEST, "Name must contain 1 to 200 characters").into_response(); }
     if product_repo::get_product(db, &product_id).await.is_err() { return (StatusCode::BAD_REQUEST, "Product not found").into_response(); }
+    if body.product_area_id.is_some() && body.purpose.is_some() { return (StatusCode::BAD_REQUEST, "Purpose applies only to product areas").into_response(); }
     let action = if let Some(area_id) = &body.product_area_id {
         let exists = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM product_areas WHERE id=? AND product_id=?)").bind(area_id).bind(&product_id).fetch_one(db).await;
         if !matches!(exists, Ok(true)) { return (StatusCode::BAD_REQUEST, "Product area does not belong to this product").into_response(); }
@@ -1789,7 +2001,7 @@ pub(crate) async fn mobile_create_hierarchy_node(State(state): State<WebhookStat
         if body.parent_capability_id.is_some() { return (StatusCode::BAD_REQUEST, "Product area is required for a child").into_response(); }
         "create_product_area"
     };
-    let arguments = serde_json::json!({"product_id": product_id, "product_area_id":body.product_area_id, "parent_capability_id":body.parent_capability_id, "name":body.name.trim(), "description":body.description.unwrap_or_default()});
+    let arguments = serde_json::json!({"product_id": product_id, "product_area_id":body.product_area_id, "parent_capability_id":body.parent_capability_id, "name":body.name.trim(), "description":body.description.unwrap_or_default(), "purpose":body.purpose.unwrap_or_default()});
     match crate::mcp::dispatch_tool(&state.app_state, "aruvi_catalog", serde_json::json!({"action":action,"arguments":arguments})).await {
         Ok(result) => (StatusCode::CREATED, Json(result["result"].clone())).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
@@ -1804,17 +2016,31 @@ pub(crate) struct MobileUpdateHierarchyNode {
     expected_description: String,
     name: String,
     description: String,
+    expected_purpose: Option<String>,
+    purpose: Option<String>,
+    expected_acceptance_criteria: Option<String>,
+    acceptance_criteria: Option<String>,
+    expected_technical_notes: Option<String>,
+    technical_notes: Option<String>,
 }
 
 pub(crate) async fn mobile_update_hierarchy_node(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Json(body): Json<MobileUpdateHierarchyNode>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     if body.name.trim().is_empty() || body.name.len() > 200 { return (StatusCode::BAD_REQUEST, "Name must contain 1 to 200 characters").into_response(); }
-    let sql = match body.node_type.as_str() {
-        "product_area" => "UPDATE product_areas SET name=?,description=?,updated_at=datetime('now') WHERE id=? AND product_id=? AND name=? AND description=?",
-        "capability" => "UPDATE capabilities SET name=?,description=?,updated_at=datetime('now') WHERE id=? AND product_area_id IN (SELECT id FROM product_areas WHERE product_id=?) AND name=? AND description=?",
-        _ => return (StatusCode::BAD_REQUEST, "Unsupported hierarchy node type").into_response(),
+    if body.expected_purpose.is_some() != body.purpose.is_some() { return (StatusCode::BAD_REQUEST, "Expected purpose is required").into_response(); }
+    if body.expected_acceptance_criteria.is_some() != body.acceptance_criteria.is_some() || body.expected_technical_notes.is_some() != body.technical_notes.is_some() {
+        return (StatusCode::BAD_REQUEST, "Expected values are required for capability details").into_response();
+    }
+    let result = match body.node_type.as_str() {
+        "product_area" if body.acceptance_criteria.is_none() && body.technical_notes.is_none() =>
+            sqlx::query("UPDATE product_areas SET name=?,description=?,purpose=COALESCE(?,purpose),updated_at=datetime('now') WHERE id=? AND product_id=? AND name=? AND description=? AND (? IS NULL OR purpose=?)")
+                .bind(body.name.trim()).bind(&body.description).bind(&body.purpose).bind(&body.id).bind(&product_id).bind(&body.expected_name).bind(&body.expected_description).bind(&body.expected_purpose).bind(&body.expected_purpose).execute(&state.app_state.db).await,
+        "capability" if body.purpose.is_none() =>
+            sqlx::query("UPDATE capabilities SET name=?,description=?,acceptance_criteria=COALESCE(?,acceptance_criteria),technical_notes=COALESCE(?,technical_notes),updated_at=datetime('now') WHERE id=? AND product_area_id IN (SELECT id FROM product_areas WHERE product_id=?) AND name=? AND description=? AND (? IS NULL OR acceptance_criteria=?) AND (? IS NULL OR technical_notes=?)")
+                .bind(body.name.trim()).bind(&body.description).bind(&body.acceptance_criteria).bind(&body.technical_notes).bind(&body.id).bind(&product_id).bind(&body.expected_name).bind(&body.expected_description).bind(&body.expected_acceptance_criteria).bind(&body.expected_acceptance_criteria).bind(&body.expected_technical_notes).bind(&body.expected_technical_notes).execute(&state.app_state.db).await,
+        _ => return (StatusCode::BAD_REQUEST, "Unsupported hierarchy node type or details").into_response(),
     };
-    match sqlx::query(sql).bind(body.name.trim()).bind(&body.description).bind(&body.id).bind(&product_id).bind(&body.expected_name).bind(&body.expected_description).execute(&state.app_state.db).await {
+    match result {
         Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"ok":true})).into_response(),
         Ok(_) => (StatusCode::CONFLICT, "Node changed, was removed, or belongs to another product. Refresh and review your edits.").into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
@@ -1842,6 +2068,58 @@ pub(crate) async fn mobile_reset_product_plan(State(state): State<WebhookState>,
         Ok(result) => Json(result).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileReferenceQuery { scope_type: String, scope_id: String, offset: Option<i64> }
+
+pub(crate) async fn mobile_list_scoped_references(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Query(query): Query<MobileReferenceQuery>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let offset = query.offset.unwrap_or(0);
+    if offset < 0 || offset > 100_000 || !matches!(query.scope_type.as_str(), "product" | "product_area" | "capability" | "feature") {
+        return (StatusCode::BAD_REQUEST, "Invalid reference scope or offset").into_response();
+    }
+    let belongs = match query.scope_type.as_str() {
+        "product" => sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM products WHERE id=? AND id=?)").bind(&query.scope_id).bind(&product_id).fetch_one(&state.app_state.db).await,
+        "product_area" => sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM product_areas WHERE id=? AND product_id=?)").bind(&query.scope_id).bind(&product_id).fetch_one(&state.app_state.db).await,
+        _ => sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE c.id=? AND a.product_id=? AND c.node_kind=?)").bind(&query.scope_id).bind(&product_id).bind(&query.scope_type).fetch_one(&state.app_state.db).await,
+    };
+    if !matches!(belongs, Ok(true)) { return (StatusCode::NOT_FOUND, "Reference scope not found for this product").into_response(); }
+    let result = sqlx::query_as::<_, crate::domain::product::ProductReference>("SELECT id,scope_type,scope_id,title,reference_kind,uri,content,created_at,updated_at FROM \"references\" r WHERE scope_type=? AND scope_id=? AND ((scope_type='product' AND scope_id=? AND EXISTS(SELECT 1 FROM products p WHERE p.id=r.scope_id)) OR (scope_type='product_area' AND EXISTS(SELECT 1 FROM product_areas a WHERE a.id=r.scope_id AND a.product_id=?)) OR (scope_type IN ('capability','feature') AND EXISTS(SELECT 1 FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE c.id=r.scope_id AND a.product_id=? AND c.node_kind=r.scope_type))) ORDER BY updated_at DESC,id DESC LIMIT 51 OFFSET ?")
+        .bind(&query.scope_type).bind(&query.scope_id).bind(&product_id).bind(&product_id).bind(&product_id).bind(offset).fetch_all(&state.app_state.db).await;
+    match result {
+        Ok(mut items) => { let has_more = items.len() > 50; items.truncate(50); Json(serde_json::json!({"items":items,"has_more":has_more})).into_response() },
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileReferenceCreate { scope_type: String, scope_id: String, title: String, reference_kind: String, uri: String, content: String }
+
+pub(crate) async fn mobile_create_scoped_reference(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Json(body): Json<MobileReferenceCreate>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    if body.title.trim().is_empty() || body.title.len() > 200 || body.uri.len() > 4096 || body.content.len() > 65536 || !matches!(body.scope_type.as_str(), "product" | "product_area" | "capability" | "feature") || !matches!(body.reference_kind.as_str(), "note" | "external_doc" | "architecture" | "customer_evidence" | "regulatory" | "design_packet" | "standard" | "other") {
+        return (StatusCode::BAD_REQUEST, "Invalid reference fields").into_response();
+    }
+    let id = uuid::Uuid::new_v4().to_string();
+    let result = sqlx::query_as::<_, crate::domain::product::ProductReference>("INSERT INTO \"references\" (id,scope_type,scope_id,title,reference_kind,uri,content) SELECT ?,?,?,?,?,?,? WHERE (?='product' AND ?=? AND EXISTS(SELECT 1 FROM products WHERE id=?)) OR (?='product_area' AND EXISTS(SELECT 1 FROM product_areas WHERE id=? AND product_id=?)) OR (? IN ('capability','feature') AND EXISTS(SELECT 1 FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE c.id=? AND a.product_id=? AND c.node_kind=?)) RETURNING id,scope_type,scope_id,title,reference_kind,uri,content,created_at,updated_at")
+        .bind(&id).bind(&body.scope_type).bind(&body.scope_id).bind(body.title.trim()).bind(&body.reference_kind).bind(&body.uri).bind(&body.content)
+        .bind(&body.scope_type).bind(&body.scope_id).bind(&product_id).bind(&product_id)
+        .bind(&body.scope_type).bind(&body.scope_id).bind(&product_id)
+        .bind(&body.scope_type).bind(&body.scope_id).bind(&product_id).bind(&body.scope_type)
+        .fetch_optional(&state.app_state.db).await;
+    match result { Ok(Some(reference)) => (StatusCode::CREATED, Json(reference)).into_response(), Ok(None) => (StatusCode::NOT_FOUND, "Reference scope not found for this product").into_response(), Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response() }
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileReferenceDelete { expected: crate::domain::product::ProductReference }
+
+pub(crate) async fn mobile_delete_scoped_reference(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Json(body): Json<MobileReferenceDelete>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let r = &body.expected;
+    let result = sqlx::query("DELETE FROM \"references\" AS r WHERE id=? AND scope_type=? AND scope_id=? AND title=? AND reference_kind=? AND uri=? AND content=? AND created_at=? AND updated_at=? AND ((scope_type='product' AND scope_id=? AND EXISTS(SELECT 1 FROM products p WHERE p.id=r.scope_id)) OR (scope_type='product_area' AND EXISTS(SELECT 1 FROM product_areas a WHERE a.id=r.scope_id AND a.product_id=?)) OR (scope_type IN ('capability','feature') AND EXISTS(SELECT 1 FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE c.id=r.scope_id AND a.product_id=? AND c.node_kind=r.scope_type)))")
+        .bind(&r.id).bind(&r.scope_type).bind(&r.scope_id).bind(&r.title).bind(&r.reference_kind).bind(&r.uri).bind(&r.content).bind(&r.created_at).bind(&r.updated_at).bind(&product_id).bind(&product_id).bind(&product_id).execute(&state.app_state.db).await;
+    match result { Ok(result) if result.rows_affected() == 1 => Json(serde_json::json!({"ok":true})).into_response(), Ok(_) => (StatusCode::CONFLICT, "Reference changed, was removed, or is outside this product. Refresh before deleting.").into_response(), Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response() }
 }
 
 pub(crate) async fn mobile_get_product_tree(

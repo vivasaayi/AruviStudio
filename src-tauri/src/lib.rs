@@ -294,8 +294,17 @@ pub fn run_headless_server() -> Result<(), Box<dyn std::error::Error>> {
     observability::logger::init_logging();
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async {
+        #[cfg(unix)]
+        let shutdown = {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut terminate = signal(SignalKind::terminate())?;
+            let mut interrupt = signal(SignalKind::interrupt())?;
+            async move { tokio::select! { _ = terminate.recv() => {}, _ = interrupt.recv() => {} } }
+        };
+        #[cfg(not(unix))]
+        let shutdown = async { let _ = tokio::signal::ctrl_c().await; };
         let state = bootstrap::initialize_app_state(Some("com.aruvi.studio")).await?;
-        services::webhook_service::start_webhook_server(state)
+        services::webhook_service::start_webhook_server_with_shutdown(state, shutdown)
             .await
             .map_err(std::io::Error::other)?;
         Ok(())
