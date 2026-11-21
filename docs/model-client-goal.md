@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Workflow map stage indicators (in validation)
+### Workflow map stage indicators
 
 The browser map labels the current stage, stages entered according to recorded
 transition history, and stages without recorded entry. These labels do not
@@ -23,8 +23,18 @@ outline. The native server build and disposable browser fixture passed for
 current/entered/unrecorded states, mouse and keyboard selection, workflow
 isolation, and all map controls at a 390-pixel viewport. A headless browser
 capture was visually reviewed at that width and map spacing was increased;
-this is not a complete mobile audit. Linux validation and branch deployment are
-pending. The desktop SVG connections and focused-node layout remain open.
+a desktop-width capture was also reviewed. This is not a complete layout audit.
+Both hosted test runs and the clean ARM64 build passed at `1a34cbf`; the archive
+checksum and source revision were verified. Its extracted server binary (SHA-256
+`3197c3ffb0594fd0f36378194eb0b89716a7abac670b14b78b8e683d1c6b03a5`)
+was layered onto the prior branch image to produce derived image
+`sha256:394d98e8d6563641e02bd5ccaedc59fad27b09fe3eb1bf2c940ce9de05725da7`,
+not the full clean artifact. The candidate passed 53 isolated workflow tests,
+45 browser tests with one skipped, and the PDF outage check. A checked database
+backup and prior image were retained. After deployment, product, MCP, mobile and
+PDF checks passed across restart, as did the published-port origin check and a
+real `qwen25-coder-7b-q4` MCP coding request. The branch endpoint was
+`127.0.0.1:55288`. The desktop SVG connections and focused-node layout remain open.
 
 ### Browser workflow map
 
