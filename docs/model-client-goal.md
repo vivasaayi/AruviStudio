@@ -12,15 +12,25 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Workflow usage and agent-run visibility (in validation)
+### Workflow usage and agent-run visibility
 
 The workflow-call browser control also retrieves the selected workflow's agent
 runs and summarizes input/output tokens, failures and duration. When no
 per-call records exist, it labels available agent-run token totals as legacy
 telemetry instead. The corresponding authenticated HTTP route uses the same
 agent-run query as desktop and MCP. The native server build and disposable
-browser fixture passed for both per-call and legacy totals. Linux tests and a
-new branch deployment are pending. This does not add the desktop's full workflow diagram
+browser fixture passed for both per-call and legacy totals. Hosted tests and the
+clean ARM64 build passed at `ac2144d`; the archive checksum and source revision
+were verified. Its server binary (SHA-256
+`97598f3cfd8e66d3cbd4e67edea5d470bd99873637a8116a3e2d1244d3d4adc9`)
+was layered onto the preceding branch image, creating derived image
+`sha256:0a057f8ba93cebc8196aadd40bfa411438c0893c457cfcf13b60824c40a50877`.
+This is a derived image, not the full clean artifact. The candidate passed 53
+isolated workflow tests, 45 browser tests with one skipped and PDF outage
+checks. A checked database backup and prior image were retained; the deployed
+branch passed product, MCP, mobile and PDF acceptance across restart, published
+port origin checks, and a real `qwen25-coder-7b-q4` MCP coding request. Its URL
+was `127.0.0.1:55288` at this checkpoint. This does not add the desktop's full workflow diagram
 or stage-by-stage artifact review. The desktop diagram contains structural
 split/merge nodes as well as actual runtime stages; its selected-stage panel
 associates runs and artifacts and shows recent transition history. MCP already
