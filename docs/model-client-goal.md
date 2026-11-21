@@ -452,6 +452,14 @@ same files: path translation is not independent proof of shared identity. Live
 CI deployment, stable-environment mounts, real product builds and writable
 workspace delivery through this mount remain open.
 
+The disposable container-to-host fixture was rerun with a real headless Chrome
+browser against the completed minimal build. The CI page showed the target,
+commit and passed run, exposed all expected stages, displayed a real Rust-test
+log and requested OCI artifact verification. `scripts/test native-ci-service`
+accepts `--browser` with `--execute-build`, and optionally
+`--browser-executable` to use a local Chromium installation. This exercises
+inspection, not browser-initiated queueing, cancellation or a deployed CI service.
+
 ### Disposable native Aruvici connection
 
 Studio revision `f90987b` and Aruvici revision `5851f2594bbbd83193e259a566004088ac28c52e`

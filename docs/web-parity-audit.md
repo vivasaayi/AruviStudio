@@ -230,6 +230,11 @@ container-initiated disposable CI build. The operator must ensure the two roots
 represent the same files; live-service deployment and broader product builds
 remain open.
 
+A headless Chrome browser also inspected the completed disposable real-service
+build through the Docker Studio relay, including its stages, Rust-test log and
+OCI artifact verification. Browser queueing and other actions are still covered
+only by simulated-service tests.
+
 | Desktop action | Dependency or constraint for web parity |
 | --- | --- |
 | Show service health, configured targets, pipeline readiness and recent runs | Authenticated browser and MCP reads now use the existing bounded JSON bridge. An explicitly configured trusted service still needs end-to-end validation. |
