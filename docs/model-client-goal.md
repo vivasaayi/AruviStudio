@@ -5887,3 +5887,22 @@ checks. A read-only check confirmed the running branch's mobile and MCP tokens
 are environment-controlled. The verified archive, build records, checked
 pre-deployment backup and previous image are retained. Docker VM free space
 remained about 2.2 GiB; this is not integration or staging acceptance.
+
+## Workflow Git delivery coordination
+
+Manual workflow advancement and the normal Git delivery stage now coordinate
+through a per-run in-process lock and, on Unix with a file-backed SQLite database,
+a private advisory lock beside the database. Advancement records entry to the Git
+stage before delivery and completes only after the push succeeds; an error is
+recorded as a failed Git stage. A persisted delivery commit permits retry after a
+failed push. This changes manual advancement from push preparation to proceed
+through delivery to completion in the same call.
+
+Focused native tests exercised two concurrent advances against a local bare Git
+remote, an unavailable delivery, and separate processes contending for the same
+lock. The native Rust library suite passed 316 tests with seven ignored. The lock
+requires cooperating versions and a filesystem that supports shared
+advisory locks; Windows and in-memory databases have only in-process coordination.
+It cannot make a remote Git push and a SQLite update one atomic operation: a
+crash after a successful push may cause a retry of the same recorded commit.
+These tests do not establish full parity or staging acceptance.
