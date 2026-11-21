@@ -4280,7 +4280,8 @@ editor without discarding open buffers; server-side conflict checks and mixed
 line-ending restrictions remain in force. A browser fixture covered unavailable
 asset fallback, JavaScript language detection, edits and undo across tabs, a
 delayed file open, ⌘/Ctrl+S, concurrent-write rejection and a read-only mixed
-line-ending file. Requests in the fixture stayed on the Studio origin. Native
+line-ending file. A follow-up check also saved a CRLF file and verified that its
+line endings remained CRLF through MCP. Requests in the fixture stayed on the Studio origin. Native
 servers require an explicit asset-directory configuration; native application
 packaging, other languages, mobile devices and full desktop IDE behavior remain
 unvalidated. Per-file buffers still do not survive a page reload.

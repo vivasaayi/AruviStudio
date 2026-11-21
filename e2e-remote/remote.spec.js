@@ -81,8 +81,17 @@ test("optional code editor preserves tabs and uses guarded saves", async ({page,
   await expect(page.getByLabel("Selected file contents")).toHaveValue("const second = 99;\n");
   await page.getByRole("button", {name:"Discard file edits"}).click();
   await page.locator("#repositoryTree").getByRole("button", {name:"mixed.js",exact:true}).click();
+  await expect(page.locator("#repositoryFileTabs").getByRole("button", {name:"mixed.js",exact:true})).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", {name:"Use code editor"}).click();
   await expect.poll(() => page.evaluate(() => codeEditor.getOption(monaco.editor.EditorOption.readOnly))).toBe(true);
+  await page.locator("#repositoryTree").getByRole("button", {name:"windows.js",exact:true}).click();
+  await expect(page.locator("#repositoryFileTabs").getByRole("button", {name:"windows.js",exact:true})).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(() => page.evaluate(() => codeEditor.getOption(monaco.editor.EditorOption.readOnly))).toBe(false);
+  await input.focus(); await page.keyboard.press("ControlOrMeta+A"); await page.keyboard.insertText("alpha\nbeta\n");
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect(page.locator("#status")).toHaveText("File saved");
+  const windows = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:3,method:"tools/call",params:{name:"aruvi_repositories",arguments:{action:"read_repository_file",arguments:{repository_id:repository.id,relative_path:"windows.js"}}}}});
+  expect((await windows.json()).result.structuredContent.result.content).toBe("alpha\r\nbeta\r\n");
   expect(external).toEqual([]);
 });
 
