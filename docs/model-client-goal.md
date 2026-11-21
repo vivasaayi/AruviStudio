@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Host-browser CI fixture
+
+`bash scripts/test ci-host-fixture` runs the disposable Docker application and
+simulated CI socket with host Playwright/Chrome, avoiding the browser-container
+dependency installation. Against the current worktree image, its CI browser/MCP
+test passed, including authenticated artifact download, streamed save with a
+simulated picker, byte/digest verification and unauthenticated rejection. The
+PDF renderer isolation check also passed. The CI service and save picker in this
+fixture are simulated; real native-service and large-transfer evidence is
+recorded separately below.
+
 ### Native real-browser PDF tests
 
 At `806ee55`, the three ignored PDF tests were run explicitly on macOS with
