@@ -47,6 +47,14 @@ this branch; reconcile those changes and independently review authorization,
 configuration and deployment before using the scoped credential in the live
 service. This candidate is not a deployment or a substitute for TLS.
 
+The candidate branch was advanced to `ffb4cfb` to make all four cross-project
+fixtures directly runnable without a `PYTHONPATH` workaround and to document
+their required environment. Native Studio, Docker Studio, token rotation, and
+the independent Docker client each passed against a simulated scoped host. The
+rotation test verified that Studio retained its provider until the restarted
+host accepted the new credential. These remain synthetic fixtures; deployment
+and reconciliation with the host's separate integration adapter remain open.
+
 The Model Host source at `6edb84979f0b670c304192600052f98533a86439` currently
 uses the same bearer credential for inference and management. A candidate patch
 at `docs/integration/model-host-inference-token-candidate.patch` adds an optional
