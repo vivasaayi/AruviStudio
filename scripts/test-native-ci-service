@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check a disposable native Studio server against a real, empty Aruvici service."""
 import argparse
+import base64
 import contextlib
 import fcntl
 import hashlib
@@ -28,6 +29,7 @@ parser.add_argument("--browser", action="store_true", help="Inspect the complete
 parser.add_argument("--browser-executable", help="Optional Chromium executable for the browser check")
 parser.add_argument("--artifact-browser", help="Chromium executable for the disposable multi-chunk artifact browser check")
 parser.add_argument("--large-real-artifact", action="store_true", help="Also create and stream a disposable artifact just over 256 MiB")
+parser.add_argument("--relay-artifact", action="store_true", help="Verify a full fast chunk through the host relay and a second Studio instance")
 args = parser.parse_args()
 if (args.exercise_protocol or args.execute_build) and not args.audit_protocol:
     parser.error("--exercise-protocol and --execute-build require --audit-protocol")
@@ -41,6 +43,10 @@ if args.artifact_browser and not args.exercise_protocol:
     parser.error("--artifact-browser requires --exercise-protocol")
 if args.large_real_artifact and not args.artifact_browser:
     parser.error("--large-real-artifact requires --artifact-browser")
+if args.relay_artifact and not args.exercise_protocol:
+    parser.error("--relay-artifact requires --exercise-protocol")
+if args.relay_artifact and args.large_real_artifact:
+    parser.error("Run relay and real large artifact fixtures separately")
 studio = args.studio_binary.resolve(strict=True)
 aruvici = args.aruvici_binary.resolve(strict=True)
 
@@ -230,11 +236,16 @@ try:
                             large_hash.update(block)
                         output.write(b"x")
                         large_hash.update(b"x")
+                if args.relay_artifact:
+                    relay_bytes = bytes(range(256)) * 2048 + b"tail"
+                    (run_root / "relay.bin").write_bytes(relay_bytes)
                 with sqlite3.connect(state / "ci.sqlite") as database:
                     database.execute("INSERT INTO runs(id,target,commit_hash,plan_digest,dedupe_key,context,status) VALUES (1,?,?,?,?,?,?)", ("fixture", commit, plan["digest"], "original", json.dumps({"fixture": True}), "failed"))
                     database.execute("INSERT INTO artifacts(id,run_id,stage,kind,path,sha256,size) VALUES (1,1,?,?,?,?,?)", ("package", "package", str(artifact_path), hashlib.sha256(artifact_bytes).hexdigest(), len(artifact_bytes)))
                     if args.large_real_artifact:
                         database.execute("INSERT INTO artifacts(id,run_id,stage,kind,path,sha256,size) VALUES (2,1,?,?,?,?,?)", ("package", "package", str(run_root / "large.bin"), large_hash.hexdigest(), large_size))
+                    if args.relay_artifact:
+                        database.execute("INSERT INTO artifacts(id,run_id,stage,kind,path,sha256,size) VALUES (2,1,?,?,?,?,?)", ("package", "package", str(run_root / "relay.bin"), hashlib.sha256(relay_bytes).hexdigest(), len(relay_bytes)))
                 readiness = call("aruvi_ci", "artifact_readiness", {"id": 1})
                 if readiness.get("sha256") != hashlib.sha256(artifact_bytes).hexdigest() or readiness.get("eligible") is not False:
                     raise RuntimeError("Unexpected artifact verification")
@@ -252,6 +263,36 @@ try:
                     raise RuntimeError("Artifact transfer did not match its metadata")
                 if not mcp_result("aruvi_ci", "artifact_chunk", {"id": 1, "offset": -1}).get("isError"):
                     raise RuntimeError("Negative artifact offset was accepted")
+                if args.relay_artifact:
+                    relay_token = secrets.token_urlsafe(32)
+                    relay_env = dict(base_env, ARUVI_CI_RELAY_TOKEN=relay_token)
+                    relay = subprocess.Popen(["python3", str(Path(__file__).resolve().parent / "ci-relay"), "--socket", str(ci_socket)], env=relay_env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+                    cleanup.callback(stop, relay)
+                    prefix = "CI relay listening on 127.0.0.1:"
+                    line = relay.stdout.readline().strip()
+                    if not line.startswith(prefix) or not line[len(prefix):].isdigit(): raise RuntimeError("Disposable CI relay did not start")
+                    relay_port = int(line[len(prefix):])
+                    def relay_probe(credential, method):
+                        with socket.create_connection(("127.0.0.1", relay_port), timeout=5) as connection:
+                            connection.sendall(json.dumps({"token": credential, "request": {"method": method}}).encode() + b"\n")
+                            return json.loads(connection.makefile("rb").readline())
+                    if relay_probe("incorrect-" + "x" * 32, "health").get("ok") is not False or relay_probe(relay_token, "deploy").get("ok") is not False:
+                        raise RuntimeError("CI relay accepted invalid credentials or a disallowed method")
+                    with socket.socket() as reserve:
+                        reserve.bind(("127.0.0.1", 0))
+                        relay_app_port = reserve.getsockname()[1]
+                    relay_env = dict(base_env, ARUVI_APP_DATA_DIR=str(root / "relay-studio"), ARUVI_DB_PATH=str(root / "relay-studio.db"), ARUVI_LLM_CONFIG_PATH=str(root / "relay-llm-config.json"), ARUVI_CI_RELAY_URL=f"http://127.0.0.1:{relay_port}", ARUVI_CI_RELAY_TOKEN=relay_token, ARUVI_WEBHOOK_HOST="127.0.0.1", ARUVI_WEBHOOK_PORT=str(relay_app_port), ARUVI_MOBILE_API_TOKEN=token, ARUVI_MCP_API_TOKEN=token)
+                    relay_app = subprocess.Popen([str(studio)], env=relay_env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    cleanup.callback(stop, relay_app)
+                    relay_base = f"http://127.0.0.1:{relay_app_port}"
+                    def relay_health():
+                        with opener.open(relay_base + "/health", timeout=2) as response: return response.status == 200
+                    wait_for(relay_health, [ci, relay, relay_app])
+                    request = urllib.request.Request(relay_base + "/api/mobile/ci/artifacts/2/data/fast-chunk?offset=0", headers={"Authorization": "Bearer " + token})
+                    with opener.open(request, timeout=20) as response: part = json.load(response)
+                    if base64.b64decode(part["data_base64"], validate=True) != relay_bytes[:524288] or part["next_offset"] != 524288 or part["eof"]:
+                        raise RuntimeError("Full fast artifact chunk failed through the CI relay")
+                    print("Full 512 KiB artifact chunk passed through Studio and the authenticated CI relay.")
                 if args.artifact_browser:
                     try:
                         opener.open(address + "/api/mobile/ci/artifacts/1/data/chunk?offset=0", timeout=10)

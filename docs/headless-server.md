@@ -343,6 +343,10 @@ native Aruvici fixture and transfer it through the socket. This uses temporary
 host disk space and has a five-minute test timeout. An initial debug-build run
 timed out; a subsequent run passed with the updated Aruvici socket and base64
 protocol. Progress is reported every 32 MiB.
+Use `--relay-artifact` instead of `--large-real-artifact` with the protocol
+fixture to verify a 512 KiB chunk through a disposable native Studio instance
+and authenticated loopback relay, including invalid-token and forbidden-method
+checks. It does not exercise a deployed container or a full large transfer.
 
 For the mocked desktop Playwright suite, a locally installed Chrome can be selected
 with `ARUVI_PLAYWRIGHT_EXECUTABLE_PATH`; `ARUVI_PLAYWRIGHT_PORT` chooses the Vite

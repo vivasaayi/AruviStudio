@@ -39,6 +39,12 @@ writes, and the synthetic legacy fallback also passed. The save picker remained
 simulated. The 11 Aruvici CI API tests passed. This does not validate the deployed
 CI service, actual picker, Docker image or staging.
 
+A separate disposable fixture sent a full 512 KiB artifact chunk through a
+second native Studio server, the authenticated loopback relay and the Aruvici
+protocol-branch service. It verified the decoded bytes and rejected an invalid
+relay token and a disallowed deploy request. This exercises the relay path, but
+not a deployed container-to-host relay or a full large transfer through it.
+
 The separate Aruvici protocol branch now has draft PR
 [#1](https://github.com/vivasaayi/aruvici/pull/1). At `2b871e2`, it also
 requires chunk paths to belong to the artifact's owning run. Its
