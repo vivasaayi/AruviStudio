@@ -288,6 +288,30 @@ async fn remote_workspace_registration_is_authenticated_and_idempotent() {
 }
 
 #[tokio::test]
+async fn remote_database_override_rejects_stale_and_concurrent_updates() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_database_override_conflicts").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "config-token").await.unwrap();
+    let router = build_webhook_router(state);
+    let uri = "/api/mobile/database-settings";
+    let (status, _) = send_json(&router, Method::POST, uri, None, Some(json!({"path":"/tmp/unauthorized.db"}))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = send_json(&router, Method::POST, uri, Some("config-token"), Some(json!({"path":"/tmp/first.db","expected":{"path":null}}))).await;
+    assert_eq!(status, StatusCode::OK);
+    let stale = json!({"path":"/tmp/stale.db","expected":{"path":null}});
+    let (status, _) = send_json(&router, Method::POST, uri, Some("config-token"), Some(stale)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let first = send_json(&router, Method::POST, uri, Some("config-token"), Some(json!({"path":"/tmp/one.db","expected":{"path":"/tmp/first.db"}})));
+    let second = send_json(&router, Method::POST, uri, Some("config-token"), Some(json!({"path":"/tmp/two.db","expected":{"path":"/tmp/first.db"}})));
+    let (first, second) = tokio::join!(first, second);
+    assert!((first.0 == StatusCode::OK && second.0 == StatusCode::CONFLICT) || (first.0 == StatusCode::CONFLICT && second.0 == StatusCode::OK));
+    let (_, body) = send_json(&router, Method::GET, uri, Some("config-token"), None).await;
+    assert!(matches!(parse_json(&body)["override_path"].as_str(), Some("/tmp/one.db" | "/tmp/two.db")));
+    let (status, _) = send_json(&router, Method::POST, uri, Some("config-token"), Some(json!({"path":null}))).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
 async fn remote_test_command_configuration_is_authenticated_and_validated() {
     let app: tauri::App<MockRuntime> = make_test_app("remote_test_config").await;
     let state = app.state::<AppState>().inner().clone();

@@ -44,11 +44,17 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         "get_active_database_path" => action_result("get_active_database_path", json!({ "path": database::get_active_database_path(state).await? })),
         "get_database_path_override" => action_result("get_database_path_override", json!({ "path": database::get_database_path_override(state).await? })),
         "set_database_path_override" => {
-            database::set_database_path_override(state, args.required_string(&["db_path", "dbPath"], "db_path")?).await?;
+            let expected = args.optional_deserialize(&["expected"], "expected")?;
+            if !database::update_database_path_override(state, Some(args.required_string(&["db_path", "dbPath"], "db_path")?), expected).await? {
+                return Err(AppError::Validation("Database override changed; reload before retrying".into()));
+            }
             Ok(action_ok("set_database_path_override"))
         }
         "clear_database_path_override" => {
-            database::clear_database_path_override(state).await?;
+            let expected = args.optional_deserialize(&["expected"], "expected")?;
+            if !database::update_database_path_override(state, None, expected).await? {
+                return Err(AppError::Validation("Database override changed; reload before retrying".into()));
+            }
             Ok(action_ok("clear_database_path_override"))
         }
         other => Err(AppError::Validation(format!(

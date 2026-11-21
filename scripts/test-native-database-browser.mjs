@@ -29,6 +29,21 @@ try {
         await expect(page.locator("#databaseStatus")).toContainText("Active: " + command.active);
         await expect(page.locator("#databaseStatus")).toContainText(command.environment ? "environment controls" : "saved override applies after restart");
         await expect(page.locator("#databaseOverride")).toHaveValue(command.override || "");
+      } else if (command.action === "verify-conflict") {
+        await page.locator("#databaseOverride").fill(command.draft);
+        const other = await page.request.post(origin + "/api/mcp", {
+          headers: {Authorization:`Bearer ${token}`, Accept:"application/json, text/event-stream"},
+          data: {jsonrpc:"2.0", id:1, method:"tools/call", params:{name:"aruvi_settings", arguments:{action:"set_database_path_override", arguments:{db_path:command.external}}}},
+        });
+        expect((await other.json()).result.isError).not.toBeTruthy();
+        const conflict = page.waitForResponse(response => response.url().endsWith("/api/mobile/database-settings") && response.request().method() === "POST");
+        await page.locator("#saveDatabaseOverride").click();
+        expect((await conflict).status()).toBe(409);
+        await expect(page.locator("#databaseOverride")).toHaveValue(command.draft);
+        await page.getByRole("button", {name:"Discard draft and reload"}).click();
+        await expect(page.locator("#databaseOverride")).toHaveValue(command.external);
+        await page.locator("#clearDatabaseOverride").click();
+        await expect(page.locator("#databaseOverride")).toHaveValue("");
       } else if (command.action === "verify-draft") {
         let seen, release;
         const observed = new Promise(resolve => { seen = resolve; });

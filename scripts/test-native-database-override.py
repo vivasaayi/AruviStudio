@@ -146,6 +146,7 @@ with tempfile.TemporaryDirectory(prefix="aruvi-database-override-", dir="/privat
             assert database.execute("SELECT planner_session_id, product_id FROM planner_channel_bindings WHERE id = ?", ("legacy-binding",)).fetchone() == ("legacy-session", None)
             assert database.execute("PRAGMA quick_check").fetchone()[0] == "ok"
             assert not database.execute("PRAGMA foreign_key_check").fetchall()
+        if browser: browser_action("verify-conflict", draft=str(root / "draft.db"), external=str(root / "concurrent.db"))
         browser_action("verify-draft", path=str(override_db))
         browser_action("verify-save-draft", path=str(override_db), draft=str(root / "unsaved.db"))
         browser_action("verify-draft", path=str(root / "unsaved.db"), preexisting=True)

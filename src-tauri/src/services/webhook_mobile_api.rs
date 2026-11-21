@@ -212,6 +212,7 @@ pub(crate) async fn mobile_route_planner_contact(State(state): State<WebhookStat
 #[derive(Deserialize)]
 pub(crate) struct DatabaseOverrideUpdate {
     path: serde_json::Value,
+    expected: Option<crate::services::settings_database_service::DatabaseOverrideExpected>,
 }
 
 pub(crate) async fn mobile_bridge_status(State(state): State<WebhookState>, headers: HeaderMap) -> impl IntoResponse {
@@ -250,13 +251,15 @@ pub(crate) async fn mobile_database_settings(State(state): State<WebhookState>, 
 
 pub(crate) async fn mobile_update_database_override(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<DatabaseOverrideUpdate>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
-    let result = match body.path {
-        serde_json::Value::String(path) => crate::services::settings_database_service::set_database_path_override(&state.app_state, path).await,
-        serde_json::Value::Null => crate::services::settings_database_service::clear_database_path_override(&state.app_state).await,
+    let path = match body.path {
+        serde_json::Value::String(path) => Some(path),
+        serde_json::Value::Null => None,
         _ => return (StatusCode::BAD_REQUEST, "Path must be a string or null").into_response(),
     };
+    let result = crate::services::settings_database_service::update_database_path_override(&state.app_state, path, body.expected).await;
     match result {
-        Ok(()) => Json(serde_json::json!({"ok": true})).into_response(),
+        Ok(true) => Json(serde_json::json!({"ok": true})).into_response(),
+        Ok(false) => (StatusCode::CONFLICT, "Database override changed; reload the saved value before retrying").into_response(),
         Err(error) => {
             let status = if matches!(error, crate::error::AppError::Validation(_)) { StatusCode::BAD_REQUEST } else { StatusCode::INTERNAL_SERVER_ERROR };
             (status, error.to_string()).into_response()

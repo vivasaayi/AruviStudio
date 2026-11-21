@@ -990,11 +990,11 @@
           <section class="panel">
             <div class="panel-header"><div class="panel-title">Database</div><button type="button" class="secondary" id="refreshDatabaseSettings">Refresh database</button></div>
             <div class="panel-body stack">
-              <p>Paths refer to the Studio server filesystem. Changes apply on restart; an environment-configured database path takes precedence. Changing the path can open a different database. Concurrent changes use the last saved value.</p>
+              <p>Paths refer to the Studio server filesystem. Changes apply on restart; an environment-configured database path takes precedence. Changing the path can open a different database. A stale browser edit is rejected if the saved override changed.</p>
               <div id="databaseStatus" aria-live="polite">Load database settings to see migration health.</div>
               <details><summary>Migration history</summary><pre id="databaseMigrations">No migration history loaded.</pre></details>
               <label><span class="label">Database path override</span><input id="databaseOverride" placeholder="Absolute server path" /></label>
-              <div class="button-row"><button type="button" id="saveDatabaseOverride">Save override</button><button type="button" class="secondary" id="clearDatabaseOverride">Clear override</button></div>
+              <div class="button-row"><button type="button" id="saveDatabaseOverride">Save override</button><button type="button" class="secondary" id="clearDatabaseOverride">Clear override</button><button type="button" class="secondary" id="reloadDatabaseOverride">Discard draft and reload</button></div>
             </div>
           </section>
           <section class="panel">
@@ -4515,8 +4515,9 @@
     let routingRequestId = 0;
     let databaseSettingsSequence = 0;
     let databaseEditVersion = 0, databaseSyncedVersion = 0;
+    let databaseOverrideSnapshot = null, databaseSnapshotLoaded = false, databaseUpdateInFlight = false;
     document.getElementById("databaseOverride").addEventListener("input", () => { databaseEditVersion++; });
-    async function loadDatabaseSettings(savedEditVersion) {
+    async function loadDatabaseSettings(savedEditVersion, discardDraft = false) {
       const status = document.getElementById("databaseStatus");
       const input = document.getElementById("databaseOverride");
       const requestEditVersion = databaseEditVersion;
@@ -4525,9 +4526,12 @@
         const data = await request("/api/mobile/database-settings");
         if (sequence !== databaseSettingsSequence) return;
         const expectedVersion = typeof savedEditVersion === "number" ? savedEditVersion : databaseSyncedVersion;
-        if (databaseEditVersion === expectedVersion && requestEditVersion === expectedVersion) {
+        if ((databaseEditVersion === expectedVersion && requestEditVersion === expectedVersion) ||
+            (discardDraft && databaseEditVersion === requestEditVersion)) {
           input.value = data.override_path || "";
           databaseSyncedVersion = databaseEditVersion;
+          databaseOverrideSnapshot = data.override_path ?? null;
+          databaseSnapshotLoaded = true;
         }
         const health = data.health;
         document.getElementById("databaseMigrations").textContent = health.migrations.map((item) => `${item.version}: ${item.description} — ${item.success ? "applied" : "failed"} (${item.installed_on})`).join("\n") || "No migrations recorded.";
@@ -4536,16 +4540,29 @@
     }
 
     async function updateDatabaseOverride(clear) {
+      if (databaseUpdateInFlight) return;
+      if (!databaseSnapshotLoaded) { document.getElementById("databaseStatus").textContent = "Load the saved database override before changing it."; return; }
       const submittedValue = document.getElementById("databaseOverride").value;
       const submittedVersion = databaseEditVersion;
       const path = submittedValue.trim();
       if (!clear && !path) { document.getElementById("databaseStatus").textContent = "Enter an absolute server path."; return; }
       if (!confirm(clear ? "Clear the saved database path override? This affects the next restart." : "Save this database path override? It may change the database opened after restart.")) return;
+      databaseUpdateInFlight = true;
+      document.getElementById("saveDatabaseOverride").disabled = true;
+      document.getElementById("clearDatabaseOverride").disabled = true;
+      document.getElementById("reloadDatabaseOverride").disabled = true;
       try {
-        await request("/api/mobile/database-settings", { method: "POST", body: { path: clear ? null : path } });
+        await request("/api/mobile/database-settings", { method: "POST", body: { path: clear ? null : path, expected: { path: databaseOverrideSnapshot } } });
+        databaseOverrideSnapshot = clear ? null : path;
         await loadDatabaseSettings(submittedVersion);
         setStatus("Database override saved", "ok");
       } catch (error) { document.getElementById("databaseStatus").textContent = error.message || String(error); }
+      finally {
+        databaseUpdateInFlight = false;
+        document.getElementById("saveDatabaseOverride").disabled = false;
+        document.getElementById("clearDatabaseOverride").disabled = false;
+        document.getElementById("reloadDatabaseOverride").disabled = false;
+      }
     }
 
     async function loadRouting() {
@@ -5810,6 +5827,9 @@
     document.getElementById("refreshDatabaseSettings").addEventListener("click", loadDatabaseSettings);
     document.getElementById("saveDatabaseOverride").addEventListener("click", () => void updateDatabaseOverride(false));
     document.getElementById("clearDatabaseOverride").addEventListener("click", () => void updateDatabaseOverride(true));
+    document.getElementById("reloadDatabaseOverride").addEventListener("click", () => {
+      if (confirm("Discard the database path draft and load the saved override?")) void loadDatabaseSettings(undefined, true);
+    });
     el.refreshRoutingButton.addEventListener("click", loadRouting);
     document.getElementById("refreshWorkflowAutomation").addEventListener("click", () => void loadWorkflowAutomation());
     el.createAgentEditor.appendChild(makeAgentForm(null));

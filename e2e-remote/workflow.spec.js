@@ -2209,6 +2209,18 @@ test("browser reviews and updates server database settings", async ({ page, requ
   await expect(page.locator("#databaseMigrations")).toContainText("applied");
   page.on("dialog", (dialog) => dialog.accept());
   await page.locator("#databaseOverride").fill("/tmp/isolated-new-database.db");
+  const other = await request.post("/api/mcp", {
+    headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}`, Accept: "application/json, text/event-stream" },
+    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_database_path_override", arguments: { db_path: "/tmp/concurrent-database.db" } } } },
+  });
+  expect((await other.json()).result.isError).not.toBeTruthy();
+  const conflict = page.waitForResponse(response => response.url().endsWith("/api/mobile/database-settings") && response.request().method() === "POST");
+  await page.locator("#saveDatabaseOverride").click();
+  expect((await conflict).status()).toBe(409);
+  await expect(page.locator("#databaseOverride")).toHaveValue("/tmp/isolated-new-database.db");
+  await page.getByRole("button", { name: "Discard draft and reload" }).click();
+  await expect(page.locator("#databaseOverride")).toHaveValue("/tmp/concurrent-database.db");
+  await page.locator("#databaseOverride").fill("/tmp/isolated-new-database.db");
   await page.locator("#saveDatabaseOverride").click();
   await expect.poll(async () => (await (await request.get("/api/mobile/database-settings", { headers })).json()).override_path).toBe("/tmp/isolated-new-database.db");
   const after = await (await request.get("/api/mobile/database-settings", { headers })).json();

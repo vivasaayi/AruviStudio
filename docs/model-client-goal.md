@@ -5607,3 +5607,22 @@ the simulated CI fixture, published-port browser MCP checks and a real local
 7B MCP coding request. An additional focused guard test verified that an
 offset read cannot satisfy the fresh-line requirement; that test-only change
 postdates the built image.
+
+## Database override conflict protection
+
+Database path override changes now use a temporary file and atomic rename,
+with a process mutex and an advisory file lock on Unix for cooperating Studio
+processes. Browser saves compare their loaded override and preserve the draft
+on conflict; an explicit discard-and-reload action retrieves the saved value.
+MCP clients may supply the same expected snapshot. Existing desktop and legacy
+API/MCP writes remain last-write-wins, direct file writers and older binaries
+do not take the lock, and value comparison does not detect an A-to-B-to-A
+change. The write still does not validate the database at the new path.
+
+Focused tests covered stale and simultaneous API updates, MCP conflicts,
+cross-process coordination and atomic reader visibility. A disposable native
+server and host Chrome exercised a conflicting MCP write, browser draft
+preservation and reload, then migration, override and clear across restarts and
+environment precedence. The native Rust library suite passed 303 tests with
+seven ignored. This does not establish Windows cross-process locking,
+all historical migrations, or staging acceptance.
