@@ -3671,6 +3671,12 @@
             stageSelect.hidden = !stages.length;
             const renderStage = () => {
               stageDetails.replaceChildren(); const stage = stageSelect.value;
+              stageMap.querySelectorAll("button[data-workflow-stage]").forEach((node) => {
+                const selected = node.dataset.workflowStage === stage;
+                node.setAttribute("aria-pressed", String(selected));
+                node.style.outline = selected ? "2px solid #8ecbff" : "";
+                node.style.outlineOffset = selected ? "2px" : "";
+              });
               const text = document.createElement("pre"); text.style.whiteSpace = "pre-wrap"; text.style.overflowWrap = "anywhere";
               const stageRuns = runs.filter((run) => run.stage === stage);
               const ids = new Set(stageRuns.map((run) => run.id));
@@ -3687,12 +3693,19 @@
             };
             stageSelect.onchange = renderStage;
             stageMap.replaceChildren();
-            const explanation = document.createElement("p"); explanation.className = "empty"; explanation.textContent = "Workflow map: split nodes and parallel lanes explain the design; they do not establish that a step ran. Select a stage to inspect its recorded events."; stageMap.appendChild(explanation);
+            const explanation = document.createElement("p"); explanation.className = "empty"; explanation.textContent = "Workflow map: Current marks the workflow's current stage; Entered means history recorded entry, not completion. Not recorded does not prove a step never ran. Split nodes and parallel lanes explain the design. Planning labels share one runtime stage, so their indicators do not prove individual branches ran."; stageMap.appendChild(explanation);
+            const enteredStages = new Set(history.map((entry) => entry.to_stage));
             for (const [laneName, nodes] of lanes) {
               const lane = document.createElement("div"), label = document.createElement("strong"); lane.className = "tool-card"; label.textContent = laneName + ": "; lane.appendChild(label);
               for (const [name, stage] of nodes) {
                 if (!stage) { const split = document.createElement("span"); split.textContent = name + " · "; lane.appendChild(split); continue; }
-                const node = document.createElement("button"); node.type = "button"; node.className = "secondary"; node.textContent = name; node.addEventListener("click", () => { stageSelect.value = stage; renderStage(); }); lane.appendChild(node);
+                const node = document.createElement("button");
+                const indicator = stage === workflow.current_stage ? "Current" : enteredStages.has(stage) ? "Entered" : "Not recorded";
+                node.type = "button"; node.className = "secondary"; node.dataset.workflowStage = stage;
+                node.setAttribute("aria-label", name); node.setAttribute("aria-description", indicator + " workflow stage");
+                node.textContent = name + " · " + indicator;
+                node.style.borderColor = indicator === "Current" ? "#57b0e5" : indicator === "Entered" ? "#4ec9b0" : "";
+                node.addEventListener("click", () => { stageSelect.value = stage; renderStage(); }); lane.appendChild(node);
               }
               stageMap.appendChild(lane);
             }

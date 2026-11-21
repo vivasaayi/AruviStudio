@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Workflow map stage indicators (in validation)
+
+The browser map labels the current stage, stages entered according to recorded
+transition history, and stages without recorded entry. These labels do not
+assert completion or prove an unrecorded stage never ran; planning labels share
+one runtime stage and do not establish that individual planning branches ran.
+Map selection is exposed through `aria-pressed` and has a visible focus-style
+outline. The native server build and disposable browser fixture passed for
+current/entered/unrecorded states, mouse and keyboard selection, workflow
+isolation, and a 390-pixel map control. Linux validation and branch deployment
+are pending. The desktop SVG connections and focused-node layout remain open.
+
 ### Browser workflow map
 
 The recorded-stage review now includes an explanatory workflow map with the
