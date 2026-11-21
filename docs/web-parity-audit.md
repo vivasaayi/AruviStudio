@@ -340,6 +340,17 @@ malicious or non-cooperating writer. Hard links, changes to file contents while 
 concurrent changes to the artifact directory itself are not eliminated by
 these checks. This is not a claim of complete artifact-format parity.
 
+### Workspace update command gap
+
+The desktop backend exposes `update_repository`, which changes a workspace's
+name, local path, remote URL and default branch and propagates a changed default
+branch to matching work items. A source search found a TypeScript wrapper but no
+current frontend callers. Browser and MCP have registration and attachment
+operations but do not expose this update command or an equivalent action. This
+is an IPC/API parity gap, not evidence that a desktop editing screen currently
+uses it. Porting it requires the same path and duplicate checks, safe handling
+of concurrent changes and preserving the branch-update behavior.
+
 ### Catalog bulk import
 
 Browser Products and MCP can submit up to 1 MiB of inline UTF-8 JSON or CSV to
