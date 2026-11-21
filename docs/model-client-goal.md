@@ -32,6 +32,16 @@ candidate passed 34 remote browser tests, the PDF outage check and 51 workflow
 tests. This is not a clean Dockerfile rebuild, real CLI-provider acceptance or
 staging validation. The shared Docker disk remained near capacity.
 
+The candidate was then deployed to the worktree as image
+`sha256:d44c18821350ee96a39c685e058532953e232baac43effd063d3db36e3a1cc78`
+after source commit `dee2555`. The prior image was retained as
+`aruvi-studio-worktree-backup:pre-external-cli`, and a consistent SQLite
+backup passed `quick_check` before the switch. App and PDF services became
+healthy; the updated browser UI and authenticated MCP action discovery passed,
+and an authenticated launch request confirmed remote execution is disabled by
+default. The published loopback port is dynamic. This worktree deployment does
+not establish real CLI-provider integration or stable staging acceptance.
+
 ### Integration adapter scoped-token preparation
 
 The existing untracked Model Host `deploy/compose.integration.yaml` now passes
