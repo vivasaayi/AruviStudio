@@ -245,6 +245,12 @@ async fn workflow_failure_records_state_and_history_atomically() {
     update_workflow_stage(&pool, "terminal-run", "done").await.unwrap();
     assert!(mark_workflow_failed(&pool, "terminal-run", &WorkflowStage::Draft, &cause).await.is_err());
     assert_eq!(get_workflow_run(&pool, "terminal-run").await.unwrap().current_stage, "done");
+    create_workflow_run(&pool, "advanced-run", "failure-item").await.unwrap();
+    update_workflow_stage(&pool, "advanced-run", "git_push").await.unwrap();
+    assert!(mark_workflow_failed(&pool, "advanced-run", &WorkflowStage::PushPreparation, &cause).await.is_err());
+    let advanced = get_workflow_run(&pool, "advanced-run").await.unwrap();
+    assert_eq!((advanced.current_stage.as_str(), advanced.status.as_str()), ("git_push", "running"));
+    assert!(get_workflow_history(&pool, "advanced-run").await.unwrap().is_empty());
 }
 
 #[tokio::test]

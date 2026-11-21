@@ -5896,7 +5896,8 @@ a private advisory lock beside the database. Advancement records entry to the Gi
 stage before delivery and completes only after the push succeeds; an error is
 recorded as a failed Git stage. A persisted delivery commit permits retry after a
 failed push. This changes manual advancement from push preparation to proceed
-through delivery to completion in the same call.
+through delivery to completion in the same call. A failure from a delayed stage
+executor is rejected if another request has already advanced the workflow.
 
 Focused native tests exercised two concurrent advances against a local bare Git
 remote, an unavailable delivery, and separate processes contending for the same

@@ -15,6 +15,15 @@ pub async fn mark_workflow_failed(
         return Err(AppError::Validation("Workflow is already terminal; refresh before recording failure".into()));
     }
 
+    // A delayed executor must not fail a stage that another actor has already
+    // advanced to. The transition below checks the same expected stage again
+    // atomically, in case it changes after this read.
+    if current.current_stage != WorkflowStage::Failed.as_str()
+        && current.current_stage != stage.as_str()
+    {
+        return Err(AppError::Validation("Workflow stage changed before failure was recorded; refresh before continuing".into()));
+    }
+
     if current.current_stage != WorkflowStage::Failed.as_str() {
         workflow_repo::commit_workflow_transition(
             db,
