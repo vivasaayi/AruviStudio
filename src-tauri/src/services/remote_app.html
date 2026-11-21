@@ -848,6 +848,8 @@
                   <label><span class="label">Context window (optional)</span><input id="newModelContext" type="number" min="1" step="1" /></label>
                   <label><span class="label">Capability tags (comma-separated)</span><input id="newModelTags" /></label>
                   <label><span class="label">Notes</span><textarea id="newModelNotes"></textarea></label>
+                  <label><span class="label">Model preset (optional)</span><select id="modelPreset"><option value="">Choose a preset</option><option value="deepseek-flash">DeepSeek Flash</option><option value="deepseek-v4-pro">DeepSeek V4 Pro</option><option value="deepseek-voice-transcription">DeepSeek transcription</option><option value="whisper-base.en">Local Whisper</option></select></label>
+                  <div class="empty">Presets fill model details only. Choose a compatible provider above and verify availability with the provider.</div>
                   <button type="submit" id="createModelButton">Add model</button>
                 </form>
                 <div id="modelList" class="tool-list"></div>
@@ -1217,6 +1219,7 @@
       newModelName: document.getElementById("newModelName"),
       newModelContext: document.getElementById("newModelContext"),
       newModelTags: document.getElementById("newModelTags"),
+      modelPreset: document.getElementById("modelPreset"),
       newModelNotes: document.getElementById("newModelNotes"),
       discoverModelsButton: document.getElementById("discoverModelsButton"),
       discoverMoreModelsButton: document.getElementById("discoverMoreModelsButton"),
@@ -5497,6 +5500,21 @@
     el.localModelForm.addEventListener("submit", registerLocalModel);
     el.localPresetForm.addEventListener("submit", installLocalPreset);
     el.modelForm.addEventListener("submit", createModel);
+    el.modelPreset.addEventListener("change", () => {
+      const presets = {
+        "deepseek-flash": ["coding,planning,analysis", "DeepSeek Flash; verify current availability and pricing with the provider."],
+        "deepseek-v4-pro": ["coding,planning,analysis", "DeepSeek V4 Pro; verify current availability and pricing with the provider."],
+        "deepseek-voice-transcription": ["speech_to_text,transcription,audio", "Studio selector for DeepSeek transcription; the service detects language."],
+        "whisper-base.en": ["speech_to_text,transcription,audio", "Local Whisper runtime for voice transcription through whisper.cpp."],
+      };
+      const preset = presets[el.modelPreset.value];
+      if (!preset) return;
+      el.newModelName.value = el.modelPreset.value;
+      el.newModelContext.value = "";
+      el.newModelTags.value = preset[0];
+      el.newModelNotes.value = preset[1];
+      el.modelPreset.value = "";
+    });
     el.modelProvider.addEventListener("change", resetModelDiscovery);
     el.discoverModelsButton.addEventListener("click", () => discoverModels(false));
     el.discoverMoreModelsButton.addEventListener("click", () => discoverModels(true));

@@ -12,6 +12,21 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Model registration form comparison
+
+The desktop and browser forms both expose provider name, protocol/profile, base
+URL and credential, plus model provider, name, context window, tags, notes and
+enabled state when editing. Browser model registration now also offers the four
+desktop model presets. Unlike the desktop shortcuts, these only fill model fields
+and leave the selected provider unchanged; users must select a compatible
+provider. A headless Chromium check loaded the updated HTML against the running
+branch origin and verified all four presets, their fields and provider selection.
+The rebuilt native server passed the browser model-configuration regression in
+a disposable database, including all presets, model creation, editing and
+conflict handling. It did not test third-party availability. The running Docker
+branch has not yet been rebuilt with these UI changes. Other management
+operations and native-window behavior remain to be compared.
+
 ### Clean Dockerfile build and shutdown finding
 
 At branch commit `7143479`, a no-cache Linux ARM64 build of the actual
@@ -1469,7 +1484,8 @@ scope is reviewed, not merely until an example passes.
 
 The currently running branch app is a worktree deployment. Its port is dynamic;
 use `bash scripts/env worktree status` to identify it rather than relying on a
-historical checkpoint address. Staging, production promotion and release are
+historical checkpoint address. Staging deployment has been requested and remains subject to the shared
+integration and promotion gates. Production promotion and release remain
 outside this work until separately requested.
 
 - [x] Inspect the model-host API, deployments and installed models, and the

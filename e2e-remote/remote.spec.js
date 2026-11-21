@@ -1355,6 +1355,20 @@ test("browser configures and selects a model", async ({ page, request }) => {
       await expect(page.locator("#status")).toHaveText("Connection successful");
     }
     await page.getByLabel("Provider for model").selectOption(providerId);
+    for (const [preset, tags] of [
+      ["deepseek-flash", "coding,planning,analysis"],
+      ["deepseek-v4-pro", "coding,planning,analysis"],
+      ["deepseek-voice-transcription", "speech_to_text,transcription,audio"],
+      ["whisper-base.en", "speech_to_text,transcription,audio"],
+    ]) {
+      await page.getByLabel("Context window (optional)").fill("1024");
+      await page.getByLabel("Model preset (optional)").selectOption(preset);
+      await expect(page.getByLabel("Provider for model")).toHaveValue(providerId);
+      await expect(page.getByLabel("Model name", { exact: true })).toHaveValue(preset);
+      await expect(page.getByLabel("Context window (optional)")).toHaveValue("");
+      await expect(page.getByLabel("Capability tags (comma-separated)")).toHaveValue(tags);
+      await expect(page.getByLabel("Notes", { exact: true })).not.toHaveValue("");
+    }
     if (process.env.ARUVI_TEST_MODEL_URL) {
       let releaseOld, startedOld;
       const oldStarted = new Promise((resolve) => { startedOld = resolve; });
