@@ -22,6 +22,12 @@ covered image selection, scoped configuration, missing images, unsafe ports and
 credential output; a live invocation left the existing app and PDF container
 IDs and image unchanged and healthy. It does not establish that the selected
 image matches the current source or replace a clean Dockerfile build.
+At `c84bfe1`, a second disposable worktree started with this command alongside
+the original, with distinct loopback ports, credentials and Compose volumes.
+A product created in the disposable worktree was absent from the original.
+After destroying the disposable project and removing its worktree, the original
+services remained healthy and its authenticated product API responded. The
+fixture image tag and private temporary state were removed.
 
 ### CI artifact and context-guard branch deployment
 
