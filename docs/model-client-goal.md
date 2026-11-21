@@ -129,6 +129,15 @@ unverified.
 
 ### Current independent client, voice and dependency revalidation
 
+After the Copilot branch deployment, the running container again completed a
+real Model Host `piper-ljspeech` to `whisper-tiny-metal` round trip through MCP.
+Headless Chrome also recorded synthetic Piper audio and sent it through the
+browser transcription flow to Whisper. These checks do not test a physical
+microphone or audible output. Desktop Execution settings now state that the
+saved Docker host and maximum retry values are not currently used or enforced;
+configured test commands run as the Studio server user. Implementing actual
+retry policy and execution isolation remains open.
+
 At `6d23c1d`, the shared-client pin/source check, running worktree MCP-origin
 check, npm audit, and SQLx vendor-provenance check passed again. A refreshed
 RustSec scan at database commit `55e1c3dfbd834237a05bbbf7b50ba3b5be27b662`

@@ -129,11 +129,11 @@ export function SettingsPage() {
       <div style={styles.section}>
         <div style={styles.sectionTitle}>Execution</div>
         <div style={styles.settingRow}>
-          <div><div style={styles.label}>Docker Host</div><div style={styles.desc}>Docker daemon URL for test execution</div></div>
+          <div><div style={styles.label}>Docker Host</div><div style={styles.desc}>Saved for compatibility; not currently used for test execution. Configured test commands run as the Studio server user.</div></div>
           <div style={{ display: "flex", alignItems: "center" }}><input style={styles.input} value={dockerHost} onChange={(e) => setDockerHost(e.target.value)} placeholder="unix:///var/run/docker.sock" /><button style={styles.btn} onClick={() => saveSetting("docker_host", dockerHost)}>Save</button>{savedMsg === "docker_host" && <span style={styles.saved}>Saved!</span>}</div>
         </div>
         <div style={styles.settingRow}>
-          <div><div style={styles.label}>Max Workflow Retries</div><div style={styles.desc}>Maximum retry attempts for failed workflow stages</div></div>
+          <div><div style={styles.label}>Max Workflow Retries</div><div style={styles.desc}>Saved for compatibility; not currently enforced for failed workflow stages.</div></div>
           <div style={{ display: "flex", alignItems: "center" }}><input style={{ ...styles.input, width: 80 }} type="number" value={maxRetries} onChange={(e) => setMaxRetries(e.target.value)} /><button style={styles.btn} onClick={() => saveSetting("max_workflow_retries", maxRetries)}>Save</button>{savedMsg === "max_workflow_retries" && <span style={styles.saved}>Saved!</span>}</div>
         </div>
       </div>
