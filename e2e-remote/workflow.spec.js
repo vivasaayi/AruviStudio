@@ -884,6 +884,15 @@ test("browser installs a fixed speech preset and reuses its existing file", asyn
   expect(repeated.ok()).toBeTruthy();
   expect((await repeated.json()).model_definition.id).toBe(result.model_definition.id);
   if (process.env.ARUVI_TEST_LOCAL_AUDIO) {
+    if (process.env.ARUVI_TEST_WHISPER_MODE === "existing") {
+      const card = page.locator("#providerList .tool-card").filter({ hasText: result.provider.name });
+      await card.getByText("Manage provider", { exact: true }).click();
+      await card.getByLabel(`Edit server model path ${result.provider.name}`).fill("/data/models/fixture/alternative.bin");
+      await card.getByRole("button", { name: "Save provider" }).click();
+      await expect(page.locator("#status")).toHaveText("Provider saved");
+      const providers = await (await request.get("/api/mobile/providers", { headers })).json();
+      expect(providers.find((provider) => provider.id === result.provider.id).base_url).toBe("/data/models/fixture/alternative.bin");
+    }
     const wav = readFileSync(process.env.ARUVI_TEST_LOCAL_AUDIO);
     const data = { provider_id: result.provider.id, model_name: result.model_definition.name,
       audio_bytes_base64: wav.toString("base64"), mime_type: "audio/wav", locale: "en" };
@@ -943,7 +952,7 @@ test("browser registers a server local speech model and preserves it on repeat",
   await page.getByRole("button", { name: "Models", exact: true }).click();
   await page.getByLabel("Local provider name").fill(data.provider_name);
   await page.getByLabel("Local model name").fill(data.model_name);
-  await page.getByLabel("Server model path").fill(data.model_path);
+  await page.getByLabel("Server model path", { exact: true }).fill(data.model_path);
   const created = page.waitForResponse((r) => r.url().endsWith(endpoint) && r.request().method() === "POST");
   await page.getByRole("button", { name: "Register local speech model" }).click();
   const response = await created;

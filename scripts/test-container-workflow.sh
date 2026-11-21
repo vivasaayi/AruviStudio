@@ -20,6 +20,7 @@ if [[ "${ARUVI_TEST_WHISPER_DOWNLOAD:-}" == 1 ]]; then
   whisper_test_mode=download
 elif [[ -n "${ARUVI_TEST_WHISPER_MODEL:-}" ]]; then
   docker exec -i "$name" sh -c 'cat > /data/models/whisper-cpp-tiny-en-local/ggml-tiny.en.bin' < "$ARUVI_TEST_WHISPER_MODEL"
+  docker exec "$name" sh -c 'cp /data/models/whisper-cpp-tiny-en-local/ggml-tiny.en.bin /data/models/fixture/alternative.bin'
   whisper_test_mode=existing
 else
   docker exec "$name" sh -c 'printf "synthetic preset" > /data/models/whisper-cpp-tiny-en-local/ggml-tiny.en.bin'
