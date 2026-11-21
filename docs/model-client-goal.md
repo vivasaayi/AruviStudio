@@ -5534,3 +5534,18 @@ reached the real local host and passed discovery, buffered completion, streaming
 and token-limit checks with `qwen25-coder-7b-q4`. It used the existing
 management-capable host credential; this does not resolve credential scope or
 establish compatibility with other hosts and models.
+
+The independent fixture subsequently added a regression case for a choice
+arriving after `stop`. The full fixture passed 31 tests both on macOS offline
+and in a read-only, network-disabled Linux container using vendored sources.
+
+The clean Linux ARM64 image from Studio commit
+`6e705cebeed762e3418aefbe194c68f22eaa313f` has manifest
+`sha256:1db276f62096887775eb3809ddafa74d90d0e7210f49eca512bb63d2aaf55598`.
+Its disposable workflow fixture passed 52 tests before the branch deployment
+was refreshed. The running app and PDF sidecar passed product, MCP, mobile
+authorization, PDF and restart-persistence acceptance; 41 remote browser tests,
+PDF isolation/outage and simulated CI checks passed. Browser-origin MCP checks,
+a real local 7B MCP coding request and authenticated real-model browser streaming
+also passed. A checked database backup and the prior image were retained. This
+does not establish live cloud-provider compatibility or staging acceptance.
