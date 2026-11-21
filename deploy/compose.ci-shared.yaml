@@ -1,0 +1,8 @@
+# Explicit opt-in: mount a trusted host repository root read-only for CI.
+services:
+  app:
+    volumes:
+      - type: bind
+        source: ${ARUVI_CI_HOST_REPOSITORY_ROOT:?Set the host CI repository root}
+        target: ${ARUVI_CI_CONTAINER_REPOSITORY_ROOT:?Set the container CI repository root}
+        read_only: true

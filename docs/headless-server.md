@@ -224,8 +224,25 @@ approved builds and potentially triggering configured Preview behavior. Use a
 dedicated token and trusted CI service, protect the private environment file, and
 stop the relay when it is not needed. This transport has been tested for status
 reads against a disposable Aruvici service; it is not installed automatically.
-Host and container repository paths still need a trusted shared mapping before
-target binding and build dispatch can be considered working.
+To match a host CI target to a container repository, set both
+`ARUVI_CI_HOST_REPOSITORY_ROOT` and `ARUVI_CI_CONTAINER_REPOSITORY_ROOT` in the
+private environment file. The first is the canonical absolute host directory;
+the second is its mount path below `/repositories`. For a worktree, after the
+normal worktree has been initialized and built, `scripts/ci-shared-worktree-up`
+recreates it with that host root mounted read-only. A normal `scripts/env
+worktree up` does not apply this optional override; use the helper again when
+the CI mount is needed. The mount exposes the selected host files to the Studio
+container, so choose a dedicated trusted directory. It is read-only: editing or
+workflow delivery to that mounted workspace is not supported by this helper.
+
+Studio translates only target paths under the configured host root, resolves
+the corresponding path inside the container root, rejects traversal or escapes,
+and compares it with the registered repository before binding and again before
+queueing. The operator must ensure the roots really represent the same shared
+directory; configuration alone is not proof of identity. A disposable real CI
+build through Docker Studio and the relay passed with this arrangement. Stable
+environment mounts, live CI service deployment and broader product builds have
+not been validated.
 
 In **Work**, configure the workflow test command as a JSON array of executable and
 arguments, such as `["npm", "test"]`. The executable and its dependencies must be

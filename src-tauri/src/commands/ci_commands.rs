@@ -14,7 +14,7 @@ use std::{
     io::{BufReader, Read, Write},
     net::{TcpStream, ToSocketAddrs},
     os::unix::net::UnixStream,
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     process::Command,
     time::Duration,
 };
@@ -144,6 +144,26 @@ mod socket_tests {
         }
         assert!(request_relay("http://127.0.0.1:1234", "short", json!({"method":"health"})).is_err());
     }
+
+    #[test]
+    fn explicit_repository_mapping_confines_paths_and_rejects_escapes() {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join("shared");
+        let repo = root.join("project");
+        let outside = temporary.path().join("outside");
+        fs::create_dir_all(&repo).unwrap();
+        fs::create_dir_all(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("escape")).unwrap();
+        let host = Path::new("/host/repos");
+        let registered = repo.to_str().unwrap();
+        assert!(repository_paths_match(registered, "/host/repos/project", Some((host, &root))).unwrap());
+        assert!(!repository_paths_match(outside.to_str().unwrap(), "/host/repos/project", Some((host, &root))).is_ok());
+        assert!(repository_paths_match(registered, "/host/repos-other/project", Some((host, &root))).is_err());
+        assert!(repository_paths_match(registered, "/host/repos/../outside", Some((host, &root))).is_err());
+        assert!(repository_paths_match(registered, "/host/repos/escape", Some((host, &root))).is_err());
+        assert!(repository_paths_match(registered, "/host/repos/project", Some((Path::new("/"), &root))).is_err());
+        assert!(repository_paths_match(registered, registered, None).unwrap());
+    }
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -240,6 +260,44 @@ fn normalized_repository_path(path: &str) -> Result<PathBuf, String> {
     })
 }
 
+fn configured_repository_mapping() -> Result<Option<(PathBuf, PathBuf)>, String> {
+    let host = std::env::var_os("ARUVI_CI_HOST_REPOSITORY_ROOT").filter(|s| !s.is_empty());
+    let container = std::env::var_os("ARUVI_CI_CONTAINER_REPOSITORY_ROOT").filter(|s| !s.is_empty());
+    match (host, container) {
+        (None, None) => Ok(None),
+        (Some(host), Some(container)) => Ok(Some((host.into(), container.into()))),
+        _ => Err("Both CI repository mapping roots must be configured".into()),
+    }
+}
+
+fn clean_absolute_path(path: &Path) -> bool {
+    path.is_absolute() && path.components().count() > 1
+        && path.components().all(|part| matches!(part, Component::RootDir | Component::Normal(_)))
+}
+
+fn repository_paths_match(registered: &str, target: &str, mapping: Option<(&Path, &Path)>) -> Result<bool, String> {
+    let registered = normalized_repository_path(registered)?;
+    let Some((host_root, container_root)) = mapping else {
+        return Ok(registered == normalized_repository_path(target)?);
+    };
+    let target = Path::new(target);
+    if !clean_absolute_path(host_root) || !clean_absolute_path(container_root) || !clean_absolute_path(target) {
+        return Err("CI repository mapping requires specific absolute paths without parent components".into());
+    }
+    let relative = target.strip_prefix(host_root).map_err(|_| "CI target is outside the configured host repository root")?;
+    let root = fs::canonicalize(container_root).map_err(|_| "CI container repository root is unavailable")?;
+    let mapped = fs::canonicalize(root.join(relative)).map_err(|_| "Mapped CI repository is unavailable")?;
+    if !mapped.starts_with(&root) || !registered.starts_with(&root) {
+        return Err("CI repository mapping escapes its configured container root".into());
+    }
+    Ok(registered == mapped)
+}
+
+fn configured_paths_match(registered: &str, target: &str) -> Result<bool, String> {
+    let mapping = configured_repository_mapping()?;
+    repository_paths_match(registered, target, mapping.as_ref().map(|(host, container)| (host.as_path(), container.as_path())))
+}
+
 fn target_metadata(target_id: &str) -> Result<LocalCiTarget, String> {
     let targets = request(json!({"method":"targets"}))?;
     targets
@@ -314,9 +372,7 @@ async fn validate_target_repository(
             "CI target '{target_id}' has no repository metadata"
         ));
     };
-    let registered = normalized_repository_path(&repository_path)?;
-    let configured = normalized_repository_path(target_path)?;
-    if registered != configured {
+    if !configured_paths_match(&repository_path, target_path)? {
         return Err(format!(
             "CI target '{target_id}' repository does not match the registered repository path"
         ));
@@ -542,7 +598,7 @@ pub(crate) async fn queue_target_reference(state: &AppState, target_id: String, 
     let readiness_target = target_id.clone();
     let metadata = tokio::task::spawn_blocking(move || target_metadata(&readiness_target)).await.map_err(|error| error.to_string())??;
     let target_path = metadata.repository.as_deref().ok_or("CI target has no repository metadata")?;
-    if normalized_repository_path(&registered_repository_path(state, &repository_id).await?)? != normalized_repository_path(target_path)? {
+    if !configured_paths_match(&registered_repository_path(state, &repository_id).await?, target_path)? {
         return Err("CI target repository changed before queueing".into());
     }
     if metadata.approval.as_ref().and_then(|value| value.get("approved")).and_then(Value::as_bool) != Some(true) {

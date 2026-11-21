@@ -435,8 +435,22 @@ Docker Studio fixture passed MCP and authenticated browser API status reads;
 incorrect credentials and a disallowed deploy method were rejected. The existing
 simulated Unix-socket CI test and focused Rust socket tests passed. This is a
 plaintext trusted-host transport, not TLS or an access boundary against Docker
-administrators. It is not installed or deployed. Matching host/container
-repository identities and an actual container-initiated build remain open.
+administrators. It is not installed or deployed. The subsequent checkpoint
+below covers the host/container mapping and a container-initiated build.
+
+Studio now supports an explicit host/container repository-root mapping for CI.
+It confines mapped target paths to the configured roots, resolves the container
+path and checks it on binding and before queueing. A disposable Docker Studio
+fixture mounted a real host Git repository read-only, used the authenticated
+relay and candidate Aruvici service, bound the target and queued a real minimal
+Rust/OCI build. All expected scan, formatting, lint, test, packaging and artifact
+verification stages passed, and the browser API read the result. Unit tests
+cover mismatches, traversal and symlink escape. An opt-in worktree Compose
+override and `scripts/ci-shared-worktree-up` provide the read-only mount; its
+rendered configuration was checked. The operator must ensure the roots are the
+same files: path translation is not independent proof of shared identity. Live
+CI deployment, stable-environment mounts, real product builds and writable
+workspace delivery through this mount remain open.
 
 ### Disposable native Aruvici connection
 

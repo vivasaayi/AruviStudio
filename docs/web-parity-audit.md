@@ -225,7 +225,10 @@ native browser interaction, and Docker-to-host transport remain open.
 An opt-in, token-authenticated host-loopback relay now lets a Docker Studio
 fixture read status from a real disposable Aruvici service on Mac Docker Desktop.
 The relay is plaintext on the trusted local host connection and is not deployed;
-repository path identity and actual container-initiated builds remain open.
+an explicit trusted root mapping and read-only worktree mount now support a
+container-initiated disposable CI build. The operator must ensure the two roots
+represent the same files; live-service deployment and broader product builds
+remain open.
 
 | Desktop action | Dependency or constraint for web parity |
 | --- | --- |
