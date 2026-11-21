@@ -12,6 +12,28 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Scoped Model Host candidate revalidation
+
+Model Host [PR #12](https://github.com/vivasaayi/aruvi-model-host/pull/12)
+remains a draft based on the current remote default branch. Its separate
+candidate worktree now derives scoped-credential denial checks from all
+protected router declarations and tests seven HTTP methods, with explicit
+positive coverage for the five allowed inference method/path pairs. The check
+also requires review if the router gains composed or nonliteral routes.
+The refreshed macOS host build passed ten Rust unit tests, 18 simulated lifecycle
+tests and seven native adapter tests. Disposable native and Docker fixtures using
+the current Studio branch passed scoped MCP completion and management denial;
+the watcher fixture retained its provider across a token change before restart
+and recovered when the restarted host accepted it. No live host was changed.
+
+The original Model Host main checkout still has its pre-existing uncommitted
+environment work. A fresh comparison found those files retained in the candidate;
+the differing README, native adapter and adapter test include the scoped-token
+changes. The candidate is pushed through `1302b93` but has not been merged or
+deployed. The current host still requires the management-capable token; use of
+an inference-only credential remains contingent on a merged host revision and
+integration acceptance under the environment contract.
+
 ### Anthropic stream initial-content guard
 
 The shared client previously ignored `message_start.message.content`, so a
