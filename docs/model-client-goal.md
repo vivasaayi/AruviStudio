@@ -3985,3 +3985,12 @@ The test explicitly set `ARUVI_CODING_TEST_MODEL=qwen25-coder-7b-q4`; the
 fixture's default remains the separate 15B model. The validation host still
 uses a management-capable token, and its dynamically assigned port can change
 after a restart.
+
+## Agent template reference clarification
+
+Desktop and browser agent editors now state that the prompt-template reference
+is stored metadata and is not applied during execution. Seeded references have
+no corresponding template resolution path. Implementing template behavior and
+defining compatibility for existing references remain open. The frontend build
+passed and the rebuilt worktree app and PDF sidecar were healthy at the newly
+assigned port `55079`; the UI text itself was not separately browser-tested.

@@ -3950,6 +3950,9 @@
       const role = field("Agent role", source.role, false); role.required = true;
       const description = field("Agent description", source.description, true);
       const prompt = field("Prompt template reference", source.prompt_template_ref, false);
+      const promptHint = document.createElement("div"); promptHint.className = "empty";
+      promptHint.textContent = "Saved as metadata; agent execution does not apply this template.";
+      form.appendChild(promptHint);
       const tools = field("Allowed tools (JSON array)", JSON.stringify(source.allowed_tools, null, 2), true);
       const tags = field("Skill tags (JSON array)", JSON.stringify(source.skill_tags, null, 2), true);
       const boundaries = field("Execution boundaries (JSON object)", JSON.stringify(source.boundaries, null, 2), true);
