@@ -5792,6 +5792,12 @@ five runs exactly one process succeeded, the other received a conflict and one
 history entry was recorded. This checks one transition on the local filesystem;
 Linux container behavior and external side effects remain separate checks.
 
+The new `workflow-transition-multiprocess` fixture starts two disposable
+Linux Studio containers against one temporary volume, holds a SQLite write lock
+while both request the same gate rejection, and checks the resulting state and
+history. Against the previously deployed image it reproduced two successful
+decisions. The atomic-transition candidate still needs to pass this fixture.
+
 ## Browser bridge bind settings
 
 The browser Activity view now loads and edits the saved server bind host and
