@@ -10,6 +10,34 @@ use tauri::test::MockRuntime;
 use tauri::Manager;
 use tower::ServiceExt;
 
+#[tokio::test]
+async fn webhook_shutdown_waits_for_in_flight_http_requests() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let gate = std::sync::Arc::new(std::sync::Mutex::new(Some((entered_tx, release_rx))));
+    let router = axum::Router::new().route("/slow", axum::routing::get(move || {
+        let gate = gate.clone();
+        async move {
+            let (entered, release) = gate.lock().unwrap().take().unwrap();
+            let _ = entered.send(());
+            let _ = release.await;
+            "complete"
+        }
+    }));
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(super::serve_webhook(listener, router, async { let _ = shutdown_rx.await; }));
+    let request = tokio::spawn(async move { reqwest::get(format!("http://{address}/slow")).await.unwrap().text().await.unwrap() });
+    tokio::time::timeout(std::time::Duration::from_secs(5), entered_rx).await.unwrap().unwrap();
+    shutdown_tx.send(()).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!server.is_finished(), "server exited before the active response completed");
+    release_tx.send(()).unwrap();
+    assert_eq!(request.await.unwrap(), "complete");
+    tokio::time::timeout(std::time::Duration::from_secs(5), server).await.unwrap().unwrap().unwrap();
+}
+
 async fn send_json(
     router: &axum::Router,
     method: Method,

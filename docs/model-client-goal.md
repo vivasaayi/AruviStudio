@@ -12,6 +12,27 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Clean Dockerfile build and shutdown finding
+
+At branch commit `7143479`, a no-cache Linux ARM64 build of the actual
+Dockerfile succeeded using a temporary BuildKit worker and an isolated ext4
+filesystem image on the Mac; the shared Docker store had less than 1 GiB free.
+The resulting OCI manifest was
+`sha256:cc06e802bfd20a52911e319bbed0c804946337166a29e8a197a8d61da85605a7`.
+In a disposable OCI runtime fixture, the clean image started as its configured
+non-root user, authenticated browser navigation and product creation passed,
+and the separately launched PDF renderer generated a valid PDF. The fixture
+retained its product after a forced restart; authenticated MCP work creation,
+PDF export and unauthenticated-read rejection passed afterward. This was a
+fixture, not a Compose deployment, staging acceptance, or a release artifact.
+
+The restart check found that the image's server process, running as PID 1,
+remained alive after SIGTERM and needed SIGKILL. A headless-only shutdown path
+is being added to stop accepting requests and allow active HTTP responses to
+finish. Background workflows and subprocesses require separate coordination;
+the HTTP shutdown path alone does not guarantee they complete. New-build and
+runtime validation of the fix is tracked below when complete.
+
 ### Scoped Model Host candidate revalidation
 
 Model Host [PR #12](https://github.com/vivasaayi/aruvi-model-host/pull/12)

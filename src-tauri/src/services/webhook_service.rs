@@ -301,6 +301,13 @@ async fn twilio_voice_entry_with_prompt(
 }
 
 pub async fn start_webhook_server(app_state: AppState) -> Result<(), String> {
+    start_webhook_server_with_shutdown(app_state, std::future::pending()).await
+}
+
+pub(crate) async fn start_webhook_server_with_shutdown<F>(app_state: AppState, shutdown: F) -> Result<(), String>
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
     let bind_config = resolve_webhook_bind_config(&app_state)
         .await
         .map_err(|error| format!("failed to resolve webhook bind config: {error}"))?;
@@ -322,7 +329,14 @@ pub async fn start_webhook_server(app_state: AppState) -> Result<(), String> {
         .map_err(|error| format!("failed to bind webhook server: {error}"))?;
 
     info!(address = %address, "webhook server listening");
-    axum::serve(listener, router)
+    serve_webhook(listener, router, shutdown).await
+}
+
+async fn serve_webhook<F>(listener: tokio::net::TcpListener, router: Router, shutdown: F) -> Result<(), String>
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    axum::serve(listener, router).with_graceful_shutdown(shutdown)
         .await
         .map_err(|error| format!("webhook server failed: {error}"))
 }

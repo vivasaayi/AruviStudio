@@ -15,6 +15,12 @@ model.
 
 The repositories and any coding CLIs used by agents must also be installed or cloned on the VM.
 
+The headless server responds to SIGTERM and SIGINT by stopping new HTTP requests
+and allowing active HTTP responses to finish. The container runtime may enforce
+its own stop deadline. Background workflows, imports and external CLI processes
+are not drained by this HTTP shutdown; check for active work before restarting,
+and review recovery state afterward.
+
 ## Local Docker deployment (in progress)
 
 The repository includes a Compose configuration for a local, ARM64 Docker Desktop
