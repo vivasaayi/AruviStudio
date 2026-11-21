@@ -313,6 +313,15 @@ in the private environment state directory outside the checkout. `scripts/test u
 and `scripts/test integration` invoke the project's existing test commands and require
 their local toolchain dependencies.
 
+To start this worktree's already-configured local image without building or
+pulling, use `bash scripts/env worktree up --no-build`. It validates the
+worktree configuration with the shared launcher and requires the image to exist
+locally. It does not rebuild the image, so check that the image matches the
+source revision you intend to run. The command refuses configurations with a
+database service or migration/seed hooks; use the normal launcher for those.
+`bash scripts/test worktree-no-build` exercises this command with a fake Docker
+CLI, including missing-image and unsafe-port failures.
+
 On macOS, `bash scripts/test host-layout` uses locally installed Node dependencies
 and Google Chrome to visit all 13 remote sections at phone and desktop viewport sizes.
 It checks page errors and document-level horizontal overflow against the running

@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Reusing a worktree image without rebuilding
+
+`bash scripts/env worktree up --no-build` now validates the worktree with the
+shared launcher, requires the configured image locally, and starts it with
+Compose build and pull disabled. It refuses configurations requiring database,
+migration or seed hooks rather than silently skipping them. A fake-Docker test
+covered image selection, scoped configuration, missing images, unsafe ports and
+credential output; a live invocation left the existing app and PDF container
+IDs and image unchanged and healthy. It does not establish that the selected
+image matches the current source or replace a clean Dockerfile build.
+
 ### CI artifact and context-guard branch deployment
 
 Source `e07ea27` built as an optimized Linux ARM64 server in a disposable
