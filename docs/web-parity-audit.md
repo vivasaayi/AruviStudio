@@ -356,8 +356,9 @@ folder if the file also matches its content guard. Browser saves and reviewed
 patch writes now bind to the opened path and hold a SQLite write lock through
 the filesystem write, preventing cooperating database path updates across
 processes from racing that check. A native cross-process fixture passed. Reads
-and previews still have a check/use gap; legacy API calls, other MCP writes,
-desktop buffers and external filesystem changes are not covered. A safe update
+and previews still have a check/use gap. MCP writes and patch applications can
+opt into the same root check; legacy calls that omit it, desktop buffers and
+external filesystem changes are not covered. A safe update
 port must address the remaining callers and concurrency limits.
 
 ### Catalog bulk import

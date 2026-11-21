@@ -35,13 +35,31 @@ try {
   await page.locator('#status').getByText(/Workspace path changed/).waitFor();
   assert.equal(await page.getByLabel('Selected file contents').inputValue(),'browser edit\n');
   assert.equal(await readFile(join(first,'fixture.txt'),'utf8'),'same content\n'); assert.equal(await readFile(join(second,'fixture.txt'),'utf8'),'same content\n');
+  async function call(action,args) {
+    const response=await fetch(base+'/api/mcp',{method:'POST',headers:{...headers,Accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'aruvi_repositories',arguments:{action,arguments:args}}})});
+    return (await response.json()).result;
+  }
+  const read=await call('read_repository_file',{repository_id:repo.id,relative_path:'fixture.txt'});
+  assert.equal(read.structuredContent.result.workspace_root,secondRoot);
+  const staleWrite=await call('write_repository_file',{repository_id:repo.id,relative_path:'fixture.txt',expected_root:firstRoot,content:'wrong MCP destination\n'});
+  assert.equal(staleWrite.isError,true); assert.equal(await readFile(join(second,'fixture.txt'),'utf8'),'same content\n');
   const sha=createHash('sha256').update('same content\n').digest('hex');
   const patch='@@ -1,1 +1,1 @@\n-same content\n+patched content';
+  const stalePatch=await call('apply_reviewed_repository_patch',{repository_id:repo.id,relative_path:'fixture.txt',expected_root:firstRoot,patch,base_sha256:sha,expected_exists:true});
+  assert.equal(stalePatch.isError,true); assert.equal(await readFile(join(second,'fixture.txt'),'utf8'),'same content\n');
+  const staleLegacyPatch=await call('apply_repository_patch',{repository_id:repo.id,relative_path:'fixture.txt',expected_root:firstRoot,patch,base_sha256:sha});
+  assert.equal(staleLegacyPatch.isError,true);
   const apply=await fetch(base+'/api/mobile/repository-inspect',{method:'POST',headers,body:JSON.stringify({action:'apply_reviewed_repository_patch',repository_id:repo.id,expected_root:firstRoot,relative_path:'fixture.txt',patch,base_sha256:sha,expected_exists:true})});
   assert.equal(apply.status,409); assert.equal(await readFile(join(second,'fixture.txt'),'utf8'),'same content\n');
   const good=await fetch(base+'/api/mobile/repository-inspect',{method:'POST',headers,body:JSON.stringify({action:'apply_reviewed_repository_patch',repository_id:repo.id,expected_root:secondRoot,relative_path:'fixture.txt',patch,base_sha256:sha,expected_exists:true})});
   assert.equal(good.status,200,await good.text()); assert.equal(await readFile(join(second,'fixture.txt'),'utf8'),'patched content\n');
   const legacy=await fetch(base+'/api/mobile/repository-file/save',{method:'POST',headers,body:JSON.stringify({repository_id:repo.id,relative_path:'fixture.txt',expected_content:'patched content\n',content:'legacy edit\n'})});
   assert.equal(legacy.status,200,await legacy.text()); assert.equal(await readFile(join(second,'fixture.txt'),'utf8'),'legacy edit\n');
-  console.log('Cross-process workspace path change rejected stale browser save and reviewed patch; matching path patch passed.');
+  const validWrite=await call('write_repository_file',{repository_id:repo.id,relative_path:'fixture.txt',expected_root:secondRoot,content:'valid MCP edit\n'});
+  assert(!validWrite.isError,JSON.stringify(validWrite)); assert.equal(await readFile(join(second,'fixture.txt'),'utf8'),'valid MCP edit\n');
+  writer=spawn('python3',['-u','-c','import sqlite3,sys,time\nc=sqlite3.connect(sys.argv[1]); c.execute("BEGIN IMMEDIATE"); c.execute("UPDATE repositories SET local_path=? WHERE id=?",(sys.argv[2],sys.argv[3])); print("locked",flush=True); time.sleep(1); c.commit()',db,firstRoot,repo.id],{stdio:['ignore','pipe','pipe']});
+  await new Promise((done,reject) => { writer.stdout.once('data',done); writer.once('error',reject); writer.once('exit',code => { if (code) reject(new Error('Workspace writer failed')); }); });
+  const waitingWrite=await call('write_repository_file',{repository_id:repo.id,relative_path:'fixture.txt',expected_root:secondRoot,content:'raced MCP edit\n'});
+  assert.equal(waitingWrite.isError,true); assert.equal(await readFile(join(first,'fixture.txt'),'utf8'),'same content\n'); assert.equal(await readFile(join(second,'fixture.txt'),'utf8'),'valid MCP edit\n');
+  console.log('Cross-process workspace changes rejected stale browser and MCP writes and patches; matching path writes passed.');
 } finally { if (writer && writer.exitCode===null && writer.signalCode===null) writer.kill(); await browser?.close(); if (server && server.exitCode===null && server.signalCode===null) { server.kill(); await new Promise(r=>server.once('exit',r)); } await rm(root,{recursive:true,force:true}); }

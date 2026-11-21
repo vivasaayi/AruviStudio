@@ -521,6 +521,15 @@ The worktree port may change when the container is recreated; the wrapper discov
 it on every call. This wrapper is a command-line HTTP client; it does not register
 the server as a native tool in an already-running Codex session.
 
+For workspace files, `aruvi_repositories.read_repository_file` returns the
+current `workspace_root` as well as the file content. Pass that value as
+`expected_root` to `write_repository_file`, `apply_repository_patch`, or
+`apply_reviewed_repository_patch` to reject a workspace path change before a
+write. The check and write hold a SQLite write lock against cooperating database
+updates. This does not prevent external filesystem changes or provide a file
+content conflict check for `write_repository_file`. The root argument is optional
+for existing clients; omitting it retains their previous path-selection behavior.
+
 For a large UTF-8 artifact, call `aruvi_checkpoints` with
 `{"action":"read_artifact_page","arguments":{"artifact_id":"ARTIFACT_ID"}}`.
 Each response contains `content`, byte `offset`, `total_bytes`, `next_offset`

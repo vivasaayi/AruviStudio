@@ -11,6 +11,23 @@ use super::repository_helpers::{
 };
 use super::{action_ok, action_result};
 
+// Keep the registered root stable through a filesystem mutation, including
+// when another Studio process updates the same SQLite database.
+async fn lock_repository_root<'a>(
+    state: &'a AppState,
+    repository_id: &str,
+    expected_root: Option<&str>,
+) -> Result<(sqlx::Transaction<'a, sqlx::Sqlite>, String), AppError> {
+    let mut transaction = state.db.begin_with("BEGIN IMMEDIATE").await?;
+    let root: Option<String> = sqlx::query_scalar("SELECT local_path FROM repositories WHERE id=?")
+        .bind(repository_id).fetch_optional(&mut *transaction).await?;
+    let root = root.ok_or_else(|| AppError::NotFound("Workspace not found".into()))?;
+    if expected_root.is_some_and(|expected| expected != root) {
+        return Err(AppError::Validation("Workspace path changed. Reopen the workspace before writing".into()));
+    }
+    Ok((transaction, root))
+}
+
 pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, AppError> {
     let tool_action = ToolAction::parse(payload)?;
     let args = tool_action.args();
@@ -124,17 +141,19 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 &repository.local_path,
                 &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
             )?;
-            action_result("read_repository_file", json!({ "content": content }))
+            action_result("read_repository_file", json!({ "content": content, "workspace_root": repository.local_path }))
         }
         "write_repository_file" => {
             let repository_id =
                 args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
-            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
             repo_service::write_repository_file(
-                &repository.local_path,
+                &root,
                 &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
                 &args.required_string(&["content"], "content")?,
             )?;
+            transaction.commit().await?;
             Ok(action_ok("write_repository_file"))
         }
         "get_repository_file_sha256" => {
@@ -149,12 +168,14 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         }
         "apply_reviewed_repository_patch" => {
             let repository_id = args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
-            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
             let expected_exists = args.optional_bool(&["expected_exists", "expectedExists"])?.ok_or_else(|| AppError::Validation("missing expected_exists".into()))?;
-            let sha = repo_service::apply_reviewed_repository_patch(&repository.local_path,
+            let sha = repo_service::apply_reviewed_repository_patch(&root,
                 &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
                 &args.required_string(&["patch"], "patch")?,
                 &args.required_string(&["base_sha256", "baseSha256"], "base_sha256")?, expected_exists)?;
+            transaction.commit().await?;
             action_result("apply_reviewed_repository_patch", json!({ "sha256": sha }))
         }
         "preview_repository_patch" => {
@@ -171,14 +192,16 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         "apply_repository_patch" => {
             let repository_id =
                 args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
-            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
             let sha = repo_service::apply_repository_patch(
-                &repository.local_path,
+                &root,
                 &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
                 &args.required_string(&["patch"], "patch")?,
                 args.optional_string(&["base_sha256", "baseSha256"])?
                     .as_deref(),
             )?;
+            transaction.commit().await?;
             action_result("apply_repository_patch", json!({ "sha256": sha }))
         }
         "get_git_status" => {

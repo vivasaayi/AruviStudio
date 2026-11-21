@@ -325,6 +325,12 @@ async fn workspace_write_guards_reject_a_changed_repository_root() {
     assert_eq!(send_json(&router, Method::POST, "/api/mobile/repository-file/save", Some("workspace-root-token"), Some(save)).await.0, StatusCode::CONFLICT);
     let sha = format!("{:x}", Sha256::digest(b"same content\n"));
     let patch = "@@ -1,1 +1,1 @@\n-same content\n+patched content";
+    let stale_write = json!({"action":"write_repository_file", "arguments":{"repository_id":"root-guard", "relative_path":"file.txt", "expected_root":first_root, "content":"wrong MCP destination\n"}});
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_repositories", stale_write).await.is_err());
+    let stale_patch = json!({"action":"apply_reviewed_repository_patch", "arguments":{"repository_id":"root-guard", "relative_path":"file.txt", "expected_root":first_root, "base_sha256":sha, "expected_exists":true, "patch":patch}});
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_repositories", stale_patch).await.is_err());
+    let read = crate::mcp::dispatch_tool(&state, "aruvi_repositories", json!({"action":"read_repository_file", "arguments":{"repository_id":"root-guard", "relative_path":"file.txt"}})).await.unwrap();
+    assert_eq!(read["result"]["workspace_root"], second_root);
     let mut body = json!({"action":"apply_reviewed_repository_patch", "repository_id":"root-guard", "expected_root":first_root, "relative_path":"file.txt", "base_sha256":sha, "expected_exists":true, "patch":patch});
     assert_eq!(send_json(&router, Method::POST, "/api/mobile/repository-inspect", Some("workspace-root-token"), Some(body.clone())).await.0, StatusCode::CONFLICT);
     assert_eq!(std::fs::read_to_string(second.path().join("file.txt")).unwrap(), "same content\n");

@@ -21,15 +21,19 @@ processes using the same database. A stale browser buffer or reviewed patch is
 rejected if the workspace path changed, even when the destination file has the
 same contents. Reads and patch previews also check the expected path, but their
 check and filesystem operation are separate; this is not a complete snapshot
-or protection against external filesystem changes. Older API callers can omit
-the path and retain their former behavior. Other MCP file-writing actions and
-desktop buffers are not covered by this browser guard.
+or protection against external filesystem changes. MCP file reads return the
+registered root; callers can pass it as `expected_root` to file writes and both
+patch application actions. Those actions hold the same SQLite write lock through
+the mutation. Older API callers can omit the path and retain their former
+behavior. Desktop buffers and external filesystem changes are not covered.
 
 A disposable native browser test used a separate process holding a SQLite write
 lock to change the registered path while a save waited; it verified conflict,
 unchanged files, rejection of a stale reviewed patch, a valid current-root
-patch, and a legacy save. A Rust endpoint test and native editor and general
-Copilot regression fixtures passed. The server build and full Rust library suite
+patch, and a legacy save. The fixture also checked MCP read metadata, stale
+writes and patches, a valid write, and an MCP write waiting on a separate
+process that changes the path. A Rust endpoint test and native editor
+and general Copilot regression fixtures passed. The server build and full Rust library suite
 passed (326 tests, seven ignored). Linux container and branch-deployment checks
 remain pending, and workspace editing has not yet been exposed through the
 browser or MCP.
