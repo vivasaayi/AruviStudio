@@ -12,6 +12,30 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Workflow-call branch deployment
+
+The browser now displays recorded model-call summaries for the selected work
+item's latest workflow, and MCP exposes `list_agent_model_calls_for_workflow`.
+A disposable native fixture verified two-workflow isolation, authentication,
+MCP/HTTP agreement and the browser display. The isolated Linux simulated-provider
+workflow suite passed 53 tests, including the new check; the remote browser suite
+passed 45 with one skipped, and its PDF outage check passed. The native Rust
+library suite passed 327 tests with seven ignored; frontend tests passed 128 and
+the frontend production build passed.
+
+Hosted tests and the clean Linux ARM64 build passed for `de9c626`. Its archive
+checksum and source revision were checked, and the extracted server binary
+(`a847c10b02aeac7c33090146fee2ea3c2e39ae24f1024c8039233f7e7743a018`)
+was layered onto the prior branch image, yielding derived image
+`sha256:e93edfb0d9985fc8baa927011a8b66e42490653501cf62dea3558602adcf8091`.
+This is a derived image, not the full hosted artifact. A checked database backup
+and prior image were retained before deployment. Product, MCP, mobile, PDF and
+persistence acceptance passed across restart; the published-port origin test
+and a real `qwen25-coder-7b-q4` MCP coding request also passed. The branch is
+available at `127.0.0.1:55288` at this checkpoint. Model-call retrieval uses the
+existing unpaginated desktop query, and this summary is not complete desktop
+workflow-review parity. Mac integration and VPS staging remain unverified.
+
 ### Current real-model workflow revalidation
 
 On the deployed branch image derived from runtime `a850602`, a disposable
@@ -6484,10 +6508,8 @@ calls in the browser. MCP exposes the same desktop query through
 `aruvi_workflows` / `list_agent_model_calls_for_workflow` with a
 `workflow_run_id` argument; the browser uses an authenticated workflow-specific
 endpoint. The added isolated workflow test checks authorization, workflow
-filtering, MCP/HTTP agreement, and the browser display. The native server build,
-model-call repository test, and a disposable native database/browser fixture
-covering authorization, two-workflow isolation, MCP/HTTP agreement, and the
-selected work item's display passed. The simulated-provider Linux workflow test
-and branch image deployment are still pending. This adds call summaries; it is not proof
+filtering, MCP/HTTP agreement, and the browser display. See the later deployment
+checkpoint at the top of this file for the completed Linux and branch checks.
+This adds call summaries; it is not proof
 of complete desktop workflow-review parity. The query currently returns all
 calls in the workflow, as does the desktop query, without pagination.
