@@ -546,6 +546,23 @@ export ARUVI_MCP_API_TOKEN=replace-with-a-different-long-random-token
 ./src-tauri/target/release/aruvi-studio-server
 ```
 
+In the browser's Activity view, **Configure server bind** loads and saves the
+server-side `mobile.bind_host` and `mobile.bind_port` settings. Enter a local IP
+address or hostname and a port from 1 through 65535. Saving does not change the
+current listener: restart the server to apply the settings. Nonempty valid
+`ARUVI_WEBHOOK_HOST` and `ARUVI_WEBHOOK_PORT` values take precedence. Activity's
+bridge status reports the configured source, and a stale browser edit is rejected
+if either saved setting changed since it was loaded. For Docker, the bind is
+inside the container; configure published host ports separately in the product
+environment. Choose a local address and available port that will remain
+reachable after restart. This form does not configure or reveal bridge tokens.
+
+The equivalent authenticated mobile API is `GET /api/mobile/bridge-bind` and
+`POST /api/mobile/bridge-bind` with `host`, `port` and the two-element `expected`
+array from the GET response. A conflicting save returns HTTP 409. Operators can
+exercise restart and environment precedence against an isolated native server
+with `bash scripts/test native-bridge-bind <server-binary>`.
+
 `ARUVI_LLM_CONFIG_PATH` is useful on a headless Linux service because a desktop keychain may not
 be available. Restrict that file to the service account because it contains provider credentials.
 
