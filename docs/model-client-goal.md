@@ -12,6 +12,30 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser and MCP workspace editing
+
+Browser Workspaces and `aruvi_repositories.update_repository` now share the
+desktop backend operation for name, path, remote URL and default branch updates.
+Both remote interfaces require a repository snapshot and reject stale changes;
+the desktop command remains compatible without one. Workspace changes and
+inherited work-item branch updates commit together. Active/paused workflows or
+running CLI operations associated with the workspace block path, remote or
+branch changes. Registration and workspace creation use the same SQLite write
+lock to coordinate duplicate path checks. This protection requires cooperating
+versions sharing a database; legacy/direct writers and external filesystem
+changes are outside it. MCP write protection requires clients to supply the
+opened root, and desktop buffers do not yet have this guard.
+
+A disposable native browser/MCP fixture tested stale snapshots and preserved
+drafts, duplicate and concurrent registrations, active/paused workflow and CLI
+guards, atomic rollback, propagation of default but not custom branches, and
+rejection of an open file save after changing its workspace path. The same
+fixture ran the new remote Playwright case on a native server. A Rust endpoint
+test and existing native editor, Copilot and root-guard fixtures passed. The
+native server and frontend build passed, as did all 128 frontend tests and 327
+Rust library tests (seven ignored). Linux container, branch deployment and
+physical desktop acceptance remain pending.
+
 ### Browser workspace root guard
 
 Browser file saves and reviewed patch applications now carry the workspace

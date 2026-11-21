@@ -340,26 +340,27 @@ malicious or non-cooperating writer. Hard links, changes to file contents while 
 concurrent changes to the artifact directory itself are not eliminated by
 these checks. This is not a claim of complete artifact-format parity.
 
-### Workspace update command gap
+### Workspace update
 
-The desktop backend exposes `update_repository`, which changes a workspace's
-name, local path, remote URL and default branch and propagates a changed default
-branch to matching work items. A source search found a TypeScript wrapper but no
-current frontend callers. Browser and MCP have registration and attachment
-operations but do not expose this update command or an equivalent action. This
-is an IPC/API parity gap, not evidence that a desktop editing screen currently
-uses it. Porting it requires the same path and duplicate checks, safe handling
-of concurrent changes and preserving the branch-update behavior. In particular,
-open browser buffers and reviewed patches currently identify a workspace by ID;
-changing the registered path can redirect a later save or patch to a different
-folder if the file also matches its content guard. Browser saves and reviewed
-patch writes now bind to the opened path and hold a SQLite write lock through
-the filesystem write, preventing cooperating database path updates across
-processes from racing that check. A native cross-process fixture passed. Reads
-and previews still have a check/use gap. MCP writes and patch applications can
-opt into the same root check; legacy calls that omit it, desktop buffers and
-external filesystem changes are not covered. A safe update
-port must address the remaining callers and concurrency limits.
+Browser Workspaces and `aruvi_repositories.update_repository` can update the
+name, server path, remote URL and default branch using an expected repository
+snapshot. The existing desktop command uses the same backend without a snapshot.
+The update checks duplicate paths and commits the workspace and inherited
+work-item branch updates in one SQLite transaction. Changes to path, branch or
+remote are rejected when an associated workflow is running or paused, or a CLI
+run is active; the attachment check is conservative. Registration and local
+workspace creation use the same database write lock for duplicate checks.
+Cooperating processes using the same SQLite database participate; direct writes,
+older binaries and external filesystem changes do not. Open browser buffers
+and reviewed patches carry their opened root and reject a changed path; MCP
+writes can opt into the same guard. Older callers without it and desktop buffers
+are not protected against path redirection. The browser preserves an editing
+draft on a conflict and asks before changing a workspace with open files.
+
+Native browser/MCP fixtures covered path conflicts, a registration race,
+active and paused workflows, an active CLI run, a forced branch-update rollback,
+inherited versus custom branches, stale browser drafts and stale open-file
+saves. Linux container and physical desktop acceptance remain open.
 
 ### Catalog bulk import
 

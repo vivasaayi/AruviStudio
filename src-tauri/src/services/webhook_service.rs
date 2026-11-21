@@ -10,6 +10,7 @@ pub use crate::services::webhook_bridge::{
 };
 use crate::services::webhook_mobile_api::{
     mobile_submit_bulk_import, mobile_bulk_import_jobs, mobile_bulk_import_status,
+    mobile_update_repository,
     mobile_export_product_book, mobile_export_planner_review_packet, mobile_validate_planner_draft, mobile_planner_suggestions, mobile_planner_match_actions, mobile_analyze_planner_repository, mobile_clear_planner_turn, mobile_confirm_planner_turn, mobile_create_planner_session, mobile_create_product, mobile_edit_planner_draft,
     mobile_list_scoped_references, mobile_create_scoped_reference, mobile_delete_scoped_reference, mobile_get_model_call, mobile_get_product_tree, mobile_get_product_tree_summary, mobile_list_product_areas, mobile_create_hierarchy_node, mobile_update_hierarchy_node, mobile_delete_hierarchy_node, mobile_reset_product_plan,
     mobile_update_product, mobile_healthcheck, mobile_list_model_calls, mobile_model_call_snapshot, mobile_list_products, mobile_submit_planner_turn,
@@ -430,6 +431,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         .route("/api/mobile/products/:product_id/hierarchy/delete", post(mobile_delete_hierarchy_node))
         .route("/api/mobile/products/:product_id/reset-plan", post(mobile_reset_product_plan))
         .route("/api/mobile/repositories", get(mobile_list_repositories).post(mobile_register_repository))
+        .route("/api/mobile/repositories/:repository_id/update", post(mobile_update_repository))
         .route("/api/mobile/workspaces", post(mobile_create_workspace))
         .route("/api/mobile/repository-inspect", post(mobile_inspect_repository))
         .route("/api/mobile/repository-file/save", post(mobile_save_repository_file).layer(axum::extract::DefaultBodyLimit::max(16 * 1024 * 1024)))

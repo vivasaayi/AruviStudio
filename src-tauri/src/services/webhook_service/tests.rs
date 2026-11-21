@@ -309,6 +309,40 @@ async fn remote_workspace_registration_is_authenticated_and_idempotent() {
 }
 
 #[tokio::test]
+async fn workspace_edits_are_atomic_conflict_aware_and_block_active_work() {
+    let app: tauri::App<MockRuntime> = make_test_app("workspace_edit").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "edit-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let first = tempfile::tempdir().unwrap(); let second = tempfile::tempdir().unwrap();
+    let first_root = first.path().canonicalize().unwrap().to_string_lossy().into_owned();
+    let second_root = second.path().canonicalize().unwrap().to_string_lossy().into_owned();
+    let repository = crate::persistence::repository_repo::create_repository(&state.db, "edit-repo", "Original", &first_root, "", "main").await.unwrap();
+    crate::persistence::repository_repo::create_repository(&state.db, "other-repo", "Other", &second_root, "", "main").await.unwrap();
+    let (_, product) = send_json(&router, Method::POST, "/api/mobile/products", Some("edit-token"), Some(json!({"name":"Edit fixture"}))).await;
+    let product = parse_json(&product);
+    let (_, item) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("edit-token"), Some(json!({"product_id":product["id"], "title":"Fixture"}))).await;
+    let item = parse_json(&item); let item_id=item["id"].as_str().unwrap();
+    sqlx::query("UPDATE work_items SET active_repo_id=?, branch_name='main' WHERE id=?").bind("edit-repo").bind(item_id).execute(&state.db).await.unwrap();
+    let expected = serde_json::to_value(&repository).unwrap();
+    let fields = json!({"name":"Edited", "local_path":first_root, "remote_url":"", "default_branch":"develop"});
+    let body = json!({"expected":expected,"fields":fields}); let uri="/api/mobile/repositories/edit-repo/update";
+    assert_eq!(send_json(&router, Method::POST, uri, None, Some(body.clone())).await.0, StatusCode::UNAUTHORIZED);
+    let mut duplicate=body.clone(); duplicate["fields"]["local_path"]=json!(second_root);
+    assert_eq!(send_json(&router, Method::POST, uri, Some("edit-token"), Some(duplicate)).await.0, StatusCode::BAD_REQUEST);
+    workflow_repo::create_workflow_run(&state.db, "edit-active", item_id).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, uri, Some("edit-token"), Some(body.clone())).await.0, StatusCode::BAD_REQUEST);
+    sqlx::query("UPDATE workflow_runs SET status='completed',current_stage='done' WHERE id='edit-active'").execute(&state.db).await.unwrap();
+    sqlx::query("CREATE TRIGGER fail_edit_branch BEFORE UPDATE OF branch_name ON work_items BEGIN SELECT RAISE(ABORT, 'fixture'); END").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, uri, Some("edit-token"), Some(body.clone())).await.0, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(crate::persistence::repository_repo::get_repository(&state.db, "edit-repo").await.unwrap().default_branch, "main");
+    sqlx::query("DROP TRIGGER fail_edit_branch").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, uri, Some("edit-token"), Some(body.clone())).await.0, StatusCode::OK);
+    let branch: String=sqlx::query_scalar("SELECT branch_name FROM work_items WHERE id=?").bind(item_id).fetch_one(&state.db).await.unwrap(); assert_eq!(branch,"develop");
+    assert_eq!(send_json(&router, Method::POST, uri, Some("edit-token"), Some(body)).await.0, StatusCode::CONFLICT);
+}
+
+#[tokio::test]
 async fn workspace_write_guards_reject_a_changed_repository_root() {
     use sha2::{Digest, Sha256};
     let app: tauri::App<MockRuntime> = make_test_app("workspace_root_guard").await;

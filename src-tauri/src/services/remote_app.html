@@ -3962,7 +3962,30 @@
           const label = document.createElement("div"); label.textContent = repository.name + " · " + repository.local_path;
           const inspect = document.createElement("button"); inspect.type = "button"; inspect.className = "secondary"; inspect.textContent = "Browse workspace";
           inspect.addEventListener("click", () => void inspectWorkspace(repository));
-          row.append(label, inspect); el.repositoryList.appendChild(row);
+          const details = document.createElement("details"), summary = document.createElement("summary"), form = document.createElement("form");
+          summary.textContent = "Edit workspace"; form.className = "stack";
+          const fields = {};
+          for (const [key, title] of [["name", "Workspace name"], ["local_path", "Server path"], ["remote_url", "Remote URL"], ["default_branch", "Default branch"]]) {
+            const label = document.createElement("label"), caption = document.createElement("span"), input = document.createElement("input");
+            caption.className = "label"; caption.textContent = title; input.value = repository[key] || "";
+            input.required = key !== "remote_url"; input.setAttribute("aria-label", title); label.append(caption, input); form.appendChild(label); fields[key] = input;
+          }
+          const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save workspace"; form.appendChild(save);
+          form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            if (fileSaving || fileLoading || copilotBusy) { setStatus("Wait for the current workspace operation to finish", "warn"); return; }
+            const values = Object.fromEntries(Object.entries(fields).map(([key, input]) => [key, input.value]));
+            const pathChanged = values.local_path.trim() !== repository.local_path;
+            if (pathChanged && inspectedRepositoryId === repository.id && openRepositoryFiles.length && !confirm("This workspace has open files. After changing its path, reopen the workspace before saving them.")) return;
+            for (const input of Object.values(fields)) input.disabled = true; save.disabled = true;
+            try {
+              await request("/api/mobile/repositories/" + encodeURIComponent(repository.id) + "/update", {method:"POST", body:{expected:repository, fields:values}});
+              setStatus(pathChanged ? "Workspace updated. Reopen it before editing files." : "Workspace updated", "ok");
+              await loadWorkspaces();
+            } catch (error) { setStatus(error.message || String(error), "error"); }
+            finally { for (const input of Object.values(fields)) input.disabled = false; save.disabled = false; }
+          });
+          details.append(summary, form); row.append(label, inspect, details); el.repositoryList.appendChild(row);
         });
         if (repositories.some((repository) => repository.id === selectedRepository)) el.repositorySelect.value = selectedRepository;
         if (!repositories.length) el.repositoryList.textContent = "No workspaces registered.";

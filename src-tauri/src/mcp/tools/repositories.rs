@@ -1,4 +1,4 @@
-use crate::commands::repository_commands::{create_local_workspace_for_scope, register_repository_for_state};
+use crate::commands::repository_commands::{create_local_workspace_for_scope, register_repository_for_state, update_repository_for_state};
 use crate::error::AppError;
 use crate::persistence::repository_repo;
 use crate::services::repo_service;
@@ -43,6 +43,18 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             )
             .await?;
             action_result("register_repository", repository)
+        }
+        "update_repository" => {
+            let repository = update_repository_for_state(
+                state,
+                args.required_string(&["id"], "id")?,
+                args.required_string(&["name"], "name")?,
+                args.required_string(&["local_path", "localPath"], "local_path")?,
+                args.required_string(&["remote_url", "remoteUrl"], "remote_url")?,
+                args.required_string(&["default_branch", "defaultBranch"], "default_branch")?,
+                Some(args.required_deserialize(&["expected"], "expected")?),
+            ).await?.ok_or_else(|| AppError::Validation("Workspace changed or was removed".into()))?;
+            action_result("update_repository", repository)
         }
         "list_repositories" => action_result(
             "list_repositories",

@@ -521,6 +521,15 @@ The worktree port may change when the container is recreated; the wrapper discov
 it on every call. This wrapper is a command-line HTTP client; it does not register
 the server as a native tool in an already-running Codex session.
 
+To edit a registered workspace through MCP, first call
+`aruvi_repositories.list_repositories` and pass the complete returned repository
+as `expected` to `update_repository`, along with its `id`, `name`, `local_path`,
+`remote_url`, and `default_branch`. A changed snapshot is rejected. Path,
+remote, or branch changes are blocked while an associated workflow or CLI run is
+active; inherited work-item branches are updated with the workspace. The web
+Workspaces screen provides the same operation. Paths refer to the Studio server,
+not the browser's computer.
+
 For workspace files, `aruvi_repositories.read_repository_file` returns the
 current `workspace_root` as well as the file content. Pass that value as
 `expected_root` to `write_repository_file`, `apply_repository_patch`, or

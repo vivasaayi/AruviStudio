@@ -1440,6 +1440,22 @@ pub(crate) async fn mobile_register_repository(State(state): State<WebhookState>
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileWorkspaceFields { name: String, local_path: String, remote_url: String, default_branch: String }
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileWorkspaceEdit { expected: crate::domain::repository::Repository, fields: MobileWorkspaceFields }
+
+pub(crate) async fn mobile_update_repository(State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<MobileWorkspaceEdit>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let fields = body.fields;
+    match crate::commands::repository_commands::update_repository_for_state(&state.app_state, id, fields.name, fields.local_path, fields.remote_url, fields.default_branch, Some(body.expected)).await {
+        Ok(Some(repository)) => Json(repository).into_response(),
+        Ok(None) => (StatusCode::CONFLICT, "Workspace changed or was removed. Refresh before saving.").into_response(),
+        Err(crate::error::AppError::Validation(message)) => (StatusCode::BAD_REQUEST, message).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Unable to update workspace").into_response(),
+    }
+}
+
 pub(crate) async fn mobile_create_workspace(State(state): State<WebhookState>, headers: HeaderMap, Json(body): Json<MobileCreateWorkspaceRequest>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
     let parent = body.parent_path.trim();

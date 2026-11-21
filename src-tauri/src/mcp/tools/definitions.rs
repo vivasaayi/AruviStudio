@@ -83,6 +83,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
             "Register repositories, attach them to product or product-area scope, create workspaces, and edit files safely.",
             &[
                 "register_repository",
+                "update_repository",
                 "list_repositories",
                 "delete_repository",
                 "attach_repository",

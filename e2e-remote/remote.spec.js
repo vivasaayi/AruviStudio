@@ -190,6 +190,31 @@ test("optional code editor preserves tabs and uses guarded saves", async ({page,
   expect(external).toEqual([]);
 });
 
+test("browser and MCP edit workspaces with stale snapshot protection", async ({page,request}) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const headers={Authorization:`Bearer ${token}`}, mcpHeaders={Authorization:`Bearer ${mcpToken}`};
+  const registered=await request.post("/api/mobile/repositories",{headers,data:{name:"Workspace edit fixture",local_path:process.env.ARUVI_TEST_CODE_EDITOR_PATH || "/repositories/code-editor-fixture"}});
+  expect(registered.status()).toBe(201); const repository=await registered.json();
+  const uri=`/api/mobile/repositories/${encodeURIComponent(repository.id)}/update`;
+  const fields={name:"Browser draft",local_path:repository.local_path,remote_url:repository.remote_url,default_branch:repository.default_branch};
+  expect((await request.post(uri,{data:{expected:repository,fields}})).status()).toBe(401);
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button",{name:"Workspaces",exact:true}).click();
+  let card=page.locator("#repositoryList .tool-card").filter({hasText:repository.local_path});
+  await card.getByText("Edit workspace",{exact:true}).click(); await card.getByLabel("Workspace name").fill("Browser draft");
+  const rpc=await request.post("/api/mcp",{headers:mcpHeaders,data:{jsonrpc:"2.0",id:50,method:"tools/call",params:{name:"aruvi_repositories",arguments:{action:"update_repository",arguments:{id:repository.id,name:"Concurrent workspace edit",local_path:repository.local_path,remote_url:repository.remote_url,default_branch:repository.default_branch,expected:repository}}}}});
+  expect((await rpc.json()).result.isError).not.toBeTruthy();
+  const conflict=page.waitForResponse(response=>response.url().endsWith("/update") && response.request().method()==="POST");
+  await card.getByRole("button",{name:"Save workspace"}).click(); expect((await conflict).status()).toBe(409);
+  await expect(card.getByLabel("Workspace name")).toHaveValue("Browser draft");
+  await page.locator("#refreshWorkspacesButton").click(); card=page.locator("#repositoryList .tool-card").filter({hasText:repository.local_path});
+  await card.getByText("Edit workspace",{exact:true}).click(); await card.getByLabel("Workspace name").fill("Browser updated workspace");
+  const saved=page.waitForResponse(response=>response.url().endsWith("/update") && response.request().method()==="POST");
+  await card.getByRole("button",{name:"Save workspace"}).click(); expect((await saved).status()).toBe(200);
+  const rows=await (await request.get("/api/mobile/repositories",{headers})).json();
+  expect(rows.find(item=>item.id===repository.id).name).toBe("Browser updated workspace");
+});
+
 test("browser and MCP import JSON and CSV from remote clients", async ({page, request}) => {
   test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
   const headers = {Authorization:`Bearer ${token}`};

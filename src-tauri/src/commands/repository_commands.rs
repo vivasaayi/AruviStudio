@@ -30,30 +30,19 @@ pub(crate) async fn register_repository_for_state(
     default_branch: String,
 ) -> Result<Repository, AppError> {
     let local_path = normalize_repository_path(&local_path)?;
-    if let Some(existing) =
-        repository_repo::find_repository_by_local_path(&state.db, &local_path).await?
-    {
+    let mut transaction = state.db.begin_with("BEGIN IMMEDIATE").await?;
+    let all: Vec<Repository> = sqlx::query_as("SELECT id,name,local_path,remote_url,default_branch,auth_profile,created_at,updated_at FROM repositories")
+        .fetch_all(&mut *transaction).await?;
+    if let Some(existing) = all.into_iter().find(|entry| normalize_repository_path(&entry.local_path).ok().as_deref() == Some(local_path.as_str())) {
+        transaction.commit().await?;
         return Ok(existing);
     }
-    for existing in repository_repo::list_repositories(&state.db).await? {
-        if normalize_repository_path(&existing.local_path)
-            .ok()
-            .as_deref()
-            == Some(local_path.as_str())
-        {
-            return Ok(existing);
-        }
-    }
     let id = uuid::Uuid::new_v4().to_string();
-    repository_repo::create_repository(
-        &state.db,
-        &id,
-        &name,
-        &local_path,
-        &remote_url,
-        &default_branch,
-    )
-    .await
+    let repository = sqlx::query_as::<_, Repository>("INSERT INTO repositories (id,name,local_path,remote_url,default_branch) VALUES (?,?,?,?,?) RETURNING id,name,local_path,remote_url,default_branch,auth_profile,created_at,updated_at")
+        .bind(id).bind(&name).bind(&local_path).bind(&remote_url).bind(&default_branch)
+        .fetch_one(&mut *transaction).await?;
+    transaction.commit().await?;
+    Ok(repository)
 }
 
 fn normalize_repository_path(raw: &str) -> Result<String, AppError> {
@@ -91,61 +80,53 @@ pub async fn update_repository(
     remote_url: String,
     default_branch: String,
 ) -> Result<Repository, AppError> {
+    update_repository_for_state(&state, id, name, local_path, remote_url, default_branch, None)
+        .await?
+        .ok_or_else(|| AppError::Validation("Workspace changed or was removed".into()))
+}
+
+/// Update the workspace and inherited work-item branches under one write lock.
+pub(crate) async fn update_repository_for_state(
+    state: &AppState,
+    id: String,
+    name: String,
+    local_path: String,
+    remote_url: String,
+    default_branch: String,
+    expected: Option<Repository>,
+) -> Result<Option<Repository>, AppError> {
     let trimmed_name = name.trim();
     let trimmed_path = local_path.trim();
     let trimmed_branch = default_branch.trim();
-
-    if trimmed_name.is_empty() {
-        return Err(AppError::Validation(
-            "Workspace name is required".to_string(),
-        ));
-    }
-    if trimmed_path.is_empty() {
-        return Err(AppError::Validation("Local path is required".to_string()));
-    }
-    if trimmed_branch.is_empty() {
-        return Err(AppError::Validation(
-            "Default branch is required".to_string(),
-        ));
-    }
+    if trimmed_name.is_empty() { return Err(AppError::Validation("Workspace name is required".into())); }
+    if trimmed_path.is_empty() { return Err(AppError::Validation("Local path is required".into())); }
+    if trimmed_branch.is_empty() { return Err(AppError::Validation("Default branch is required".into())); }
     let normalized_path = normalize_repository_path(trimmed_path)?;
-    for other in repository_repo::list_repositories(&state.db).await? {
-        if other.id != id
-            && normalize_repository_path(&other.local_path).ok().as_deref()
-                == Some(normalized_path.as_str())
-        {
-            return Err(AppError::Validation(
-                "Another workspace is already registered for this local path".into(),
-            ));
-        }
+    let mut transaction = state.db.begin_with("BEGIN IMMEDIATE").await?;
+    let all: Vec<Repository> = sqlx::query_as("SELECT id,name,local_path,remote_url,default_branch,auth_profile,created_at,updated_at FROM repositories")
+        .fetch_all(&mut *transaction).await?;
+    let Some(existing) = all.iter().find(|row| row.id == id) else { return Ok(None); };
+    if expected.as_ref().is_some_and(|snapshot| snapshot.id != existing.id || snapshot.name != existing.name || snapshot.local_path != existing.local_path || snapshot.remote_url != existing.remote_url || snapshot.default_branch != existing.default_branch) {
+        return Ok(None);
     }
-
-    let existing = repository_repo::get_repository(&state.db, &id).await?;
-    let repository = repository_repo::update_repository(
-        &state.db,
-        &id,
-        trimmed_name,
-        &normalized_path,
-        remote_url.trim(),
-        trimmed_branch,
-    )
-    .await?;
-
+    if all.iter().any(|other| other.id != id && normalize_repository_path(&other.local_path).ok().as_deref() == Some(normalized_path.as_str())) {
+        return Err(AppError::Validation("Another workspace is already registered for this local path".into()));
+    }
+    if existing.local_path != normalized_path || existing.default_branch != trimmed_branch || existing.remote_url != remote_url.trim() {
+        let active: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM work_items w WHERE (w.active_repo_id=? OR w.repo_override_id=? OR EXISTS (SELECT 1 FROM repository_attachments a WHERE a.repository_id=? AND a.is_default=1 AND ((a.scope_type='product' AND a.scope_id=w.product_id) OR (a.scope_type='product_area' AND a.scope_id=w.product_area_id)))) AND (EXISTS (SELECT 1 FROM workflow_runs r WHERE r.work_item_id=w.id AND r.status IN ('running','paused') AND r.current_stage NOT IN ('done','failed','cancelled')) OR EXISTS (SELECT 1 FROM external_cli_runs c WHERE c.work_item_id=w.id AND c.status='running')))")
+            .bind(&id).bind(&id).bind(&id).fetch_one(&mut *transaction).await?;
+        if active != 0 { return Err(AppError::Validation("Workspace is used by an active workflow or CLI run".into())); }
+    }
+    let repository: Repository = sqlx::query_as("UPDATE repositories SET name=?,local_path=?,remote_url=?,default_branch=?,updated_at=datetime('now') WHERE id=? RETURNING id,name,local_path,remote_url,default_branch,auth_profile,created_at,updated_at")
+        .bind(trimmed_name).bind(&normalized_path).bind(remote_url.trim()).bind(trimmed_branch).bind(&id)
+        .fetch_one(&mut *transaction).await?;
     if existing.default_branch != repository.default_branch {
-        sqlx::query(
-            "UPDATE work_items
-             SET branch_name=?, updated_at=datetime('now')
-             WHERE active_repo_id=?
-               AND (branch_name IS NULL OR branch_name=?)",
-        )
-        .bind(&repository.default_branch)
-        .bind(&repository.id)
-        .bind(&existing.default_branch)
-        .execute(&state.db)
-        .await?;
+        sqlx::query("UPDATE work_items SET branch_name=?,updated_at=datetime('now') WHERE active_repo_id=? AND (branch_name IS NULL OR branch_name=?)")
+            .bind(&repository.default_branch).bind(&repository.id).bind(&existing.default_branch)
+            .execute(&mut *transaction).await?;
     }
-
-    Ok(repository)
+    transaction.commit().await?;
+    Ok(Some(repository))
 }
 
 #[tauri::command]
