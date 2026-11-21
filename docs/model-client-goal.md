@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Anthropic stream initial-content guard
+
+The shared client previously ignored `message_start.message.content`, so a
+proxy could send initial text or a tool-use block followed by a text delta and
+the client would report only the delta as a complete answer. A regression
+fixture reproduced this. Initial content must now be absent, null, or an empty
+array; a nonempty or malformed value fails the stream before dropping content.
+Nested initial-message errors also fail without exposing provider details.
+The native Claude API stream begins with an empty content list, as shown in the
+[Anthropic streaming reference](https://platform.claude.com/docs/en/build-with-claude/streaming).
+Some nonstandard proxies may now need to send content as block events instead.
+Additional consumer and container validation is recorded below when complete.
+
 ### Current real Model Host revalidation
 
 On the branch deployment at source commit `67ecacd`, the real

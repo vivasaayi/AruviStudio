@@ -35,6 +35,10 @@ When content blocks carry indices, text deltas must refer to an open text block,
 and the stream must close indexed blocks before its terminal event. Unindexed
 events remain accepted for compatibility with proxies, so this does not enforce
 the complete Anthropic event sequence in those streams.
+An initial Anthropic `message_start` may omit content or provide an empty list;
+nonempty or malformed initial content is rejected rather than silently dropping
+text or tool-use blocks. The [Anthropic streaming documentation](https://platform.claude.com/docs/en/build-with-claude/streaming)
+shows the normal empty initial list and subsequent content-block events.
 Mixed Anthropic content rejects invalid or unsupported blocks instead of returning
 partial text as a complete response. Documented `thinking` and `redacted_thinking`
 blocks are omitted from text-only responses; tool-use turns remain unsupported.

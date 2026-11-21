@@ -1247,8 +1247,12 @@ test("browser streams Anthropic text and preserves errors and usage", async ({ p
   await expect(page.locator("#status")).not.toContainText("private-anthropic-fixture");
   await expect(page.locator("#chatConversation .assistant").nth(-2)).toContainText("Response incomplete");
   await expect(page.locator("#chatConversation .assistant").last()).toContainText("Anthropic stream returned an error");
+  await page.locator("#chatComposer").fill("initial content");
+  await page.locator("#chatSendButton").click();
+  await expect(page.locator("#status")).toContainText("initial message contains unsupported content");
+  await expect(page.locator("#chatConversation .assistant").last()).toContainText("initial message contains unsupported content");
   const calls = (await (await request.get("/api/mobile/model-calls?limit=100", { headers })).json()).filter((call) => call.provider_id === provider.id);
-  expect(calls.map((call) => call.status).sort()).toEqual(["completed", "failed", "failed", "failed"]);
+  expect(calls.map((call) => call.status).sort()).toEqual(["completed", "failed", "failed", "failed", "failed"]);
   expect(calls.find((call) => call.status === "completed")).toMatchObject({ token_count_input: 17, token_count_output: 3 });
 });
 

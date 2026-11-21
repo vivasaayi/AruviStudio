@@ -162,6 +162,15 @@ impl StreamState {
                 if event.get("message").is_some_and(|value| !value.is_null() && !value.is_object()) {
                     return Err(ClientError::Provider("Invalid Anthropic stream message".into()));
                 }
+                if event.pointer("/message/error").is_some_and(|value| !value.is_null()) {
+                    return Err(ClientError::Provider("Anthropic stream returned an error".into()));
+                }
+                // The native stream starts with an empty content list; allowing
+                // nonempty or malformed initial content would silently discard
+                // it and could conceal a tool-use block or truncate the answer.
+                if event.pointer("/message/content").is_some_and(|value| !value.is_null() && value.as_array().map_or(true, |items| !items.is_empty())) {
+                    return Err(ClientError::Provider("Anthropic stream initial message contains unsupported content".into()));
+                }
                 AnthropicClient::validate_stop_reason(event.pointer("/message/stop_reason"))?;
                 if let Some(message) = event.get("message") { crate::CompletionMetadata::merge(&mut self.metadata, message, message.get("stop_reason")); }
                 self.input_tokens = event.pointer("/message/usage/input_tokens").and_then(Value::as_i64);
@@ -532,6 +541,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_nonempty_or_invalid_message_start_content_without_partial_success() {
+        for content in [json!([{"type":"text","text":"omitted"}]), json!([{"type":"tool_use","name":"tool"}]), json!({"type":"text"}), json!("invalid")] {
+            let body = format!("data: {{\"type\":\"message_start\",\"message\":{{\"content\":{content}}}}}\n\ndata: {{\"type\":\"content_block_delta\",\"delta\":{{\"type\":\"text_delta\",\"text\":\"partial\"}}}}\n\ndata: {{\"type\":\"message_stop\"}}\n\n");
+            let (result, chunks) = stream_fixture(&body).await;
+            assert!(result.is_err(), "stream accepted start content {content}");
+            assert!(chunks.is_empty());
+        }
+        let valid = "data: {\"type\":\"message_start\",\"message\":{\"content\":[]}}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n";
+        assert_eq!(stream_fixture(valid).await.0.unwrap().content, "ok");
+    }
+
+    #[tokio::test]
     async fn rejects_malformed_envelopes_after_partial_text() {
         for invalid in [
             json!([]),
@@ -539,6 +560,8 @@ mod tests {
             json!({"message": "missing type"}),
             json!({"type": "message_start", "message": 5}),
             json!({"type": "message_start", "message": {"stop_reason": "max_tokens"}}),
+            json!({"type": "message_start", "message": {"content": [{"type":"text","text":"omitted"}]}}),
+            json!({"type": "message_start", "message": {"error": {"message":"private-provider-detail"}}}),
             json!({"type": "message_delta", "delta": false}),
         ] {
             let body = format!("data: {{\"type\":\"content_block_delta\",\"delta\":{{\"type\":\"text_delta\",\"text\":\"partial\"}}}}\n\ndata: {invalid}\n\ndata: {{\"type\":\"message_stop\"}}\n\n");
