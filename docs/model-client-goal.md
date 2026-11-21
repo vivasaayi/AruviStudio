@@ -5447,3 +5447,12 @@ The clean image predates the test-fixture and documentation changes in this
 checkpoint, which do not change the runtime image. Complete desktop parity,
 real-provider and device checks, Mac integration on a merged default revision,
 and persistent VPS staging with ingress and Model Host acceptance remain open.
+
+A further settings source audit found that desktop's `docker_host` and
+`max_workflow_retries` values are persisted but have no backend consumers in
+the current source. New workflow runs initialize their maximum to three; the
+test stage executes the configured command in the server environment and the
+Docker service is a stub. This is an existing behavior gap, not evidence that a
+Docker sandbox or the configured retry limit is active. See the settings action
+inventory in `web-parity-audit.md`; retry semantics and execution isolation still
+need design and validation.
