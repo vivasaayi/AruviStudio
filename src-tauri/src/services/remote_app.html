@@ -982,7 +982,7 @@
               <h3>Build target assignment</h3>
               <label>Product <select id="ciProduct"></select></label>
               <label>Attached workspace <select id="ciRepository"></select></label>
-              <label>Matching target <select id="ciTarget"></select></label>
+              <label>Target <select id="ciTarget"></select></label><div class="hint">The server checks that the target matches the selected workspace when assigning or queueing.</div>
               <label><input type="checkbox" id="ciAutoPreview"> Automatically queue Preview after workflow delivery</label>
               <button type="button" id="ciAssign" class="secondary">Assign target</button>
               <div id="ciBindings" class="stack"></div>
@@ -4746,8 +4746,7 @@
       fillCiSelect(product, ciData.products.map((p) => [p.id, p.name]), "Select product");
       const attached = ciData.attachments.filter((a) => a.scope_type === "product" && a.scope_id === product.value).map((a) => a.repository_id);
       fillCiSelect(repository, ciData.repositories.filter((r) => attached.includes(r.id)).map((r) => [r.id, r.name]), "Select attached workspace");
-      const selected = ciData.repositories.find((r) => r.id === repository.value);
-      fillCiSelect(target, ciData.targets.filter((t) => selected && t.repository && t.repository.replace(/\/+$/, "") === selected.local_path.replace(/\/+$/, "")).map((t) => [t.id, t.id + (t.approval?.approved ? " · pipeline approved" : " · pipeline not approved")]), "Select matching target");
+      fillCiSelect(target, (repository.value ? ciData.targets : []).map((t) => [t.id, t.id + (t.approval?.approved ? " · pipeline approved" : " · pipeline not approved")]), "Select target");
       const list = document.getElementById("ciBindings"); list.replaceChildren();
       ciData.bindings.forEach((binding) => {
         const row = document.createElement("div"), label = document.createElement("span"), button = document.createElement("button");

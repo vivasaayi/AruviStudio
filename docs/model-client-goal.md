@@ -458,7 +458,13 @@ commit and passed run, exposed all expected stages, displayed a real Rust-test
 log and requested OCI artifact verification. `scripts/test native-ci-service`
 accepts `--browser` with `--execute-build`, and optionally
 `--browser-executable` to use a local Chromium installation. This exercises
-inspection, not browser-initiated queueing, cancellation or a deployed CI service.
+inspection, not cancellation or a deployed CI service. A follow-up run exposed
+that the browser hid mapped targets by comparing host and container paths as
+strings. The target selector now leaves identity validation to the backend, which
+checks mapping and attachment during assignment and queueing. Chrome selected a
+second commit and queued a distinct real build through the relay; it passed and
+reported the selected commit. The simulated browser fixture also verified that a
+mismatched target is rejected. Live deployment and other target types remain open.
 
 ### Disposable native Aruvici connection
 

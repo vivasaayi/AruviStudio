@@ -27,6 +27,11 @@ test("browser and MCP inspect a configured CI socket", async ({ page, request })
   await expect(page.locator("#ciRuns")).toContainText("failed");
   await page.locator("#ciProduct").selectOption(product.id);
   await page.locator("#ciRepository").selectOption(repository.id);
+  await page.locator("#ciTarget").selectOption("mismatch-preview");
+  let mismatchMessage = "";
+  page.once("dialog", (dialog) => { mismatchMessage = dialog.message(); return dialog.accept(); });
+  await page.locator("#ciAssign").click();
+  await expect.poll(() => mismatchMessage).toMatch(/repository/i);
   await page.locator("#ciTarget").selectOption("fixture-preview");
   const assigned = page.waitForResponse((r) => r.url().endsWith("/api/mobile/ci/bindings/save"));
   await page.locator("#ciAssign").click();

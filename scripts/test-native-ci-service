@@ -86,6 +86,9 @@ try:
             git("add", ".")
             git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "fixture")
             commit = git("rev-parse", "HEAD")
+            if args.browser:
+                git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-qm", "browser revision")
+                browser_commit = git("rev-parse", "HEAD")
             if args.exercise_protocol:
                 locks = state / "locks"
                 locks.mkdir()
@@ -271,11 +274,12 @@ try:
                 if args.browser:
                     browser_env = dict(base_env, ARUVI_TEST_CI_URL=build_base, ARUVI_TEST_CI_TOKEN=build_token,
                                        ARUVI_TEST_CI_RUN=str(run_id), ARUVI_TEST_CI_ARTIFACT=str(artifacts[0]["id"]),
-                                       ARUVI_TEST_CI_COMMIT=commit)
+                                       ARUVI_TEST_CI_COMMIT=commit, ARUVI_TEST_CI_BROWSER_COMMIT=browser_commit,
+                                       ARUVI_TEST_CI_PRODUCT=product["id"], ARUVI_TEST_CI_REPOSITORY=repo["id"])
                     if args.browser_executable:
                         browser_env["ARUVI_TEST_CI_BROWSER_EXECUTABLE"] = args.browser_executable
                     subprocess.run(["node", str(Path(__file__).resolve().parent / "test-native-ci-browser.mjs")],
-                                   env=browser_env, check=True, timeout=90)
+                                   env=browser_env, check=True, timeout=360)
                 print(("Container" if args.relay_image else "Native") + " Studio queued a real disposable CI build; browser API and OCI integrity checks passed.")
             for action in (() if args.exercise_protocol or args.execute_build else ("retry_run", "artifact_readiness")):
                 result = mcp_result("aruvi_ci", action, {"id": 1})

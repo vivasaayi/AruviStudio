@@ -2,11 +2,13 @@
 import { chromium, expect } from "@playwright/test";
 
 const { ARUVI_TEST_CI_URL: url, ARUVI_TEST_CI_TOKEN: token, ARUVI_TEST_CI_RUN: run,
-  ARUVI_TEST_CI_ARTIFACT: artifact, ARUVI_TEST_CI_COMMIT: commit } = process.env;
-if (![url, token, run, artifact, commit].every(Boolean)) throw new Error("Missing CI fixture configuration");
+  ARUVI_TEST_CI_ARTIFACT: artifact, ARUVI_TEST_CI_COMMIT: commit, ARUVI_TEST_CI_BROWSER_COMMIT: browserCommit,
+  ARUVI_TEST_CI_PRODUCT: product, ARUVI_TEST_CI_REPOSITORY: repository } = process.env;
+if (![url, token, run, artifact, commit, browserCommit, product, repository].every(Boolean)) throw new Error("Missing CI fixture configuration");
 const browser = await chromium.launch({ headless: true, executablePath: process.env.ARUVI_TEST_CI_BROWSER_EXECUTABLE || undefined });
 try {
   const page = await browser.newPage();
+  page.setDefaultTimeout(15000);
   await page.goto(url + "/remote");
   await page.locator("#tokenInput").fill(token);
   await page.locator("#saveButton").click();
@@ -34,7 +36,32 @@ try {
   const verified = await readiness.json();
   if (verified.run_id !== Number(run) || verified.eligible !== false) throw new Error("Unexpected artifact readiness");
   await expect(details).toContainText('"eligible": false');
-  console.log("Real CI browser: target, run, stages, log and artifact verification passed.");
+  await page.locator("#ciProduct").selectOption(product);
+  await page.locator("#ciRepository").selectOption(repository);
+  await page.locator("#ciTarget").selectOption("fixture");
+  await page.locator("#ciRevisionType").selectOption("commit");
+  await expect(page.locator("#ciRevision option").filter({ hasText: browserCommit.slice(0, 12) })).toHaveCount(1);
+  await page.locator("#ciRevision").selectOption(browserCommit);
+  const dialogs = [];
+  page.on("dialog", (dialog) => { dialogs.push(dialog.message()); return dialog.accept(); });
+  const queuedResponse = page.waitForResponse((response) => response.url().endsWith("/api/mobile/ci/bindings/queue"));
+  await page.locator("#ciQueue").click();
+  const queued = await queuedResponse;
+  if (!queued.ok()) throw new Error("Browser CI queue request failed: " + await queued.text());
+  const result = await queued.json();
+  if (!result.run_id || String(result.run_id) === run) throw new Error("Browser did not queue a distinct run");
+  await expect.poll(() => dialogs.length).toBe(2);
+  await expect(page.locator("#ciRuns")).toContainText(`Run #${result.run_id}`);
+  let finished;
+  await expect.poll(async () => {
+    const response = await page.request.get(`${url}/api/mobile/ci/runs/${result.run_id}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok()) throw new Error("Cannot read browser-queued CI run");
+    finished = await response.json();
+    if (["failed", "blocked", "cancelled", "interrupted"].includes(finished.status)) throw new Error(`Browser-queued CI run ended: ${finished.status}`);
+    return finished.status;
+  }, { timeout: 300000, intervals: [500, 1000, 2000] }).toBe("passed");
+  if (finished.commit !== browserCommit) throw new Error("Browser-queued run used a different commit");
+  console.log("Real CI browser: inspection, artifact verification and a distinct completed browser-queued build passed.");
 } finally {
   await browser.close();
 }

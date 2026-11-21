@@ -232,8 +232,11 @@ remain open.
 
 A headless Chrome browser also inspected the completed disposable real-service
 build through the Docker Studio relay, including its stages, Rust-test log and
-OCI artifact verification. Browser queueing and other actions are still covered
-only by simulated-service tests.
+OCI artifact verification. A follow-up fixture selected and queued a different
+commit in the browser and verified the real build passed. This exposed and fixed
+a selector that hid valid mapped host/container targets; the backend validates
+target identity when assigning or queueing. Cancellation and other actions are
+still covered only by simulated-service tests.
 
 | Desktop action | Dependency or constraint for web parity |
 | --- | --- |
