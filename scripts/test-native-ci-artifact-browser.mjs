@@ -8,6 +8,14 @@ const original = await readFile(artifactPath);
 const browser = await chromium.launch({ executablePath, headless: true });
 try {
   const page = await browser.newPage({ acceptDownloads: true });
+  await page.addInitScript(() => {
+    window.__stream = { chunks: [], closed: false, aborted: false };
+    window.showSaveFilePicker = async () => ({ createWritable: async () => ({
+      write: async bytes => window.__stream.chunks.push(Array.from(bytes)),
+      close: async () => { window.__stream.closed = true; },
+      abort: async () => { window.__stream.aborted = true; },
+    }) });
+  });
   await page.goto(url + "/remote");
   await page.locator("#tokenInput").fill(token);
   await page.locator("#saveButton").click();
@@ -19,8 +27,17 @@ try {
   const download = await downloading;
   const data = await readFile(await download.path());
   if (!data.equals(original) || createHash("sha256").update(data).digest("hex") !== digest || download.suggestedFilename() !== "package.bin") throw new Error("Downloaded artifact differs from the original");
+  const streamButton = page.getByRole("button", { name: "Save large artifact #1" });
+  await streamButton.click();
+  await page.waitForFunction(() => window.__stream.closed);
+  const streamed = await page.evaluate(() => window.__stream.chunks);
+  if (streamed.length < 2 || !Buffer.from(streamed.flat()).equals(original)) throw new Error("Streaming artifact differs from the original");
+  await page.evaluate(() => { window.__stream = { chunks: [], closed: false, aborted: false }; });
   const changed = Buffer.from(original); changed[0] ^= 1;
   await writeFile(artifactPath, changed);
+  await streamButton.click();
+  await page.waitForFunction(() => window.__stream.aborted);
+  if (await page.evaluate(() => window.__stream.closed)) throw new Error("Changed streaming artifact was committed");
   await button.click();
   await page.getByText("Artifact download failed: Artifact digest mismatch").waitFor();
   console.log("Browser artifact download verified; changed bytes were rejected.");

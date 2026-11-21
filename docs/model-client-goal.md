@@ -14,6 +14,14 @@ provider hosting into the model-host service as part of this work.
 
 ### CI artifact parity investigation
 
+For browsers implementing the File System Access API, CI now offers a streaming
+save that hashes 65,536-byte chunks incrementally with vendored MIT-licensed
+js-sha256 1.1.0 and closes the temporary writable file only on digest match.
+The native Studio and Aruvici fixture passed a multichunk Chrome test with a
+simulated save picker, including abort on changed content. The real picker and
+files larger than 256 MiB have not been tested; browsers without that API still
+have the 256 MiB buffered-download limit.
+
 The separate Aruvici protocol branch now has draft PR
 [#1](https://github.com/vivasaayi/aruvici/pull/1). At `d8e4e48`, it also
 requires chunk paths to belong to the artifact's owning run. Its
@@ -21,12 +29,12 @@ requires chunk paths to belong to the artifact's owning run. Its
 cross-run artifact rejection, guarded reads and retry policy. This is a
 reviewable dependency, not a merged or deployed service.
 
-Browser CI artifact downloads now use authenticated chunk requests, verify
-length and SHA-256 before saving, require HTTPS or localhost, and buffer at most
-256 MiB. A native Studio and real Aruvici protocol-branch fixture passed a Chrome
+The original buffered browser CI artifact download uses authenticated chunk
+requests, verifies length and SHA-256 before saving, requires HTTPS or localhost,
+and buffers at most 256 MiB. A native Studio and real Aruvici protocol-branch fixture passed a Chrome
 download of a 76,800-byte file, rejected modified bytes and denied an
-unauthenticated chunk request. Larger files, the deployed service and staging
-remain unverified; the limit does not provide parity for larger build artifacts.
+unauthenticated chunk request. The later streaming option above addresses larger
+files on supporting browsers; the deployed service and staging remain unverified.
 
 MCP now exposes artifact metadata and bounded chunk reads. A freshly built
 native Studio server and the Aruvici protocol-branch binary passed a disposable

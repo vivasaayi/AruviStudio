@@ -93,6 +93,10 @@ async fn remote_app() -> impl IntoResponse {
     Html(REMOTE_APP_HTML)
 }
 
+async fn remote_sha256() -> impl IntoResponse {
+    ([(axum::http::header::CONTENT_TYPE, "text/javascript; charset=utf-8")], include_str!("vendor/js-sha256.min.js"))
+}
+
 async fn monaco_asset(AxumPath(path): AxumPath<String>) -> impl IntoResponse {
     let missing = || (StatusCode::NOT_FOUND, "Editor asset not found").into_response();
     if path.is_empty() || path.split('/').any(|part| part.is_empty() || part.starts_with('.') || !part.bytes().all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))) {
@@ -345,6 +349,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
     Router::new()
         .route("/health", get(healthcheck))
         .route("/remote", get(remote_app))
+        .route("/assets/js-sha256.js", get(remote_sha256))
         .route("/remote/*path", get(remote_app))
         .route("/assets/monaco/*path", get(monaco_asset))
         .route(

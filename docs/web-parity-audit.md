@@ -75,8 +75,12 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 The desktop CI run panel can reveal a verified artifact in Finder. The browser
 now downloads artifacts using authenticated bounded chunks and checks the
-complete SHA-256 before offering the file. It requires a secure browser context
-(HTTPS or localhost) and buffers at most 256 MiB. MCP exposes `artifact_metadata`
+complete SHA-256 before offering the file. Its standard download requires a
+secure browser context (HTTPS or localhost) and buffers at most 256 MiB. A
+separate streaming save uses the File System Access API where supported and
+commits the selected file only after incremental SHA-256 verification. It
+vendors MIT-licensed js-sha256 1.1.0 with its license in `services/vendor`.
+MCP exposes `artifact_metadata`
 and `artifact_chunk` as well as `artifact_readiness`; the metadata may include
 the service's server-side path. The Aruvici checkout's private socket protocol provides
 `artifact` metadata and bounded 65,536-byte `artifact_chunk` reads by numeric
@@ -87,7 +91,9 @@ An isolated native Studio and Aruvici protocol-branch fixture reconstructed a
 76,800-byte binary through MCP in multiple chunks, checked its digest and size,
 and rejected a negative offset. Chrome downloaded the same artifact from the
 native Studio server and rejected a modified file; unauthenticated chunk access
-was rejected. This did not test a deployed CI service or larger artifacts.
+was rejected. The streaming path passed the same multichunk check using a
+simulated save picker and aborted the write after a digest mismatch. An actual
+picker, artifacts over 256 MiB and a deployed CI service remain untested.
 
 The `promotion_readiness` operation used by Studio exists in the separate
 `codex/studio-ci-protocol` Aruvici branch but was not found in the
