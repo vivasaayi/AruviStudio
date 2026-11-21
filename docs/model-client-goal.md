@@ -5588,3 +5588,22 @@ an in-process safeguard for cooperating tool calls, not protection from external
 writers, model errors after a read, or every possible stale edit. A coding-stage
 fixture exercises rejection of a changed replacement after an earlier write;
 the native Rust library suite passed 298 tests with seven ignored.
+
+The clean Linux ARM64 image from commit
+`bf9d43f6e0f3379a98f55b1809236e6b60cadc19` has manifest
+`sha256:73f264c49baded4ddb5b66a4bedd4aa8425486a0a76c125943bbae0f157c4377`.
+Before deployment, 52 simulated workflow tests passed. A separate disposable
+real `qwen25-coder-7b-q4` existing-module workflow confirmed that the new
+guidance reached the coding model, passed syntax and independent behavior and
+duplicate checks, and delivered the reviewed code to a local Git remote. The
+work-item override was used and the product-default workspace stayed unchanged.
+This run did not trigger the stale-line guard; its rejection path was exercised
+by the deterministic coding-stage fixture. After deployment, product creation,
+MCP and mobile authorization, PDF export and restart persistence passed. A
+checked pre-deployment database backup and the previous image are retained. One
+successful model sample does not prove general reliability or staging readiness.
+The deployed image also passed 41 remote browser tests, PDF isolation/outage,
+the simulated CI fixture, published-port browser MCP checks and a real local
+7B MCP coding request. An additional focused guard test verified that an
+offset read cannot satisfy the fresh-line requirement; that test-only change
+postdates the built image.

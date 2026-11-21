@@ -436,6 +436,8 @@ mod replacement_guard_tests {
         assert!(guard.check("repo.replace_range", &different, true).is_err());
         guard.record_success("repo.read_file", &json!({"path":"src/math.js"}), &json!({"truncated":true,"offset_chars":0,"selection_start_line":1,"selection_end_line":2}));
         assert!(guard.check("repo.replace_range", &different, true).is_err());
+        guard.record_success("repo.read_file", &json!({"path":"src/math.js"}), &json!({"truncated":false,"offset_chars":3,"selection_start_line":1,"selection_end_line":2}));
+        assert!(guard.check("repo.replace_range", &different, true).is_err());
         guard.record_success("repo.read_file", &json!({"path":"src/math.js"}), &json!({"truncated":false,"offset_chars":0,"selection_start_line":3,"selection_end_line":5}));
         assert!(guard.check("repo.replace_range", &different, true).is_err());
         guard.record_success("repo.read_file", &json!({"path":"src/math.js"}), &json!({"truncated":false,"offset_chars":0,"selection_start_line":1,"selection_end_line":5}));
