@@ -102,8 +102,11 @@ lock to change the registered path while a save waited; it verified conflict,
 unchanged files, rejection of a stale reviewed patch, a valid current-root
 patch, and a legacy save. The fixture also checked MCP read metadata, stale
 writes and patches, a valid write, and an MCP write waiting on a separate
-process that changes the path. A Rust endpoint test and native editor
-and general Copilot regression fixtures passed. The server build and full Rust library suite
+process that changes the path. A disposable two-server Linux fixture also
+verified stale browser-API and MCP writes after a path change, including an MCP
+write waiting for a separate SQLite writer; it passed twice on the deployed
+branch image. A Rust endpoint test and native editor and general Copilot
+regression fixtures passed. The server build and full Rust library suite
 passed (326 tests, seven ignored). Linux container and branch-deployment checks
 remain pending, and workspace editing has not yet been exposed through the
 browser or MCP.
