@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Standalone client package validation
+
+At Studio commit `ca80520`, the reusable client was packaged and verified
+offline with Cargo; its unpacked package then passed all 65 client tests offline
+on macOS ARM64. The archive includes the crate source, example, README and
+license. `bash scripts/test shared-client-package` repeats that local check
+with cached dependencies; the separate Git-pinned consumer fixture and Linux
+validation remain distinct. This did not publish a package or establish an
+independent repository, release policy, live third-party compatibility or voice
+device acceptance.
+
 ### Product strategy link conflict protection
 
 Browser link and unlink actions submit the product's displayed link set. The

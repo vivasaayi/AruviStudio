@@ -263,6 +263,11 @@ cargo vendor --locked vendor > .cargo/config.toml
 cargo test --locked --offline
 ```
 
+Run `bash scripts/test shared-client-package` to package the current crate offline,
+verify that the packaged crate builds, and run its tests from the unpacked package.
+This is a local packaging check; it neither publishes the crate nor establishes a
+release policy. It needs the locked dependencies already in the local Cargo cache.
+
 The `validation/model-client-consumer` fixture pins this revision and its own
 lockfile; `bash scripts/test shared-client-consumer` builds it in Docker, vendors
 dependencies and runs its tests with networking disabled. When promoting another
