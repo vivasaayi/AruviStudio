@@ -532,6 +532,22 @@
               </div>
               <div class="panel-body stack">
                 <div class="metrics" id="productMetrics"></div>
+                <details id="productEditSection"><summary>Edit product</summary>
+                  <form id="productEditForm" class="stack">
+                    <label><span class="label">Edit product name</span><input name="name" required maxlength="200" /></label>
+                    <label><span class="label">Product description</span><textarea name="description"></textarea></label>
+                    <label><span class="label">Vision</span><textarea name="vision"></textarea></label>
+                    <label><span class="label">Goals (comma-separated)</span><input name="goals" /></label>
+                    <label><span class="label">Tags (comma-separated)</span><input name="tags" /></label>
+                    <label><span class="label">Lifecycle</span><select name="lifecycle"><option>idea</option><option>incubating</option><option>active</option><option>maturing</option><option>sunsetting</option><option>retired</option></select></label>
+                    <label><span class="label">Health</span><select name="health"><option>unknown</option><option>healthy</option><option>watch</option><option value="at_risk">at risk</option><option>blocked</option></select></label>
+                    <label><span class="label">Owner</span><input name="owner" /></label>
+                    <label><span class="label">Investment</span><select name="investment"><option>evaluate</option><option>invest</option><option>maintain</option><option>pause</option><option>retire</option></select></label>
+                    <label><span class="label">Roadmap</span><textarea name="roadmap"></textarea></label>
+                    <label><span class="label">Evidence</span><textarea name="evidence"></textarea></label>
+                    <button id="productEditSave" type="submit">Save product</button>
+                  </form>
+                </details>
                 <div class="stack">
                   <label><span class="label">Product Book format</span><select id="productBookFormat"><option value="docs_html">Docs HTML</option><option value="book_html">Book HTML</option><option value="epub">EPUB</option><option value="pdf">PDF</option></select></label>
                   <label><span class="label">Book trim preset</span><select id="productBookTrim"><option value="trade-6x9">Trade Paperback (6×9)</option><option value="a5">A5 Book</option><option value="us-letter">US Letter Review</option></select></label>
@@ -2695,7 +2711,36 @@
       finally { productBookExporting = false; el.productBookDownload.disabled = !state.productSummary; }
     });
 
+    let productEditSnapshot = null;
+    const productEditSection = document.getElementById("productEditSection");
+    const productEditForm = document.getElementById("productEditForm");
+    productEditSection.querySelector(":scope > summary").addEventListener("click", (event) => {
+      if (productEditSection.open) return;
+      const product = state.products.find((item) => item.id === state.selectedProductId);
+      if (!product) { event.preventDefault(); setStatus("Select a product first", "error"); return; }
+      productEditSnapshot = structuredClone(product);
+      const f = productEditForm.elements;
+      for (const key of ["name", "description", "vision", "lifecycle", "health", "roadmap", "evidence"]) f[key].value = product[key];
+      f.goals.value = product.goals.join(", "); f.tags.value = product.tags.join(", ");
+      f.owner.value = product.owner_label; f.investment.value = product.investment_status;
+    });
+    productEditForm.addEventListener("submit", async (event) => {
+      event.preventDefault(); const expected = productEditSnapshot;
+      if (!expected || expected.id !== state.selectedProductId) { setStatus("Select a product first", "error"); return; }
+      const f = productEditForm.elements;
+      const list = (value) => value.split(",").map((item) => item.trim()).filter(Boolean);
+      const fields = {...expected, name:f.name.value.trim(), description:f.description.value, vision:f.vision.value, goals:list(f.goals.value), tags:list(f.tags.value), lifecycle:f.lifecycle.value, health:f.health.value, owner_label:f.owner.value, investment_status:f.investment.value, roadmap:f.roadmap.value, evidence:f.evidence.value};
+      const save = document.getElementById("productEditSave"); save.disabled = true;
+      try {
+        await request(`/api/mobile/products/${encodeURIComponent(expected.id)}/update`, {method:"POST", body:{expected, fields}});
+        productEditSection.open = false; productEditSnapshot = null;
+        await loadProducts(); setStatus("Product saved", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { save.disabled = false; }
+    });
+
     async function loadProductSummary(productId) {
+      if (state.selectedProductId !== productId) { document.getElementById("productEditSection").open = false; productEditSnapshot = null; }
       state.selectedProductId = productId;
       localStorage.setItem(storageKeys.selectedProduct, productId);
       renderProducts();

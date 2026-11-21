@@ -71,6 +71,19 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+#### Product details
+
+Browser Products now edits the desktop product fields: name, description,
+vision, goals, tags, lifecycle, health, owner, investment, roadmap and evidence.
+The browser sends its loaded product snapshot; the server compares and writes
+under an immediate SQLite transaction, rejecting stale edits and preserving the
+browser draft. A disposable browser/MCP test covers a concurrent edit, refresh
+and retry, all fields, authentication, identity and validation. Existing desktop
+and generic MCP product updates do not use the browser snapshot guard and remain
+last-write-wins; their read/write sequence is not serialized as a unit. The
+browser uses comma-separated goals and tags, matching the desktop form. Other
+product actions still need comparison.
+
 #### Product hierarchy details
 
 The desktop capability/feature editor exposes acceptance criteria and technical

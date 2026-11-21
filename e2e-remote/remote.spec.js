@@ -2329,3 +2329,43 @@ test("browser manages portfolio strategy and product dependencies", async ({ pag
     await call('archive_product',{id:a.id}); await call('archive_product',{id:b.id});
   }
 });
+
+test("browser edits product details and preserves a conflicting draft", async ({page,request}) => {
+  test.skip(!token || !mcpToken, "Requires disposable authenticated fixture");
+  async function call(action,args) {
+    const response = await request.post('/api/mcp',{headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'aruvi_catalog',arguments:{action,arguments:args}}}});
+    const data = await response.json(); expect(data.result?.isError).not.toBeTruthy(); return data.result.structuredContent.result;
+  }
+  const product = await call('create_product',{name:`Product editor ${Date.now()}`});
+  try {
+    expect((await request.post(`/api/mobile/products/${product.id}/update`,{data:{expected:product,fields:product}})).status()).toBe(401);
+    const headers = {Authorization:`Bearer ${token}`};
+    expect((await request.post('/api/mobile/products/other/update',{headers,data:{expected:product,fields:product}})).status()).toBe(400);
+    expect((await request.post(`/api/mobile/products/${product.id}/update`,{headers,data:{expected:product,fields:{...product,name:' '}}})).status()).toBe(400);
+    expect((await request.post(`/api/mobile/products/${product.id}/update`,{headers,data:{expected:product,fields:{...product,status:'archived'}}})).status()).toBe(400);
+    await page.goto('/remote'); await page.locator('#tokenInput').fill(token); await page.locator('#saveButton').click();
+    await page.getByRole('button',{name:'Products',exact:true}).click();
+    await page.locator('#productList').getByRole('button',{name:new RegExp(product.name)}).click();
+    await page.locator('#productEditSection summary').click();
+    const editor = page.locator('#productEditForm');
+    await editor.getByLabel('Edit product name').fill('Unsaved product');
+    await call('update_product',{id:product.id,vision:'Concurrent vision'});
+    await page.getByRole('button',{name:'Save product'}).click();
+    await expect(page.locator('#status')).toContainText('Product changed');
+    await expect(editor.getByLabel('Edit product name')).toHaveValue('Unsaved product');
+    await page.locator('#productEditSection summary').click();
+    await page.getByRole('button',{name:'Refresh',exact:true}).first().click();
+    await page.locator('#productEditSection summary').click();
+    await expect(editor.getByLabel('Vision',{exact:true})).toHaveValue('Concurrent vision');
+    await editor.getByLabel('Edit product name').fill('Updated product');
+    await editor.getByLabel('Product description').fill('Description');
+    await editor.getByLabel('Vision',{exact:true}).fill('Vision');
+    await editor.getByLabel('Goals (comma-separated)').fill('First, Second');
+    await editor.getByLabel('Tags (comma-separated)').fill('alpha, beta');
+    await editor.getByLabel('Lifecycle').selectOption('active'); await editor.getByLabel('Health').selectOption('watch');
+    await editor.getByLabel('Owner',{exact:true}).fill('Owner'); await editor.getByLabel('Investment').selectOption('invest');
+    await editor.getByLabel('Roadmap').fill('Roadmap'); await editor.getByLabel('Evidence').fill('Evidence');
+    await page.getByRole('button',{name:'Save product'}).click(); await expect(page.locator('#status')).toHaveText('Product saved');
+    expect(await call('get_product',{id:product.id})).toMatchObject({name:'Updated product',description:'Description',vision:'Vision',goals:['First','Second'],tags:['alpha','beta'],lifecycle:'active',health:'watch',owner_label:'Owner',investment_status:'invest',roadmap:'Roadmap',evidence:'Evidence'});
+  } finally { await call('archive_product',{id:product.id}); }
+});

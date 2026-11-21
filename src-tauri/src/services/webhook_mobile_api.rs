@@ -1822,6 +1822,18 @@ pub(crate) async fn mobile_create_product(
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct MobileProductEdit { expected: crate::domain::product::Product, fields: crate::domain::product::Product }
+
+pub(crate) async fn mobile_update_product(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Json(body): Json<MobileProductEdit>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match product_repo::update_product_checked(&state.app_state.db, &product_id, &body.expected, &body.fields).await {
+        Ok(Some(product)) => Json(product).into_response(),
+        Ok(None) => (StatusCode::CONFLICT, "Product changed or was removed. Refresh and review your edits.").into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct MobileCreateHierarchyNode {
     name: String,
     description: Option<String>,

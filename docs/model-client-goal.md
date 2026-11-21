@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser product detail editing
+
+Browser Products now edits the desktop product detail fields through an
+authenticated, snapshot-checked update transaction. A disposable browser/MCP
+fixture verified all fields, a concurrent update and preserved browser draft,
+refresh and retry, unauthorized access, identity and status tampering, and an
+empty name. The browser uses comma-separated goals and tags. Existing desktop
+and generic MCP update paths remain last-write-wins; this is not a general
+concurrent-write guarantee. The native server built, but the running Docker
+branch has not yet been rebuilt with this change.
+
 ### Hierarchy conversion audit
 
 The existing shared kind-conversion operation previously validated and wrote

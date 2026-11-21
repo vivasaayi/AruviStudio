@@ -1,7 +1,7 @@
 use crate::domain::product::{ProductTree, ProductTreeSummary};
 use crate::error::AppError;
 pub use crate::persistence::product_core_repo::{
-    archive_product, create_product, get_product, list_products, update_product,
+    archive_product, create_product, get_product, list_products, update_product, update_product_checked,
     CreateProductInput, UpdateProductPatch,
 };
 pub use crate::persistence::product_hierarchy_repo::{

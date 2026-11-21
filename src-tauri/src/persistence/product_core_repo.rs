@@ -151,6 +151,29 @@ pub(crate) async fn update_product_in_conn(conn: &mut SqliteConnection, patch: U
     get_product_in_conn(conn, patch.id).await
 }
 
+/// Compare and update the entire editable product in one write transaction.
+pub async fn update_product_checked(pool: &SqlitePool, id: &str, expected: &Product, fields: &Product) -> Result<Option<Product>, AppError> {
+    if expected.id != id || fields.id != id || fields.status != expected.status {
+        return Err(AppError::Validation("Product identity and status cannot be changed here".into()));
+    }
+    if fields.name.trim().is_empty() || fields.name.len() > 200 {
+        return Err(AppError::Validation("Name must contain 1 to 200 characters".into()));
+    }
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let current = match get_product_in_conn(&mut tx, id).await {
+        Ok(product) => product,
+        Err(AppError::NotFound(_)) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if &current != expected { return Ok(None); }
+    let goals = serde_json::to_string(&fields.goals)?;
+    let tags = serde_json::to_string(&fields.tags)?;
+    let lifecycle = fields.lifecycle.to_string(); let health = fields.health.to_string(); let investment = fields.investment_status.to_string();
+    let product = update_product_in_conn(&mut tx, UpdateProductPatch {id, name:Some(fields.name.trim()), description:Some(&fields.description), vision:Some(&fields.vision), goals:Some(&goals), tags:Some(&tags), lifecycle:Some(&lifecycle), health:Some(&health), owner_label:Some(&fields.owner_label), investment_status:Some(&investment), roadmap:Some(&fields.roadmap), evidence:Some(&fields.evidence)}).await?;
+    tx.commit().await?;
+    Ok(Some(product))
+}
+
 pub async fn archive_product(pool: &SqlitePool, id: &str) -> Result<Product, AppError> {
     sqlx::query("UPDATE products SET status='archived', updated_at=datetime('now') WHERE id=?")
         .bind(id)
