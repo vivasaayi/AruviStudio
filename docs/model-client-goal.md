@@ -26,12 +26,36 @@ retained its product after a forced restart; authenticated MCP work creation,
 PDF export and unauthenticated-read rejection passed afterward. This was a
 fixture, not a Compose deployment, staging acceptance, or a release artifact.
 
-The restart check found that the image's server process, running as PID 1,
-remained alive after SIGTERM and needed SIGKILL. A headless-only shutdown path
-is being added to stop accepting requests and allow active HTTP responses to
-finish. Background workflows and subprocesses require separate coordination;
-the HTTP shutdown path alone does not guarantee they complete. New-build and
-runtime validation of the fix is tracked below when complete.
+The restart check found that the server process, running as PID 1, remained
+alive after SIGTERM and needed SIGKILL. Commit `e9d4b74` adds headless HTTP
+graceful shutdown for SIGTERM and SIGINT. The native Rust suite passed (288
+passed, seven ignored), including an in-flight HTTP response regression; the
+headless process regression also passed both signals and verified SQLite and
+product persistence after restart. Background workflows, imports and external
+subprocesses are not drained by this HTTP shutdown path; check active work
+before restarting.
+
+A second no-cache Dockerfile build from `e9d4b74` produced Linux ARM64 OCI
+manifest `sha256:cfd94c81e84812234435b5d1a42d58a0ac1c1ef9da0072d67f6187c6727458a8`.
+The retained OCI archive has SHA-256
+`fc31913e6e76f8442aacd58e7819eef603d6a746619c338a17199c9655d5298f`.
+In an isolated OCI runtime fixture, eight browser scenarios, PDF export,
+SIGTERM as PID 1, persistence after restart, authenticated MCP work creation
+and unauthenticated access rejection passed. This clean artifact is retained in
+the worktree environment's private artifacts directory; it is not a staging or
+release artifact.
+
+Because Docker Desktop's shared store lacked room to load the clean OCI image,
+the branch deployment uses a derived image containing its verified server binary
+on the prior branch image (image ID
+`sha256:550de0b970369f053353b97393e1d83a77045220b34dcde8f55bf30e0031e690`).
+The derived candidate passed 38 remote-interface and 51 workflow tests, PDF
+isolation and outage checks, and a Docker PID 1 SIGTERM test with exit code 0.
+Before deployment, active work was checked, a SQLite backup passed
+`quick_check`, and the prior image was retained as
+`aruvi-studio-worktree-backup:pre-signal-fix`. The branch Compose services are
+healthy. The clean OCI fixture and derived branch deployment are distinct and
+neither constitutes staging acceptance.
 
 ### Scoped Model Host candidate revalidation
 
