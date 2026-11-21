@@ -12,6 +12,23 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Product editor branch deployment
+
+Source revision `49fba35` was compiled as an optimized Linux ARM64 server in
+a disposable ext4 filesystem with the existing project Rust image. The binary
+SHA-256 was `6121df5085d9cff3ca3932a64480ba6a288abc779792778381606a5d7bc6c73d`.
+The filesystem unmounted cleanly and was removed. The binary was layered onto
+the prior branch runtime, producing image ID
+`sha256:ed806bebdbd99bbbdb1e82ee30c30e088bb255aad40500a47086126e5965608f`.
+This derived image is not a clean Dockerfile build or staging artifact. It
+passed 40 browser tests, PDF isolation and outage checks, and 51 workflow tests.
+With no active workflow, import or CLI run, the SQLite backup passed
+`quick_check`; the previous image is retained as
+`aruvi-studio-worktree-backup:pre-product-editor`. After deployment, image
+identity, authenticated product/MCP and PDF checks, a real local coding-model
+request and published-port origin/authentication checks passed. The backup and
+build log are stored in the private worktree artifact directory.
+
 ### Concurrent partial product updates
 
 Shared product updates now write only explicitly supplied fields in a single
