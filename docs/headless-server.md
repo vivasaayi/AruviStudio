@@ -252,6 +252,11 @@ Staging and production adapters consume an explicit image and keep separate pers
 volumes. The shared launcher requires staging builds from a clean checkout at the
 configured default branch. These adapters have not yet been validated through a real
 staging deployment or promotion; do not infer release readiness from their presence.
+`bash scripts/test staging` runs a read-only browser navigation smoke test against
+the locally running staging stack. On Linux it uses host networking to reach the
+loopback-bound service; run it on the deployment host with a local Docker daemon.
+This smoke test does not replace authenticated workflow, persistence, or artifact
+identity checks required for staging acceptance.
 The original `compose.yaml` and its existing volumes remain a separate local deployment.
 
 ### Calling the worktree MCP server

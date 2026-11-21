@@ -107,8 +107,9 @@ limitations and validation items below are not complete.
   disabled there because this Mac's container runtime denies its namespace
   operation; the container is an additional isolation boundary, not a proof of
   Chromium sandboxing. The app fails closed if the renderer is unavailable.
-  Staging and production adapters have not been updated or validated for this
-  sidecar and must not be treated as release-ready on this evidence.
+  Staging and production adapters include the sidecar; disposable local fixtures
+  exercised PDF rendering and restart persistence. Actual staging and production
+  deployments remain unvalidated and are not release-ready on this evidence.
   Other servers can use `ARUVI_PDF_SOCKET` for an isolated service, or configure
   `ARUVI_PDF_NODE`, `ARUVI_PDF_BROWSER`, and `ARUVI_PDF_PLAYWRIGHT_PATH` for a
   local worker; local `ARUVI_PDF_SANDBOX` defaults to `1`.

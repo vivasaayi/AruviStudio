@@ -38,7 +38,16 @@ case "${1:-}" in
     state=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["state"])' <<<"$plan")
     port=$(docker compose --project-name "$project" --project-directory "$root" --env-file "$state/environment.env" -f "deploy/compose.$profile.yaml" port app 8787)
     port=${port##*:}
-    docker run --rm --env-file "$state/environment.env" -e "ARUVI_REMOTE_URL=http://host.docker.internal:$port" \
+    # On Linux, the app is bound to host loopback, which a bridge-networked
+    # container cannot reach through host.docker.internal or the host gateway.
+    # Docker Desktop runs its daemon in a VM, so use its host alias there.
+    docker_network=()
+    browser_host=host.docker.internal
+    if [[ $(uname -s) == Linux ]]; then
+      docker_network=(--network host)
+      browser_host=127.0.0.1
+    fi
+    docker run --rm ${docker_network[@]+"${docker_network[@]}"} --env-file "$state/environment.env" -e "ARUVI_REMOTE_URL=http://$browser_host:$port" \
       -v "$root:/project:ro" -w /tmp/app mcr.microsoft.com/playwright:v1.58.2-noble sh -c '
         cp /project/package.json /project/package-lock.json /project/playwright.remote.config.js ./ &&
         cp -R /project/e2e-remote ./ && npm ci --silent &&

@@ -4151,3 +4151,15 @@ speech using the existing `whisper-tiny-metal` model. These are headless or
 synthetic checks, not native-window or physical microphone acceptance.
 The ignored multi-iteration live calculator test was not run in this pass;
 separate disposable real-model coding workflows are recorded elsewhere.
+
+## Staging browser smoke on Linux
+
+The staging smoke launcher previously used Docker Desktop's host alias on all
+platforms, which cannot reach a Linux host's loopback-bound app from the default
+container bridge. On Linux it now runs the browser with host networking and a
+loopback URL; Docker Desktop keeps its existing host alias. A mocked Docker
+invocation checked Linux argument selection. On the Mac, the actual worktree
+smoke, 29 remote browser tests, simulated CI test and 51 workflow tests passed.
+This does not validate real Linux host networking, the VPS deployment, its
+artifact identity or persistence. The environment contract still requires a
+merged default-branch revision to pass Mac integration before VPS staging.
