@@ -4016,6 +4016,12 @@ real integration deployment, tailnet access or second-device acceptance. The
 organization registry reservation lives in the separate `.org` checkout and
 must be made available wherever that shared checkout is installed.
 
+The production Compose adapter also specifies the isolated PDF renderer and
+socket. A disposable Mac project using the worktree image started both services
+healthy and generated a PDF for an authenticated test product. The fixture and
+its volumes were removed; this is not a production deployment, VPS validation,
+or acceptance of a release artifact.
+
 ## Coding host recovery
 
 The coding-validation Model Host worktree was no longer registered with
