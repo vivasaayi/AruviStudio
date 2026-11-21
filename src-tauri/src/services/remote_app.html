@@ -598,7 +598,7 @@
               <label><span class="label">Filter workspace files</span><input id="repositoryTreeFilter" placeholder="Filter by name or path" /></label><button id="refreshRepositoryTree" type="button" class="secondary" disabled>Refresh file tree</button>
               <div id="repositoryTree" class="tree"></div><div id="repositoryTreeEmpty" class="empty" hidden>No matching files.</div>
               <div id="repositoryFileTabs" class="button-row" aria-label="Open workspace files"></div><label><span class="label">Selected file</span><textarea id="repositoryFileContent" readonly rows="18" aria-label="Selected file contents"></textarea></label>
-              <div class="button-row"><button id="saveRepositoryFileButton" type="button" disabled>Save file</button><button id="discardRepositoryFileButton" class="secondary" type="button" disabled>Discard file edits</button></div>
+              <div class="button-row"><button id="saveRepositoryFileButton" type="button" disabled>Save file</button><button id="discardRepositoryFileButton" class="secondary" type="button" disabled>Discard file edits</button><span class="empty">In the editor, use ⌘/Ctrl+S to save.</span></div>
               <div class="tool-card stack">
                 <strong>Ask Copilot about this file</strong>
                 <div class="empty">Sends the file path, up to 12,000 characters of the current editor content, your question and recent conversation to the selected provider. Unsaved edits are included. Requests and responses are recorded in Activity. Conversation resets when the file content or provider changes. Save before proposing changes.</div>
@@ -5038,6 +5038,12 @@
     document.getElementById("repositoryPatchApply").addEventListener("click", () => void applyReviewedPatch());
     document.getElementById("repositoryCopilotReset").addEventListener("click", resetRepositoryCopilot);
     el.saveRepositoryFileButton.addEventListener("click", saveRepositoryFile);
+    el.repositoryFileContent.addEventListener("keydown", (event) => {
+      if ((event.metaKey || event.ctrlKey) && !event.altKey && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        void saveRepositoryFile();
+      }
+    });
     el.discardRepositoryFileButton.addEventListener("click", discardRepositoryFileEdits);
     window.addEventListener("beforeunload", (event) => { if (openRepositoryFiles.some((file) => fileIsDirty(file))) { event.preventDefault(); event.returnValue = ""; } });
     el.repositoryForm.addEventListener("submit", registerWorkspace);

@@ -43,6 +43,12 @@ This is a working inventory, not a claim of tested parity. The desktop routes in
 MCP handlers are under `src-tauri/src/mcp/tools`. An MCP action being present does
 not establish that all desktop behavior is available or works in a container.
 
+The desktop IDE supports ⌘/Ctrl+S. The browser file editor now supports the
+same shortcut while the editor is focused, using its existing conflict-checked
+save operation. A disposable browser fixture saved a file with the shortcut
+and read it back through MCP. The browser editor is still a plain text area,
+not the desktop Monaco editor; syntax assistance and native dialogs remain open.
+
 ### Audit findings before merge
 
 #### Settings and outbound contact comparison — 2026-11-14

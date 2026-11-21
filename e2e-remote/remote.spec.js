@@ -443,7 +443,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       await page.locator("#repositoryTree").getByRole("button", { name: "inspection.txt" }).click();
       await expect(page.getByLabel("Selected file contents")).toHaveValue("workspace inspection fixture\n");
       await page.getByLabel("Selected file contents").fill("saved from browser\n");
-      await page.getByRole("button", { name: "Save file", exact: true }).click();
+      await page.getByLabel("Selected file contents").press("ControlOrMeta+s");
       await expect(page.locator("#status")).toHaveText("File saved");
       expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: "inspection.txt" })).content).toBe("saved from browser\n");
       await page.getByLabel("Selected file contents").fill("unsaved during refresh\n");

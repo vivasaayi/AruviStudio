@@ -4163,3 +4163,12 @@ smoke, 29 remote browser tests, simulated CI test and 51 workflow tests passed.
 This does not validate real Linux host networking, the VPS deployment, its
 artifact identity or persistence. The environment contract still requires a
 merged default-branch revision to pass Mac integration before VPS staging.
+
+## Browser IDE save shortcut
+
+The browser workspace editor now accepts ⌘/Ctrl+S while the editor is focused,
+using the same conflict-checked save as its button. The rebuilt Docker image
+passed all 29 isolated browser tests, including a keyboard save followed by an
+MCP file readback; the PDF outage check also passed. The rebuilt worktree app
+and PDF sidecar restarted healthy. This does not establish complete IDE parity:
+the browser uses a plain text area and native dialogs remain unavailable.
