@@ -4327,3 +4327,21 @@ stable staging environment. The image was removed and cannot be promoted. A
 merged default-branch revision must still pass Mac integration, then a
 target-compatible artifact from that revision needs real VPS staging, ingress,
 browser, model-host and persistence acceptance.
+
+## VPS Studio to Model Host HTTPS fixture
+
+The VPS Model Host staging endpoint advertised `smol-test` (text) and
+`sd-v1-5` (image); no coding model was advertised. The small text model returned
+a nonempty completed response. A separate rootless Studio container built for
+Linux AMD64 from branch revision `56bbeb28d5b4d0a7000584486807bd6da3174d67`
+used the real staging Model Host HTTPS endpoint. Authenticated discovery listed
+`smol-test`, MCP returned a nonempty completion, and mobile API streaming reached
+its terminal event with text. The host's management-capable staging token was
+used only in the disposable fixture; Studio data was on tmpfs and the container,
+temporary source and uniquely tagged image were removed. Build cache was retained.
+The Model Host staging container remained healthy, and native Studio staging and
+production remained active. Inference may warm the existing host and record its
+normal telemetry; no service configuration or deployment was changed.
+
+This validates one real HTTPS path with a small text fixture, not a coding model,
+physical browser, scoped deployed host token or stable Studio staging deployment.
