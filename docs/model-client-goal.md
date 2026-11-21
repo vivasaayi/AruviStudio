@@ -21,7 +21,14 @@ telemetry instead. The corresponding authenticated HTTP route uses the same
 agent-run query as desktop and MCP. The native server build and disposable
 browser fixture passed for both per-call and legacy totals. Linux tests and a
 new branch deployment are pending. This does not add the desktop's full workflow diagram
-or stage-by-stage artifact review.
+or stage-by-stage artifact review. The desktop diagram contains structural
+split/merge nodes as well as actual runtime stages; its selected-stage panel
+associates runs and artifacts and shows recent transition history. MCP already
+provides `get_workflow_history`, but the browser has no workflow-history route
+or corresponding stage selection. A follow-up must distinguish structural nodes
+from recorded runtime events and keep the selected workflow's runs, transitions
+and artifacts scoped together rather than presenting the diagram as proof of
+execution.
 
 ### Workflow-call branch deployment
 
