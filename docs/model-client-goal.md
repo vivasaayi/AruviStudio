@@ -12,6 +12,36 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current independent client, voice and dependency revalidation
+
+On 2026-11-21, the independent consumer's manifest, lockfile and source-pin
+checks passed; the pinned client source and manifest match Studio's current
+crate. The Linux consumer rebuilt with 31 offline contract tests passing. Against
+the running native Model Host integration environment, the consumer exercised
+`qwen-05b-comparison` discovery, completion, streaming and token-limit errors,
+and a synthetic `piper-ljspeech` / `whisper-tiny-metal` round trip. The running
+Studio branch separately passed the real MCP speech round trip and a headless
+Chrome recording of synthetic Piper audio followed by Whisper transcription.
+These do not establish physical microphone or speaker behavior. An attempted
+combined probe against the separate coding-validation host reported that the
+voice models were not advertised there; the integration host advertises the
+models used for the successful combined probe.
+
+`npm audit` reported no vulnerabilities, and `bash scripts/test sqlx-patch`
+verified the vendored patch's pinned-source provenance. Cargo-audit 0.23.0 against
+the Studio lockfile and RustSec commit
+`55e1c3dfbd834237a05bbbf7b50ba3b5be27b662` reported the existing
+`RUSTSEC-2023-0071` RSA lockfile vulnerability, 14 unmaintained and two unsound
+warnings. The separately pinned consumer lockfile had no advisories or warnings.
+The `chrono` unmaintained warning, `RUSTSEC-2026-0543`, is newly reported in
+this scan. Studio uses chrono directly for timestamps, EPUB metadata and local
+quiet-hours evaluation; a migration must preserve timestamp and timezone
+behavior, including daylight-saving transitions. Cargo's all-target,
+all-features tree selected chrono only through Studio and did not select RSA;
+this is not a binary-level proof or coverage of other manifests. The local SQLx
+patch remains outside cargo-audit's source review. These findings remain open
+release-review items.
+
 ### Database override restart validation
 
 The native fixture now reconstructs a migration-52 database from a freshly
@@ -2036,7 +2066,7 @@ scope is reviewed, not merely until an example passes.
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
 | Desktop, browser and MCP parity | Browser and MCP support many model, planner, agent, repository and product workflows; the detailed action inventory is in `web-parity-audit.md`. Recent native Rust, frontend and isolated web suites passed. | Complete action-by-action comparison, especially native IDE/dialogs, runtime management, settings and CI. A locked Mac prevented native window interaction; simulated Tauri tests are not native acceptance. |
 | Data, configuration and credentials | The branch has isolated Docker data and a loopback endpoint; the model-host setup stores its token outside Git. Inspected Model Host source uses the same token for inference and management. Migration 053 passed backup, integrity and foreign-key checks. | Inference-only host credentials are not established; review host restart operations, cross-platform behavior and upgrade paths. Existing external-channel bindings remain unscoped until explicitly migrated or replaced. |
-| Security and release evidence | Independent client and npm scans found no advisories; the latest Studio lockfile scan found an RSA advisory and maintenance/soundness warnings. | Review those advisories and the locally patched SQLx dependency; verify target platforms and complete release acceptance. No release or master merge is authorized by this goal. |
+| Security and release evidence | On 2026-11-21, independent client and npm scans found no advisories; the Studio lockfile scan found an RSA advisory and maintenance/soundness warnings, including a newly reported chrono maintenance warning. | Review those advisories and the locally patched SQLx dependency; verify target platforms and complete release acceptance. No release or master merge is authorized by this goal. |
 
 The currently running branch app is a worktree deployment. Its port is dynamic;
 use `bash scripts/env worktree status` to identify it rather than relying on a
