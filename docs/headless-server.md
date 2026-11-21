@@ -574,6 +574,9 @@ flags and opaque revisions, not token values. A POST supplies the token kind,
 expected revision, action and, for replacement, the new token; stale updates
 return HTTP 409. Run `bash scripts/test native-bridge-tokens <server-binary> --browser-executable <chrome-path>`
 to verify rotation and restart with temporary credentials and data.
+For a Docker candidate, set `ARUVI_TEST_APP_IMAGE` to the candidate image ID and
+run `bash scripts/test container-bridge-tokens --browser-executable <chrome-path>`.
+It uses a disposable volume, loopback port and generated credentials.
 
 The equivalent authenticated mobile API is `GET /api/mobile/bridge-bind` and
 `POST /api/mobile/bridge-bind` with `host`, `port` and the two-element `expected`

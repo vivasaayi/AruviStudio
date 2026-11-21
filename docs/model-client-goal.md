@@ -5822,4 +5822,20 @@ environment-provided MCP credential precedence, active mobile token rotation,
 old-token rejection, persistence after restart, access removal on clear and
 recovery using an environment token. The Rust library suite
 passed 307 tests with seven ignored; frontend build and terminology checks
-passed. The branch image must be rebuilt and validated before this is deployed.
+passed. The subsequent branch image and deployment checks are recorded below.
+
+The clean hosted ARM64 build of `9a9d9c0ffa56723cd90760e79389d8d2acfb4f24`
+passed and its archive checksum and source revision were verified. The server
+binary (SHA-256 `b01ebbfbe762d46f3c25c6486010b6fd02678d41b05418f38f34f10e32de0941`)
+was installed over the preceding branch runtime, yielding derived image
+`sha256:c6918007d3051beb517d71d8cf75f2aeb4cc3abffafa47d31500ba7733bfdc03`.
+This is not the complete hosted image. A disposable Docker volume, container
+and headless browser verified token conflict, rotation, restart, clearing and
+environment recovery; the same candidate passed 43 other browser tests, 53
+workflow tests, PDF isolation/outage and the Docker host-model fixture. After
+deployment, product, MCP/mobile authorization, PDF and persistence acceptance
+passed after restart, as did browser MCP-origin and real local 7B MCP coding
+checks. A read-only check confirmed the running branch's mobile and MCP tokens
+are environment-controlled. The verified archive, build records, checked
+pre-deployment backup and previous image are retained. Docker VM free space
+remained about 2.2 GiB; this is not integration or staging acceptance.
