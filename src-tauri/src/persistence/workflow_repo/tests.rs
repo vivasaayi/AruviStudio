@@ -167,6 +167,59 @@ async fn workflow_transition_is_atomic_and_rejects_stale_writers() {
     }
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn workflow_transition_process_child() {
+    let Ok(directory) = std::env::var("ARUVI_TEST_TRANSITION_DIR") else { return; };
+    let name = std::env::var("ARUVI_TEST_TRANSITION_WRITER").unwrap();
+    let db_url = std::env::var("ARUVI_TEST_TRANSITION_DB").unwrap();
+    let path = std::path::PathBuf::from(directory);
+    let pool = db_service::create_pool(&db_url).await.unwrap();
+    std::fs::write(path.join(format!("{name}.ready")), "").unwrap();
+    let started = std::time::Instant::now();
+    while !path.join("start").exists() {
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    let result = commit_workflow_transition(&pool, "shared-run", "draft", "planning", "running", None, false, "automatic", &name).await;
+    let outcome = match result { Ok(()) => "won", Err(AppError::Validation(_)) => "conflict", Err(error) => panic!("unexpected transition error: {error}") };
+    std::fs::write(path.join(format!("{name}.result")), outcome).unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn workflow_transition_coordinates_across_processes() {
+    use std::process::{Command, Stdio};
+    let directory = tempfile::tempdir().unwrap();
+    let db_url = format!("sqlite://{}", directory.path().join("shared.db").display());
+    let pool = db_service::create_pool(&db_url).await.unwrap();
+    create_test_work_item(&pool, "shared-product", "shared-item").await;
+    create_workflow_run(&pool, "shared-run", "shared-item").await.unwrap();
+    let spawn = |name: &str| Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "persistence::workflow_repo::tests::workflow_transition_process_child"])
+        .env("ARUVI_TEST_TRANSITION_DIR", directory.path()).env("ARUVI_TEST_TRANSITION_DB", &db_url)
+        .env("ARUVI_TEST_TRANSITION_WRITER", name).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let mut first = spawn("first");
+    let mut second = spawn("second");
+    let started = std::time::Instant::now();
+    while !(directory.path().join("first.ready").exists() && directory.path().join("second.ready").exists()) {
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    std::fs::write(directory.path().join("start"), "").unwrap();
+    assert!(first.wait().unwrap().success());
+    assert!(second.wait().unwrap().success());
+    let outcomes = [std::fs::read_to_string(directory.path().join("first.result")).unwrap(),
+                    std::fs::read_to_string(directory.path().join("second.result")).unwrap()];
+    assert_eq!(outcomes.iter().filter(|outcome| *outcome == "won").count(), 1);
+    assert_eq!(outcomes.iter().filter(|outcome| *outcome == "conflict").count(), 1);
+    let run = get_workflow_run(&pool, "shared-run").await.unwrap();
+    let history = get_workflow_history(&pool, "shared-run").await.unwrap();
+    assert_eq!(run.current_stage, "planning");
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].to_stage, "planning");
+}
+
 #[tokio::test]
 async fn workflow_failure_records_state_and_history_atomically() {
     use crate::domain::workflow::WorkflowStage;

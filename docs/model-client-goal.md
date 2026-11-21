@@ -5786,6 +5786,12 @@ capacity workflow and a browser approval flow that changed coordinators and
 reached test review both passed. The change still needs a rebuilt branch image
 and container end-to-end validation.
 
+A macOS subprocess fixture subsequently started two independent processes
+against one temporary SQLite database and raced the same transition. Across
+five runs exactly one process succeeded, the other received a conflict and one
+history entry was recorded. This checks one transition on the local filesystem;
+Linux container behavior and external side effects remain separate checks.
+
 ## Browser bridge bind settings
 
 The browser Activity view now loads and edits the saved server bind host and
