@@ -5780,8 +5780,7 @@ API test covered authorization, malformed input, transactional rollback and
 simultaneous writes. Token administration remains a separate parity item; the
 settings do not themselves change the currently bound listener. The native Rust
 library suite passed 306 tests with seven ignored, and the frontend build and
-terminology check passed. The change still requires a rebuilt branch image and
-deployment acceptance.
+terminology check passed. Subsequent branch image validation is recorded below.
 
 `bash scripts/test native-bridge-bind <server-binary>` additionally starts a
 disposable native server with temporary credentials and storage. It verified
@@ -5789,3 +5788,17 @@ unauthorized reads are rejected, the saved host and port persist across
 restarts, environment overrides take precedence, and the server listens on the
 saved port after the overrides are removed. This does not validate container
 port publication or a remote network client.
+
+The hosted clean Linux ARM64 build of commit
+`7c47d8c2db46a0619c5bf3c90b6c51e922c12cb0` succeeded; its archive checksum
+and recorded revision were verified. The server binary, SHA-256
+`69d00c100f991cd13045fe7ec4b18742a8c9206db658fbf8e72f743aa08c41b2`,
+was applied to the preceding branch runtime image to create the derived image
+`sha256:8ddba210fef2a8b959b4239c66a17c79f7b8bd9a006b3f79a347d6226665879e`.
+This is a derived image, not deployment of the complete hosted artifact. It
+passed 43 isolated browser and 53 workflow tests, PDF isolation/outage and the
+Docker host-model fixture. The refreshed worktree passed product, MCP/mobile
+authorization, PDF and persistence acceptance after restart, browser MCP-origin
+checks and a real local 7B MCP coding request. A checked database backup and
+the previous image are retained. The Docker VM still had approximately 2.3 GiB
+free; integration, staging and full desktop parity remain unverified.
