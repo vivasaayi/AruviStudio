@@ -231,7 +231,9 @@ the second is its mount path below `/repositories`. For a worktree, after the
 normal worktree has been initialized and built, `scripts/ci-shared-worktree-up`
 recreates it with that host root mounted read-only. A normal `scripts/env
 worktree up` does not apply this optional override; use the helper again when
-the CI mount is needed. The mount exposes the selected host files to the Studio
+the CI mount is needed. The helper passes its validated mapping and relay values
+to Compose even when the invoking shell defines conflicting values. The mount
+exposes the selected host files to the Studio
 container, so choose a dedicated trusted directory. It is read-only: editing or
 workflow delivery to that mounted workspace is not supported by this helper.
 

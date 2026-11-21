@@ -62,6 +62,9 @@ jobs:
       - name: Prepare report directories
         run: mkdir -p reports/rust-unit reports/rust-integration reports/playwright
 
+      - name: Check CI worktree mount configuration
+        run: bash scripts/test ci-shared-worktree
+
       - name: Run terminology and performance guards
         id: terminology
         run: |
