@@ -860,6 +860,18 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       const body = { provider_id: copilotProvider.id, model_name: "browser-test-model", messages: [{ role: "user", content: "Explain code" }] };
       expect((await request.post("/api/mobile/ide/copilot", { data: body })).status()).toBe(401);
       expect((await request.post("/api/mobile/ide/copilot/stream", { data: body })).status()).toBe(401);
+      for (const invalid of [
+        { ...body, max_tokens: 32769 },
+        { ...body, temperature: 2.1 },
+        { ...body, messages: [{ role: "tool", content: "not supported" }] },
+        { ...body, messages: [{ role: "user", content: "x".repeat(256001) }] },
+      ]) {
+        for (const path of ["/api/mobile/ide/copilot", "/api/mobile/ide/copilot/stream"]) {
+          expect((await request.post(path, { headers: { Authorization: `Bearer ${token}` }, data: invalid })).status()).toBe(400);
+        }
+        const rejected = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 88, method: "tools/call", params: { name: "aruvi_models", arguments: { action: "run_general_copilot", arguments: invalid } } } });
+        expect((await rejected.json()).result.isError).toBeTruthy();
+      }
       await page.getByLabel("Copilot question").fill("Explain code without a file");
       await page.getByRole("button", { name: "Ask Copilot", exact: true }).click();
       await expect(page.locator("#repositoryCopilotResult")).toContainText("Container provider reply");

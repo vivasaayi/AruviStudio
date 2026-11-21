@@ -34,6 +34,21 @@ try {
     const data = await rpc.json(); assert(!data.result.isError,JSON.stringify(data)); return data.result.structuredContent.result;
   }
   const provider = (await call('aruvi_models','create_provider',{name:'General fixture',base_url:`http://127.0.0.1:${mock.address().port}/v1`})).id;
+  const baseRequest = {provider_id:provider, model_name:'test-model', messages:[{role:'user',content:'hello'}]};
+  for (const invalid of [
+    {...baseRequest, max_tokens:32769},
+    {...baseRequest, temperature:2.1},
+    {...baseRequest, messages:[{role:'tool',content:'not supported'}]},
+    {...baseRequest, messages:[{role:'user',content:'x'.repeat(256001)}]},
+  ]) {
+    for (const path of ['/api/mobile/ide/copilot','/api/mobile/ide/copilot/stream']) {
+      const response = await fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify(invalid)});
+      assert.equal(response.status,400);
+    }
+    const rpc = await fetch(base+'/api/mcp',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`,Accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'aruvi_models',arguments:{action:'run_general_copilot',arguments:invalid}}})});
+    assert((await rpc.json()).result.isError);
+  }
+  assert.equal(captured.length,0,'Invalid general Copilot requests reached the provider');
   const repo = join(root,'repo'); await mkdir(repo); execFileSync('git',['init','-q',repo]); await writeFile(join(repo,'fixture.txt'),'fixture content\n');
   await call('aruvi_repositories','register_repository',{name:'General workspace',local_path:repo});
   browser = await chromium.launch({executablePath:process.env.ARUVI_CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',headless:true});

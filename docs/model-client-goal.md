@@ -26,6 +26,10 @@ simulated-provider chat and patch flows, and both browser and MCP general
 Copilot received a nonempty reply from the real 7B Model Host. The native Rust
 library suite passed 323 tests with seven ignored. Container
 deployment and native-window acceptance of this change remain pending.
+The native fixture also sent invalid token limits, temperatures, roles and
+oversized messages through buffered HTTP, streaming HTTP and MCP, and verified
+that none reached its simulated provider. Equivalent container browser-suite
+coverage has been added and awaits the current ARM64 candidate image.
 
 The clean hosted ARM64 build and both hosted test runs for
 `6d23c1d3e4acc8e068af8dddf0fd5bd54ebea9a6` passed. Its downloaded image archive
