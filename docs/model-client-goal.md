@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Historical image archive and Docker headroom
+
+To restore working space without removing the current branch image, immediate
+rollback image, containers or volumes, 14 older Studio-only validation image
+records (27 tags) from a separate, unused image chain were exported and then
+removed from Docker. Before removal, all tags and their root filesystem layer
+identities were checked against the archive, and no container referenced those
+images. Afterward all 94 OCI blob content hashes and the archive checksum were
+verified. The private archive, checksum and tag-to-layer inventory are in
+`~/.local/share/work-environments/aruvi-studio-worktree-0e3d3e51014c/image-archives/`.
+The archive `historical-studio-20261121.tar.gz` has SHA-256
+`4bb1e65b23b5e2c37a1853ec2456cc65063f2e97512bd1c6b7a51f6e0f0d7b7d`;
+`docker load -i <archive>` restores its archived tags and layers when needed.
+Historical checkpoints below mentioning those tags describe their earlier state;
+the inventory identifies which are now archived. Docker VM free space increased
+from about 642 MiB to 2.4 GiB, and the branch app and PDF service remained
+healthy. The active image and `pre-a850602` rollback image remain in Docker.
+
 ### Browser and MCP workspace editing
 
 Browser Workspaces and `aruvi_repositories.update_repository` now share the
