@@ -20,7 +20,7 @@ try {
 c=sqlite3.connect(sys.argv[1])
 for workflow,model in [('first','first-model'),('second','other-model')]:
  c.execute("INSERT INTO workflow_runs(id,work_item_id,status,current_stage) VALUES(?,?,?,?)",(workflow,sys.argv[2],'completed','done'))
- c.execute("INSERT INTO model_calls(id,source_kind,source_id,workflow_run_id,provider_id,model_name) VALUES(?,?,?,?,?,?)",(workflow+'-call','workflow_agent',workflow,workflow,'fixture',model))
+ c.execute("INSERT INTO model_calls(id,source_kind,source_id,workflow_run_id,provider_id,model_name,token_count_input,token_count_output) VALUES(?,?,?,?,?,?,?,?)",(workflow+'-call','workflow_agent',workflow,workflow,'fixture',model,12,7))
 c.commit()`,db,task.id]);
   assert.equal((await fetch(base+'/api/mobile/workflows/first/model-calls')).status,401);
   const a=await call('aruvi_workflows','list_agent_model_calls_for_workflow',{workflow_run_id:'first'});
@@ -33,5 +33,10 @@ c.commit()`,db,task.id]);
   const unexpected=delivery.workflow_run.id==='first'?'other-model':'first-model';
   await page.getByRole('button',{name:'Show workflow model calls'}).click();await page.locator('#deliveryDetails pre').filter({hasText:expected}).waitFor();
   const details=await page.locator('#deliveryDetails').innerText();assert(details.includes(expected));assert(!details.includes(unexpected));
+  assert(details.includes('Source: per-call telemetry'));assert(details.includes('Input tokens: 12'));assert(details.includes('Output tokens: 7'));
+  execFileSync('python3',['-c',`import sqlite3,sys
+c=sqlite3.connect(sys.argv[1]);c.execute("INSERT INTO agent_definitions(id,name,role) VALUES('legacy-agent','Legacy agent','developer')");c.execute("DELETE FROM model_calls WHERE workflow_run_id=?",(sys.argv[2],));c.execute("INSERT INTO agent_runs(id,workflow_run_id,agent_id,stage,status,token_count_input,token_count_output) VALUES(?,?,?,?,?,?,?)",('legacy-run',sys.argv[2],'legacy-agent','coding','completed',23,9));c.commit()`,db,delivery.workflow_run.id]);
+  await page.getByRole('button',{name:'Show workflow model calls'}).click();await page.locator('#deliveryDetails pre').filter({hasText:'Source: legacy agent-run totals'}).waitFor();
+  const legacy=await page.locator('#deliveryDetails').innerText();assert(legacy.includes('Input tokens: 23'));assert(legacy.includes('Output tokens: 9'));assert(legacy.includes('legacy-agent'));
   console.log('Native workflow model-call MCP, authorization, isolation and browser checks passed');
 } finally {await browser?.close();if(server&&server.exitCode===null){server.kill();await new Promise(r=>server.once('exit',r));}await rm(root,{recursive:true,force:true});}

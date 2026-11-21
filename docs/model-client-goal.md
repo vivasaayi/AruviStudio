@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Workflow usage and agent-run visibility (in validation)
+
+The workflow-call browser control also retrieves the selected workflow's agent
+runs and summarizes input/output tokens, failures and duration. When no
+per-call records exist, it labels available agent-run token totals as legacy
+telemetry instead. The corresponding authenticated HTTP route uses the same
+agent-run query as desktop and MCP. The native server build and disposable
+browser fixture passed for both per-call and legacy totals. Linux tests and a
+new branch deployment are pending. This does not add the desktop's full workflow diagram
+or stage-by-stage artifact review.
+
 ### Workflow-call branch deployment
 
 The browser now displays recorded model-call summaries for the selected work

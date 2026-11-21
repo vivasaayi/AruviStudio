@@ -3635,9 +3635,16 @@
         button.addEventListener("click", async () => {
           button.disabled = true; output.textContent = "Loading model calls…";
           try {
-            const calls = await request("/api/mobile/workflows/" + encodeURIComponent(workflow.id) + "/model-calls");
+            const path = "/api/mobile/workflows/" + encodeURIComponent(workflow.id);
+            const [calls, runs] = await Promise.all([request(path + "/model-calls"), request(path + "/agent-runs")]);
             if (state.selectedWorkItemId !== workItem.id || state.delivery?.workflow_run?.id !== workflow.id || !card.isConnected) return;
-            output.textContent = calls.length ? calls.map((call) => [call.stage, call.source_label, call.model_name, call.status, "call #" + call.call_index, call.error_message].filter(Boolean).join(" · ")).join("\n") : "No model calls recorded for this workflow.";
+            const sum = (rows, field) => { const values = rows.map((row) => row[field]).filter(Number.isFinite); return values.length ? values.reduce((a, b) => a + b, 0).toLocaleString() : "n/a"; };
+            const source = calls.length ? calls : runs;
+            const heading = calls.length ? "Source: per-call telemetry" : runs.some((run) => Number.isFinite(run.token_count_input) || Number.isFinite(run.token_count_output)) ? "Source: legacy agent-run totals" : "No token or call telemetry recorded";
+            const totals = `${heading} · Calls: ${calls.length} · Failed: ${calls.filter((call) => call.status === "failed").length} · Input tokens: ${sum(source, "token_count_input")} · Output tokens: ${sum(source, "token_count_output")} · Model time (ms): ${sum(source, "duration_ms")}`;
+            const detail = calls.map((call) => [call.stage, call.source_label, `${call.provider_name || call.provider_id} / ${call.model_name}`, call.status, "call #" + call.call_index, `input ${call.token_count_input ?? "n/a"}`, `output ${call.token_count_output ?? "n/a"}`, call.error_message].filter(Boolean).join(" · "));
+            const agents = runs.map((run) => ["Agent run", run.stage, run.agent_id, run.status, run.error_message].filter(Boolean).join(" · "));
+            output.textContent = [totals, "Dollar estimates are unavailable until provider pricing is configured.", ...detail, ...agents].join("\n");
           } catch (error) { if (card.isConnected) output.textContent = error.message || String(error); }
           finally { button.disabled = false; }
         });
