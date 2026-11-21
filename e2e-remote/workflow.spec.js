@@ -151,6 +151,23 @@ test("automatic transcription prefers explicit speech capabilities", async ({ re
   expect(result.structuredContent.result.transcript).toBe("Synthetic microphone transcript");
 });
 
+test("compatible-provider fallback is preserved through browser API and MCP", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const base_url = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/legacy-fallback/v1");
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "Compatible fallback fixture", base_url } });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const provider = await created.json();
+  const payload = { provider_id: provider.id, audio_bytes_base64: Buffer.from("RIFF fixture").toString("base64"), mime_type: "audio/wav", locale: "en-US" };
+  const browser = await request.post("/api/mobile/speech/transcribe", { headers, data: payload });
+  expect(browser.ok(), await browser.text()).toBeTruthy();
+  expect((await browser.json()).transcript).toBe("Compatible fallback transcript");
+  const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 21, method: "tools/call", params: { name: "aruvi_speech", arguments: { action: "transcribe_audio", arguments: payload } } } });
+  const result = (await response.json()).result;
+  expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
+  expect(result.structuredContent.result.transcript).toBe("Compatible fallback transcript");
+});
+
 test("custom transcription model IDs work through browser API and MCP", async ({ request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
