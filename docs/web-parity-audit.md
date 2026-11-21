@@ -92,8 +92,10 @@ An isolated native Studio and Aruvici protocol-branch fixture reconstructed a
 and rejected a negative offset. Chrome downloaded the same artifact from the
 native Studio server and rejected a modified file; unauthenticated chunk access
 was rejected. The streaming path passed the same multichunk check using a
-simulated save picker and aborted the write after a digest mismatch. An actual
-picker, artifacts over 256 MiB and a deployed CI service remain untested.
+simulated save picker and aborted the write after a digest mismatch. A synthetic
+268,435,457-byte browser test also completed in 4,097 writes, with both chunk
+responses and the save picker simulated. An actual picker and a large artifact
+from a deployed CI service remain untested.
 
 The `promotion_readiness` operation used by Studio exists in the separate
 `codex/studio-ci-protocol` Aruvici branch but was not found in the

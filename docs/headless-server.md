@@ -332,6 +332,13 @@ image selected by `ARUVI_TEST_APP_IMAGE`; ensure it matches the source being
 tested. The workflow fixture uses synthetic input, not a downloaded speech
 model or live provider, and the remote fixture does not save book captures.
 
+To add a synthetic 256 MiB-plus streaming case to the native CI artifact
+browser fixture, set `ARUVI_TEST_CI_LARGE=1` when running
+`scripts/test-native-ci-service` with `--audit-protocol --exercise-protocol
+--artifact-browser /path/to/chrome` and the Studio and Aruvici binary paths.
+The large case simulates both chunk responses and the save picker; the smaller
+case uses the disposable Aruvici service but also simulates the picker.
+
 For the mocked desktop Playwright suite, a locally installed Chrome can be selected
 with `ARUVI_PLAYWRIGHT_EXECUTABLE_PATH`; `ARUVI_PLAYWRIGHT_PORT` chooses the Vite
 port, and `ARUVI_PLAYWRIGHT_REUSE_SERVER=0` prevents attaching to an existing server.

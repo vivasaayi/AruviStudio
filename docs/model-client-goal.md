@@ -19,8 +19,10 @@ save that hashes 65,536-byte chunks incrementally with vendored MIT-licensed
 js-sha256 1.1.0 and closes the temporary writable file only on digest match.
 The native Studio and Aruvici fixture passed a multichunk Chrome test with a
 simulated save picker, including abort on changed content. The real picker and
-files larger than 256 MiB have not been tested; browsers without that API still
-have the 256 MiB buffered-download limit.
+deployed service have not been tested. A separate synthetic browser check
+verified 268,435,457 bytes in 4,097 writes without retaining output in browser
+memory; both its provider responses and save picker were simulated. Browsers
+without that API still have the 256 MiB buffered-download limit.
 
 The separate Aruvici protocol branch now has draft PR
 [#1](https://github.com/vivasaayi/aruvici/pull/1). At `d8e4e48`, it also

@@ -32,6 +32,42 @@ try {
   await page.waitForFunction(() => window.__stream.closed);
   const streamed = await page.evaluate(() => window.__stream.chunks);
   if (streamed.length < 2 || !Buffer.from(streamed.flat()).equals(original)) throw new Error("Streaming artifact differs from the original");
+  if (process.env.ARUVI_TEST_CI_LARGE === "1") {
+    // Exercise the browser's large-file path without allocating a large Docker
+    // image or retaining the synthetic output in browser memory.
+    const chunk = Buffer.alloc(65536, 42), count = 4096;
+    const expected = createHash("sha256");
+    for (let index = 0; index < count; index++) expected.update(chunk);
+    expected.update(Buffer.from([42]));
+    await page.evaluate(({ hash, size }) => {
+      const realFetch = window.fetch;
+      window.__restoreCiFetch = () => { window.fetch = realFetch; };
+      const values = Array(65536).fill(42);
+      window.fetch = async (input, options) => {
+        const url = String(input);
+        if (url.endsWith("/data/metadata")) return new Response(JSON.stringify({size, sha256: hash}), {status: 200});
+        if (url.includes("/data/chunk?offset=")) {
+          const offset = Number(new URL(url, location.href).searchParams.get("offset"));
+          const bytes = size - offset >= values.length ? values : [42];
+          const next_offset = offset + bytes.length;
+          return new Response(JSON.stringify({offset, next_offset, bytes, sha256: hash, eof: next_offset === size}), {status: 200});
+        }
+        return realFetch(input, options);
+      };
+      window.__large = {bytes: 0, writes: 0, closed: false, aborted: false};
+      window.showSaveFilePicker = async () => ({createWritable: async () => ({
+        write: async bytes => { window.__large.bytes += bytes.length; window.__large.writes++; },
+        close: async () => { window.__large.closed = true; },
+        abort: async () => { window.__large.aborted = true; },
+      })});
+    }, {hash: expected.digest("hex"), size: count * chunk.length + 1});
+    await streamButton.click({timeout: 10000});
+    await page.waitForFunction(() => window.__large.closed || window.__large.aborted, null, {timeout: 180000});
+    const large = await page.evaluate(() => { window.__restoreCiFetch(); return window.__large; });
+    if (!large.closed || large.aborted || large.bytes !== count * chunk.length + 1 || large.writes !== count + 1) throw new Error("Large streaming artifact was not verified and committed");
+    console.log(`Synthetic large browser artifact verified: ${large.bytes} bytes in ${large.writes} writes.`);
+    await page.evaluate(() => { window.showSaveFilePicker = async () => ({ createWritable: async () => ({ write: async bytes => window.__stream.chunks.push(Array.from(bytes)), close: async () => { window.__stream.closed = true; }, abort: async () => { window.__stream.aborted = true; } }) }); });
+  }
   await page.evaluate(() => { window.__stream = { chunks: [], closed: false, aborted: false }; });
   const changed = Buffer.from(original); changed[0] ^= 1;
   await writeFile(artifactPath, changed);
