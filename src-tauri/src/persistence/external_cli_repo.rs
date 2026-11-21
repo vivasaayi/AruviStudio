@@ -200,6 +200,7 @@ pub async fn list_external_cli_run_events(
 pub async fn mark_interrupted_external_cli_runs(pool: &SqlitePool) -> Result<u64, AppError> {
     let message =
         "Run marked failed because Aruvi Studio restarted before the external CLI process reported completion.";
+    let mut transaction = pool.begin().await?;
     sqlx::query(
         "INSERT INTO external_cli_run_events (
             id,run_id,work_item_id,stream,message,sequence
@@ -219,7 +220,7 @@ pub async fn mark_interrupted_external_cli_runs(pool: &SqlitePool) -> Result<u64
          WHERE r.status = 'running'",
     )
     .bind(message)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
     let result = sqlx::query(
@@ -235,9 +236,9 @@ pub async fn mark_interrupted_external_cli_runs(pool: &SqlitePool) -> Result<u64
          WHERE status='running'",
     )
     .bind(message)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
-
+    transaction.commit().await?;
     Ok(result.rows_affected())
 }
 

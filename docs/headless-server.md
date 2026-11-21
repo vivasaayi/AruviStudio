@@ -619,3 +619,13 @@ writers, or subprocesses that escape the process group. Operator configuration
 and the installed provider's own security and approval behavior remain relevant.
 The atomic run claim duplicates the work-item workspace resolution order; changes
 to that resolver must update the claim as well.
+On Unix, cooperating Studio processes sharing a SQLite database hold a shared
+database-specific startup recovery lock. Startup recovery marks interrupted CLI
+runs and bulk imports failed only when no other cooperating Studio process holds
+that lock. If one process exits while another remains, a genuinely interrupted
+job may remain marked running until all cooperating processes stop and one starts
+again.
+Older versions, non-Unix processes, independent database or lock-file changes,
+and filesystems that do not honor advisory locks are outside this coordination. Recovery does
+not guarantee that subprocesses surviving an ungraceful server termination
+have stopped; inspect the workspace and processes before retrying.

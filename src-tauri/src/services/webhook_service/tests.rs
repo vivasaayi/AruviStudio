@@ -288,6 +288,32 @@ async fn remote_test_command_configuration_is_authenticated_and_validated() {
 }
 
 #[tokio::test]
+async fn external_cli_recovery_is_atomic_on_database_failure() {
+    let app: tauri::App<MockRuntime> = make_test_app("external_cli_recovery_atomic").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "recovery-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/products", Some("recovery-token"), Some(json!({"name":"Recovery product"}))).await;
+    let product = parse_json(&body);
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("recovery-token"), Some(json!({"product_id":product["id"],"title":"Recovery task"}))).await;
+    let item = parse_json(&body);
+    let invocation = crate::domain::external_cli::ExternalCliInvocation {
+        work_item_id:item["id"].as_str().unwrap().into(), provider:"codex".into(), label:"Fixture".into(),
+        command:"fixture".into(), args:vec![], prompt:"fixture".into(), cwd:"/tmp".into(), session_log_path:"".into(),
+    };
+    crate::persistence::external_cli_repo::create_external_cli_run(&state.db, "recovery-test-run", &invocation).await.unwrap();
+    sqlx::query("CREATE TRIGGER fixture_recovery_failure BEFORE UPDATE ON external_cli_runs BEGIN SELECT RAISE(ABORT, 'fixture'); END").execute(&state.db).await.unwrap();
+    assert!(crate::persistence::external_cli_repo::mark_interrupted_external_cli_runs(&state.db).await.is_err());
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM external_cli_run_events WHERE run_id='recovery-test-run'").fetch_one(&state.db).await.unwrap();
+    assert_eq!(count.0, 0);
+    assert_eq!(crate::persistence::external_cli_repo::get_external_cli_run(&state.db, "recovery-test-run").await.unwrap().status, "running");
+    sqlx::query("DROP TRIGGER fixture_recovery_failure").execute(&state.db).await.unwrap();
+    assert_eq!(crate::persistence::external_cli_repo::mark_interrupted_external_cli_runs(&state.db).await.unwrap(), 1);
+    let events = crate::persistence::external_cli_repo::list_external_cli_run_events(&state.db, "recovery-test-run", 10).await.unwrap();
+    assert_eq!(events.len(), 1);
+}
+
+#[tokio::test]
 async fn external_cli_remote_routes_require_authentication() {
     let app: tauri::App<MockRuntime> = make_test_app("remote_external_cli_auth").await;
     let state = app.state::<AppState>().inner().clone();

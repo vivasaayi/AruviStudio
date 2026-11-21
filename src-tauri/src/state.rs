@@ -16,6 +16,7 @@ pub struct AppState {
     pub workflow_service: Arc<Mutex<workflow_service::WorkflowService>>,
     pub planner_service: Arc<Mutex<planner_service::PlannerService>>,
     pub chat_stream_cancellations: Arc<Mutex<std::collections::HashMap<String, Option<tokio::sync::oneshot::Sender<()>>>>>,
+    _startup_recovery_lock_guard: Arc<Option<std::fs::File>>,
 }
 
 impl AppState {
@@ -38,8 +39,12 @@ impl AppState {
         // Create directories if they don't exist
         tokio::fs::create_dir_all(&artifact_base_path).await?;
         tokio::fs::create_dir_all(&workspace_base_path).await?;
-        external_cli_repo::mark_interrupted_external_cli_runs(&db).await?;
-        bulk_import_repo::mark_interrupted_jobs(&db).await?;
+        let (recovery_guard, recover_jobs) = crate::services::startup_recovery_lock::acquire(&db).await?;
+        if recover_jobs {
+            external_cli_repo::mark_interrupted_external_cli_runs(&db).await?;
+            bulk_import_repo::mark_interrupted_jobs(&db).await?;
+            crate::services::startup_recovery_lock::finish_recovery(&recovery_guard)?;
+        }
 
         // Initialize services
         let db_arc = Arc::new(db);
@@ -66,6 +71,7 @@ impl AppState {
             workflow_service,
             planner_service,
             chat_stream_cancellations: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            _startup_recovery_lock_guard: Arc::new(recovery_guard),
         })
     }
 }

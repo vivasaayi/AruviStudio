@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Multi-process startup recovery
+
+Starting a second Studio process against the same SQLite database previously
+marked a live external CLI run and a running bulk import as interrupted. Unix
+processes now hold a shared database-specific startup lock; only the first
+cooperating process performs recovery. CLI recovery's event insertion and state
+update are transactional. A native fixture reproduced the original bug, then
+passed with two processes, a live fake CLI, a synthetic running import, and
+simulated interrupted records after both processes stopped. A Linux ARM64
+fixture passed the same checks using two containers and a shared named volume.
+Lock takeover, symlink rejection and transactional rollback tests passed; the
+native library suite passed 283 tests with seven ignored. The locking and
+orphan-process limitations are described in `headless-server.md`.
+The Linux candidate was built with host-backed storage and packaged on the
+previous worktree image; it passed 34 isolated browser tests, the PDF outage
+check and 51 workflow tests. This is not a clean Dockerfile build or staging
+acceptance.
+
 ### External CLI browser and MCP migration
 
 The work item External CLI tab now has opt-in browser and MCP operations using
