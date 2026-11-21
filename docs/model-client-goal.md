@@ -5907,3 +5907,25 @@ advisory locks; Windows and in-memory databases have only in-process coordinatio
 It cannot make a remote Git push and a SQLite update one atomic operation: a
 crash after a successful push may cause a retry of the same recorded commit.
 These tests do not establish full parity or staging acceptance.
+
+The final native Rust suite on `1e5d3e5677650d1f43bcea713c26c0f4fa391eb7`
+passed 316 tests with seven ignored; 128 frontend tests, the frontend production
+build and terminology check also passed. Both hosted test runs and the clean
+Linux ARM64 image build passed for that revision. Its archive checksum and source
+revision were verified. The extracted server binary (SHA-256
+`c9744655773d871a5474aad3741c6ad8e650c9d9c65fe11889b77711ca1ed341`)
+was applied to the preceding branch runtime, whose non-Rust runtime inputs were
+unchanged, producing derived image
+`sha256:dcd18b42b42845e3950d9e98215bd91ba0da575b5d5d535a68308ae14c9cbaf5`.
+This is a derived image, not the full hosted artifact.
+
+The candidate passed five two-container transition races, 53 isolated workflow
+tests, 43 general browser tests and a separate token-administration browser
+test, PDF isolation/outage checks, and Docker-to-host model discovery and MCP
+completion against a fixture. After deployment, product, MCP/mobile authorization,
+PDF and persistence acceptance passed across a restart; the published-port
+browser MCP-origin checks and a real local 7B MCP coding request also passed.
+The branch endpoint after deployment was `127.0.0.1:55252`; its port can change
+when recreated. A SQLite backup passed `quick_check`, and the prior image is
+retained for rollback. Mac integration, staging, real external services and full
+desktop parity remain unverified.
