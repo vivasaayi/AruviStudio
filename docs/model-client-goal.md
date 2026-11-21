@@ -30,6 +30,13 @@ check passed. A host-backed Linux ARM64 release binary packaged onto the prior
 worktree image passed 35 remote browser tests, the PDF outage check and 51
 workflow tests. Bulk decisions, status filtering and drag ordering remain open;
 this is not a clean Dockerfile build or staging acceptance.
+After source commit `c76ead8`, image
+`sha256:fa1d7a23f1b314b5ac563fd53d02316d898f1a2603d2b3317e68702dac8bbc40`
+was deployed to the isolated worktree. A consistent database backup passed
+`quick_check` after confirming no active jobs; the previous image remains as
+`aruvi-studio-worktree-backup:pre-task-decisions`. App and PDF health, the new
+browser controls and authenticated MCP catalog access passed after restart.
+The published loopback port is dynamic.
 
 ### Multi-process startup recovery
 
