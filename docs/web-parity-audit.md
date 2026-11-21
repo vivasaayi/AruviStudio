@@ -339,6 +339,15 @@ leader until after the signal, avoiding group-ID reuse in the normal exit path.
 A command can start a new session or process group, so this cleanup is not a
 sandbox and cannot guarantee that every descendant is stopped.
 
+Workflow starts now reserve the selected team slot and work item in the same
+SQLite insert that creates and assigns the run. A full or disabled team, an
+active external CLI run, or an already active workflow prevents the insert;
+concurrent starts cannot both reserve the final slot. A repository fixture
+checks concurrent contention, absence of a rejected run, slot reuse and
+duplicate work-item rejection. This does not enforce team capacity when an
+unassigned existing run is assigned later, nor does it implement automatic
+workflow-stage retries or command isolation.
+
 ### Planner action inventory
 
 This comparison is based on the desktop planner, the remote HTML/API and MCP

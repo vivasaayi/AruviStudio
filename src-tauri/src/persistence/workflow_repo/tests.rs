@@ -85,6 +85,35 @@ async fn create_test_agent(pool: &SqlitePool, id: &str, name: &str, role: &str) 
 }
 
 #[tokio::test]
+async fn assigned_start_reserves_capacity_atomically_without_phantom_runs() {
+    let pool = create_test_pool("assigned_capacity").await;
+    create_test_work_item(&pool, "capacity-product-a", "capacity-item-a").await;
+    create_test_work_item(&pool, "capacity-product-b", "capacity-item-b").await;
+    sqlx::query("INSERT INTO agent_teams (id,name,max_concurrent_workflows) VALUES ('capacity-team','Capacity',1)")
+        .execute(&pool).await.unwrap();
+
+    let (a, b) = tokio::join!(
+        create_assigned_workflow_run(&pool, "capacity-run-a", "capacity-item-a", Some("capacity-team"), None),
+        create_assigned_workflow_run(&pool, "capacity-run-b", "capacity-item-b", Some("capacity-team"), None)
+    );
+    assert_ne!(a.is_ok(), b.is_ok(), "exactly one start may reserve the slot");
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workflow_runs")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 1, "a rejected start must not leave a run behind");
+    let (winner, other_item, other_run) = if a.is_ok() {
+        ("capacity-run-a", "capacity-item-b", "capacity-run-b")
+    } else {
+        ("capacity-run-b", "capacity-item-a", "capacity-run-a")
+    };
+    sqlx::query("UPDATE workflow_runs SET status='failed', current_stage='failed' WHERE id=?")
+        .bind(winner).execute(&pool).await.unwrap();
+    let next = create_assigned_workflow_run(&pool, other_run, other_item, Some("capacity-team"), None)
+        .await.unwrap();
+    assert_eq!(next.assigned_team_id.as_deref(), Some("capacity-team"));
+    assert!(create_assigned_workflow_run(&pool, "duplicate", other_item, None, None).await.is_err());
+}
+
+#[tokio::test]
 async fn create_and_update_workflow_run_persists_lifecycle_assignment_and_pending_stage() {
     let pool = create_test_pool("workflow_lifecycle").await;
     create_test_work_item(&pool, "product-workflow-lifecycle", "work-item-lifecycle").await;

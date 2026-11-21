@@ -5669,3 +5669,14 @@ acceptance passed. Published-port browser MCP origin checks and a real local
 checked pre-deployment database backup and the previous image are retained.
 These checks do not establish live LM Studio compatibility, full desktop parity,
 or integration and staging acceptance.
+
+## Workflow start capacity
+
+New workflow starts now atomically reserve the work item and team slot when
+creating the assigned run. This prevents a capacity rejection from leaving a
+phantom active run and prevents concurrent starts from taking the same final
+slot. A SQLite fixture covered contention, rejected-run absence, slot reuse and
+duplicate work-item rejection; the native Rust library suite passed 304 tests
+with seven ignored. Capacity on subsequent assignment of an unassigned run,
+automatic stage retries and execution isolation remain open. This change has
+not yet been deployed to the running worktree image or tested in staging.

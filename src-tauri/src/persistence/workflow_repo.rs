@@ -13,6 +13,29 @@ pub async fn create_workflow_run(
         .ok_or_else(|| AppError::Validation("An external CLI run is active for this work item".into()))
 }
 
+/// Reserve a work item and team slot in the same SQLite write as run creation.
+pub async fn create_assigned_workflow_run(
+    pool: &SqlitePool,
+    id: &str,
+    work_item_id: &str,
+    team_id: Option<&str>,
+    coordinator_id: Option<&str>,
+) -> Result<WorkflowRun, AppError> {
+    sqlx::query_as::<_, WorkflowRun>(
+        "INSERT INTO workflow_runs (id,work_item_id,workflow_version,status,current_stage,retry_count,max_retries,assigned_team_id,coordinator_agent_id,started_at,updated_at)
+         SELECT ?,?,'v1','running','draft',0,3,?,?,datetime('now'),datetime('now')
+         WHERE NOT EXISTS (SELECT 1 FROM external_cli_runs WHERE work_item_id=? AND status='running')
+           AND NOT EXISTS (SELECT 1 FROM workflow_runs WHERE work_item_id=? AND status='running' AND current_stage NOT IN ('done','failed','cancelled'))
+           AND (? IS NULL OR EXISTS (SELECT 1 FROM agent_teams t WHERE t.id=? AND t.enabled=1 AND
+               (SELECT COUNT(*) FROM workflow_runs r WHERE r.assigned_team_id=t.id AND r.status='running' AND r.current_stage NOT IN ('done','failed','cancelled')) < t.max_concurrent_workflows))
+         RETURNING id,work_item_id,workflow_version,status,current_stage,assigned_team_id,coordinator_agent_id,pending_stage_name,retry_count,max_retries,error_message,started_at,ended_at,updated_at"
+    )
+    .bind(id).bind(work_item_id).bind(team_id).bind(coordinator_id)
+    .bind(work_item_id).bind(work_item_id).bind(team_id).bind(team_id)
+    .fetch_optional(pool).await?
+    .ok_or_else(|| AppError::Validation("Workflow could not start: the work item is active or the assigned team is unavailable or at capacity; refresh and try again".into()))
+}
+
 pub async fn get_workflow_run(pool: &SqlitePool, id: &str) -> Result<WorkflowRun, AppError> {
     sqlx::query_as::<_, WorkflowRun>("SELECT id,work_item_id,workflow_version,status,current_stage,assigned_team_id,coordinator_agent_id,pending_stage_name,retry_count,max_retries,error_message,started_at,ended_at,updated_at FROM workflow_runs WHERE id=?")
         .bind(id)
