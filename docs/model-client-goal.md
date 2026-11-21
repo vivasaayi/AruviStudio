@@ -4309,6 +4309,19 @@ an authenticated network remote, or a deployed inference-only credential.
 `scripts/test host-coding-workflow --workspace-override` enables this scenario;
 `--non-coding-max-tokens` changes only disposable agent settings.
 
+## Work item deletion
+
+Browser Work now offers deletion with a confirmation explaining record and file
+effects. Desktop, browser and MCP share a backend check that rejects deleting an
+item or detaching a direct child while either has a running or paused workflow.
+The browser compares previously loaded work-item fields; MCP can supply the
+same baseline. The focused Rust test covered authorization, stale data, an
+active child and retained detached child. Isolated browser and workflow tests
+cover cancellation, stale MCP edits, confirmed deletion and active-run rejection.
+Non-cooperating database writers and any separately retained filesystem artifacts
+remain outside this check. The rebuilt image passed 33 remote UI and 51 workflow
+tests; the native Rust library suite passed 275 tests with seven ignored.
+
 ## Independent browser Copilot model
 
 Browser workspace Copilot can choose an enabled registered provider/model

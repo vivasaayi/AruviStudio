@@ -709,6 +709,7 @@
                     <div class="button-row"><button type="submit">Save work item workspace</button><button class="secondary" id="clearWorkWorkspaceButton" type="button">Use scope default</button><button class="secondary" id="cancelWorkWorkspaceButton" type="button">Cancel workspace edit</button></div>
                   </form>
                   <button class="secondary" id="editWorkButton" type="button">Edit task</button>
+                  <button class="danger" id="deleteWorkButton" type="button">Delete work item</button>
                   <form id="editWorkForm" hidden><div class="stack">
                     <label><span class="label">Edit title</span><input id="editWorkTitle" required /></label>
                     <label><span class="label">Problem statement</span><textarea id="editWorkProblem"></textarea></label>
@@ -1406,6 +1407,7 @@
       el.editWorkButton.disabled = nextBusy || !state.delivery || state.delivery.work_item.id !== state.selectedWorkItemId;
       el.approveWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
       el.startWorkButton.disabled = nextBusy || !state.selectedWorkItemId;
+      document.getElementById("deleteWorkButton").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
       document.getElementById("editWorkWorkspaceButton").disabled = nextBusy || !state.selectedWorkItemId || !state.delivery;
       el.refreshDeliveryButton.disabled = nextBusy || !state.selectedWorkItemId;
       el.retryGitDeliveryButton.disabled = nextBusy || !state.delivery || !state.delivery.retryable_git_delivery;
@@ -2906,6 +2908,20 @@
       renderDelivery();
       await loadDelivery();
     }
+
+    async function deleteSelectedWorkItem() {
+      const item = state.delivery?.work_item;
+      if (!item || item.id !== state.selectedWorkItemId) return;
+      if (!window.confirm(`Delete “${item.title}”? Its workflow history, approvals and artifact records will be removed. Direct child work items will be detached; workspace and artifact files remain on the server.`)) return;
+      const expected = item;
+      try {
+        setBusy(true);
+        await request("/api/mobile/work-items/" + encodeURIComponent(item.id) + "/delete", {method:"POST",body:{expected}});
+        if (state.selectedWorkItemId === item.id) { cancelWorkWorkspace(); cancelWorkEdit(); state.selectedWorkItemId = ""; state.delivery = null; await loadWorkItems(); setStatus("Work item deleted", "ok"); }
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { setBusy(false); }
+    }
+    document.getElementById("deleteWorkButton").addEventListener("click", () => void deleteSelectedWorkItem());
 
     let workWorkspaceBaseline = null, workWorkspaceItemId = "", workWorkspaceRepositories = [], workWorkspaceRequest = 0;
     function cancelWorkWorkspace() {

@@ -274,7 +274,7 @@ pub async fn assign_work_item_workspace(
 #[tauri::command]
 pub async fn delete_work_item(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
     info!(work_item_id = %id, "delete_work_item requested");
-    let result = work_item_repo::delete_work_item(&state.db, &id).await;
+    let result = crate::services::work_item_service::delete_work_item(&state, &id, None).await;
     match &result {
         Ok(_) => info!(work_item_id = %id, "delete_work_item succeeded"),
         Err(err) => error!(work_item_id = %id, error = %err, "delete_work_item failed"),

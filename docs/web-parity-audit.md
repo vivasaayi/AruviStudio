@@ -168,6 +168,11 @@ delivered a generated file from an override workspace while leaving the product
 default untouched, after earlier truncated-response failures. See the model
 client goal checkpoint for the model budget and scope of that evidence.
 
+The browser can now delete a work item with confirmation, like desktop and MCP.
+The shared backend rejects deletion during an active workflow for that item or a
+direct child; the browser also rejects stale details. Related records follow the
+database's deletion rules, direct children are detached, and files are retained.
+
 The browser can now edit and disable an existing local Whisper provider. Its
 file path is treated as a server path instead of an HTTP URL; a newly selected
 path must resolve to an existing regular file, while an unchanged missing path

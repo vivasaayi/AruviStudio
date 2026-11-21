@@ -386,6 +386,8 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
   if (overrideRepo) {
     const blocked = await request.post("/api/mcp", { headers: { Authorization:`Bearer ${mcpToken}` }, data: { jsonrpc:"2.0", id:91, method:"tools/call", params:{name:"aruvi_work_items", arguments:{action:"assign_work_item_workspace", arguments:{id:workItem.id, repository_id:repository.id, branch_name:"main"}}} } });
     expect((await blocked.json()).result.isError).toBeTruthy();
+    const deleteBlocked = await request.post("/api/mcp", { headers: { Authorization:`Bearer ${mcpToken}` }, data: { jsonrpc:"2.0", id:93, method:"tools/call", params:{name:"aruvi_work_items", arguments:{action:"delete_work_item", arguments:{id:workItem.id}}} } });
+    expect((await deleteBlocked.json()).result.isError).toBeTruthy();
   }
   const advanced = page.waitForResponse((response) => response.url().includes("/api/mobile/workflows/") && response.url().endsWith("/action"), { timeout: 90000 });
   await page.getByRole("button", { name: "Approve Gate" }).click();

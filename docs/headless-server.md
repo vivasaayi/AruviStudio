@@ -259,6 +259,16 @@ last-write-wins. Desktop, browser and MCP reject changes while the work item has
 a running or paused workflow. These guards do not coordinate non-cooperating
 database writers.
 
+The Work view can delete a work item after confirmation. Its direct children are
+detached, related workflow history and artifact records are deleted according to
+database foreign keys, and workspace and artifact files are not removed. Desktop,
+browser and MCP reject deletion if the item or a direct child has a running or
+paused workflow. Browser deletion also compares the displayed work-item fields;
+MCP `delete_work_item` may supply the complete previously read item as `expected`
+to request the same stale-write check. Without that baseline, desktop and MCP
+deletes do not compare earlier edits. Non-cooperating database writers and other
+external filesystem changes are outside these checks.
+
 In **Work**, configure the workflow test command as a JSON array of executable and
 arguments, such as `["npm", "test"]`. The executable and its dependencies must be
 installed in the server container. Select a product and choose its own command, disable

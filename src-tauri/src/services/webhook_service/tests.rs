@@ -288,6 +288,34 @@ async fn remote_test_command_configuration_is_authenticated_and_validated() {
 }
 
 #[tokio::test]
+async fn remote_delete_work_item_protects_stale_and_active_workflows() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_delete_work_item").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "delete-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/products", Some("delete-token"), Some(json!({"name":"Delete product"}))).await;
+    let product = parse_json(&body);
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("delete-token"), Some(json!({"product_id":product["id"],"title":"Delete parent"}))).await;
+    let item = parse_json(&body);
+    let id = item["id"].as_str().unwrap();
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("delete-token"), Some(json!({"product_id":product["id"],"title":"Keep child","parent_work_item_id":id,"work_item_type":"task"}))).await;
+    let child = parse_json(&body);
+    let expected = item.clone();
+    let uri = format!("/api/mobile/work-items/{id}/delete");
+    let request = json!({"expected":expected});
+    assert_eq!(send_json(&router, Method::POST, &uri, None, Some(request.clone())).await.0, StatusCode::UNAUTHORIZED);
+    sqlx::query("UPDATE work_items SET description='changed' WHERE id=?").bind(id).execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("delete-token"), Some(request.clone())).await.0, StatusCode::CONFLICT);
+    sqlx::query("UPDATE work_items SET description=? WHERE id=?").bind(item["description"].as_str().unwrap()).bind(id).execute(&state.db).await.unwrap();
+    workflow_repo::create_workflow_run(&state.db, "delete-child-active", child["id"].as_str().unwrap()).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("delete-token"), Some(request.clone())).await.0, StatusCode::CONFLICT);
+    sqlx::query("UPDATE workflow_runs SET status='failed',current_stage='failed' WHERE id='delete-child-active'").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("delete-token"), Some(request)).await.0, StatusCode::OK);
+    let child = crate::persistence::work_item_repo::get_work_item(&state.db, child["id"].as_str().unwrap()).await.unwrap();
+    assert!(child.parent_work_item_id.is_none());
+}
+
+#[tokio::test]
 async fn remote_workspace_assignment_checks_conflicts_and_active_workflows() {
     let app: tauri::App<MockRuntime> = make_test_app("remote_workspace_assignment").await;
     let state = app.state::<AppState>().inner().clone();

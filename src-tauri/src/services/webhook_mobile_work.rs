@@ -75,6 +75,20 @@ pub(crate) async fn mobile_assign_work_item_workspace(
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileDeleteWorkItem { expected: crate::services::work_item_service::DeleteBaseline }
+
+pub(crate) async fn mobile_delete_work_item(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<MobileDeleteWorkItem>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::work_item_service::delete_work_item(&state.app_state, &id, Some(&body.expected)).await {
+        Ok(()) => Json(json!({"ok":true})).into_response(),
+        Err(AppError::Validation(error)) => (StatusCode::CONFLICT, error).into_response(),
+        Err(error) => bad_request(error),
+    }
+}
+
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct MobileWorkItemActionRequest {
     notes: Option<String>,

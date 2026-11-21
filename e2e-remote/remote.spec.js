@@ -6,6 +6,35 @@ import { createHmac } from "node:crypto";
 const token = process.env.ARUVI_MOBILE_API_TOKEN;
 const mcpToken = process.env.ARUVI_MCP_API_TOKEN;
 
+test("browser deletes a work item only after confirmation and stale checks", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  const headers = { Authorization:`Bearer ${token}` };
+  const post = async (path, data) => { const response = await request.post(path, { headers, data }); expect(response.ok(), await response.text()).toBeTruthy(); return response.json(); };
+  const product = await post("/api/mobile/products", {name:"Delete work fixture"});
+  const parent = await post("/api/mobile/work-items", {product_id:product.id,title:"Delete parent fixture"});
+  const child = await post("/api/mobile/work-items", {product_id:product.id,title:"Retained child fixture",parent_work_item_id:parent.id,work_item_type:"task"});
+  await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+  await page.getByRole("button", {name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
+  await page.locator("#workList").getByRole("button", {name:/Delete parent fixture/}).click();
+  let prompt = "";
+  page.once("dialog", (dialog) => { prompt = dialog.message(); return dialog.dismiss(); });
+  await page.getByRole("button", {name:"Delete work item"}).click();
+  await expect.poll(() => prompt).toContain("Direct child work items will be detached");
+  expect((await request.get(`/api/mobile/work-items/${parent.id}`, {headers})).ok()).toBeTruthy();
+  const mcp = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"aruvi_work_items",arguments:{action:"update_work_item",arguments:{id:parent.id,description:"Concurrent edit"}}}}});
+  expect((await mcp.json()).result.isError).not.toBeTruthy();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", {name:"Delete work item"}).click();
+  await expect(page.locator("#status")).toContainText("changed");
+  expect((await request.get(`/api/mobile/work-items/${parent.id}`, {headers})).ok()).toBeTruthy();
+  await page.locator("#refreshDeliveryButton").click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", {name:"Delete work item"}).click();
+  await expect(page.locator("#status")).toHaveText("Work item deleted");
+  expect((await request.get(`/api/mobile/work-items/${parent.id}`, {headers})).ok()).toBeFalsy();
+  expect((await (await request.get(`/api/mobile/work-items/${child.id}`, {headers})).json()).parent_work_item_id).toBeNull();
+});
+
 test("work item workspace can be assigned in browser and MCP with conflict protection", async ({ page, request }) => {
   test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
   const headers = { Authorization: `Bearer ${token}` };
