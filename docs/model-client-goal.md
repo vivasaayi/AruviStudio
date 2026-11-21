@@ -114,6 +114,13 @@ unverified.
 
 ### Current independent client, voice and dependency revalidation
 
+At `6d23c1d`, the shared-client pin/source check, running worktree MCP-origin
+check, npm audit, and SQLx vendor-provenance check passed again. A refreshed
+RustSec scan at database commit `55e1c3dfbd834237a05bbbf7b50ba3b5be27b662`
+again reported `RUSTSEC-2023-0071`, 14 unmaintained warnings and two unsound
+warnings. These are lockfile findings and retain the release-review limitations
+described below. The Mac console reported locked during this revalidation.
+
 On 2026-11-21, the independent consumer's manifest, lockfile and source-pin
 checks passed; the pinned client source and manifest match Studio's current
 crate. The Linux consumer rebuilt with 31 offline contract tests passing. Against
