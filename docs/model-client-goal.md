@@ -4022,6 +4022,16 @@ healthy and generated a PDF for an authenticated test product. The fixture and
 its volumes were removed; this is not a production deployment, VPS validation,
 or acceptance of a release artifact.
 
+## Default-branch reconciliation
+
+On 2026-11-20, `origin/main` was `1edb9dd`. It already contained the earlier
+Studio branch through `e35292c`; its only additional commit pinned the CI
+runner to Ubuntu 24.04. The feature branch's later work had not been merged.
+The CI change was merged into the feature branch without conflicts at
+`3e44115`; it changed only the workflow runner configuration. The running
+worktree app remained healthy. This is not a merge of the feature branch into
+main, a CI result, or staging acceptance.
+
 ## Coding host recovery
 
 The coding-validation Model Host worktree was no longer registered with
