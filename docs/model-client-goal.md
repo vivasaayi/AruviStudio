@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Real Model Host new-module workflow revalidation
+
+The running worktree image from `4f26c4b` completed the `new-module` coding
+workflow using the native Model Host's `qwen25-coder-7b-q4` and a managed
+coding prompt template. The disposable fixture passed the plan and test-review
+gates, syntax checking and independent network-isolated behavioral assertions,
+then delivered to a disposable local Git remote. The model initially requested
+a missing directory and produced a final response before writing; the existing
+workflow feedback led it to continue. This is one successful run after an
+earlier failed new-module attempt, not a reliability estimate or proof of an
+authenticated network Git push. The latest browser-only capability selector
+was not in the running image used for this test.
+
 ### Portfolio dependency capability selection
 
 The browser dependency form now loads named capability choices for each
