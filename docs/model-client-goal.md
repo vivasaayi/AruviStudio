@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### OpenAI transcription default migration (in validation)
+### OpenAI transcription default migration
 
 OpenAI's documented file-transcription path now recommends `gpt-transcribe` and
 states that `whisper-1` shuts down on February 26, 2027. When no transcription
@@ -36,7 +36,21 @@ discovery, completion, streaming, token-limit handling and synthetic
 `piper-ljspeech` / `whisper-tiny-metal` speech against `qwen-05b-comparison`.
 The test's exact disposable Docker cache entries were removed afterward to
 recover space; running images and data volumes were retained. Linux branch
-validation and live OpenAI verification are pending.
+validation used a clean ARM64 build at `f9bdb3e` and the later test fixture at
+`f523688`; both hosted test runs passed. Its archive checksum and source revision
+were verified. The extracted server binary (SHA-256
+`f7c638cbb764f3d1071a90913cd08e5dc9997cc5a3bde26607496979feb0582f`)
+was layered onto the prior runtime, producing derived image
+`sha256:6047abf6602cdf8bd9cd4d6a95c17f27fd945e9e396cff18a7b611fed8923694`;
+this is not the full clean artifact. The candidate passed 54 isolated workflow
+tests, including a compatible-provider fallback through the browser API and MCP,
+45 remote browser tests with one skipped, and the PDF outage check. The native
+Rust library suite passed 330 tests with seven ignored. A checked database backup
+and prior image were retained; product, MCP, mobile and PDF acceptance passed
+after restart, as did published-port origin checks, a real local 7B MCP coding
+request, an MCP Piper/Whisper round trip and a headless browser recording using
+synthetic Piper audio. The branch URL was `127.0.0.1:55288`. Physical audio,
+live OpenAI access and actual OpenAI account/model availability remain unverified.
 
 ### Workflow map stage indicators
 
