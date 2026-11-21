@@ -12,6 +12,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Hosted terminology guard correction
+
+Hosted run `44891200558` at `9dde6f4` failed its terminology guard because the
+vendored upstream SHA-256 library uses `typeof module` in its CommonJS wrapper.
+That run reported zero statuses for the other five test/build suites. The guard
+now permits only that exact expression in that exact vendor file. It passes
+locally and a temporary product-source `module_id` fixture was rejected.
+Newer hosted checks and a full current-revision run still need to finish.
+
 ### Current host package and frontend checks
 
 At branch revision `2409402`, the desktop frontend `npm run build` passed and
