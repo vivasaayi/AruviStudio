@@ -5685,8 +5685,8 @@ not yet been deployed to the running worktree image or tested in staging.
 An attempted clean Linux ARM64 image build from commit `5cff1f1` was stopped
 when free host storage fell below the 3 GiB safety threshold. The isolated
 builder exited and its scratch filesystem was unmounted and truncated; the
-previous worktree image remains running. The image build and deployment must be
-repeated with adequate headroom before claiming image-level validation.
+previous worktree image remains running. The later hosted build and its
+validation are recorded below; deployment still needs Docker headroom.
 
 ## Independent client pin drift
 
@@ -5696,3 +5696,28 @@ documented revision and lockfile. A temporary Git fixture verifies matching,
 modified, added and removed source files. The current checkout matches the
 independent consumer pin. The check requires that Git revision locally; it
 does not replace the separate offline consumer build or live provider checks.
+
+## Hosted ARM64 candidate and Docker capacity
+
+GitHub Actions run 44908077935 built commit
+`b2e429737275b1f3f74d75608980aa0a4516aed0` without cache on Linux ARM64.
+The downloaded archive passed its SHA-256 check and recorded that revision.
+The hosted Docker image configuration was
+`sha256:5e752d730adde021e49e60ad4428dd1b602c16ca306dbe9fad74b1061cdb5154`;
+Docker Desktop represented the loaded image by manifest ID
+`sha256:17662c938a300611f973cf3f298b718004e72b66340e6d9352994acb988560ad`.
+Exporting the loaded image confirmed the same configuration digest. The
+candidate passed 52 workflow tests, 42 browser tests, the simulated CI fixture,
+PDF isolation/outage checks, and the Docker-to-Mac model-host fixture.
+
+After the candidate was loaded, the shared Docker VM filesystem became full.
+Both the candidate and previous image then failed SQLite startup with a disk
+I/O error. The candidate image was removed from Docker, while its verified
+archive was retained in the worktree artifact directory. With space restored,
+the previous image `sha256:e6fd74e9591abe565a3d78b7f25f72425f9a4d2ed59cbb209930b4320a22aff3`
+restarted successfully. Product, MCP/mobile authorization, PDF and restart
+persistence acceptance, browser MCP origin checks, and a real local 7B MCP
+coding request passed on the restored image. A checked database backup from
+before the attempted deployment is retained. The candidate is not deployed;
+its worktree deployment still requires sufficient Docker filesystem headroom
+and acceptance. This does not establish staging or full desktop parity.
