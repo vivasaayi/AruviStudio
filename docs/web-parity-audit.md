@@ -219,7 +219,9 @@ requirements. A complete bridge must authenticate requests, reconcile trusted
 shared paths, and resolve the API mismatch before enabling build dispatch.
 An isolated candidate branch in Aruvici now implements the missing metadata,
 retry and integrity operations and has passed the native protocol fixture; it
-is not deployed, and actual builds and Docker-to-host transport remain open.
+is not deployed. A disposable minimal Rust/OCI build has also passed through
+native Studio MCP, with result reads via the browser API. Real product builds,
+native browser interaction, and Docker-to-host transport remain open.
 
 | Desktop action | Dependency or constraint for web parity |
 | --- | --- |

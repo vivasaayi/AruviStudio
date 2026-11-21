@@ -412,6 +412,21 @@ eligibility remains false. The running Aruvici service was not changed; an
 actual build, container-to-host transport, shared workspace identity and review
 remain open. The patch in `docs/integration` reflects this branch.
 
+The native fixture now has an explicit `--execute-build` mode. Against the
+isolated Aruvici candidate `c2efef3` and a native Studio binary, it created a
+temporary Git repository, approved its fixed Rust/Docker plan, and queued a
+build through Studio MCP. The real gitleaks, formatting, clippy, Rust test,
+OCI packaging and package-verification stages passed; the browser API reported
+the passed run and the candidate verified the OCI artifact's integrity while
+remaining ineligible for promotion. This used a minimal dependency-free Rust
+fixture and a scratch image, not the Studio application or a native window.
+Gitleaks 8.30.1 was obtained temporarily from its official release and checked
+against that release's checksum; the binary was removed after testing. No image
+was loaded or deployed. The fixture can be repeated with
+`bash scripts/test native-ci-service STUDIO_BINARY ARUVICI_BINARY --audit-protocol --execute-build`
+when gitleaks, the Rust toolchain and Docker Buildx are available on PATH.
+The Docker-to-host CI transport and shared-workspace identity remain open.
+
 ### Disposable native Aruvici connection
 
 Studio revision `f90987b` and Aruvici revision `5851f2594bbbd83193e259a566004088ac28c52e`
