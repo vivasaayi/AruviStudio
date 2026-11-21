@@ -51,8 +51,21 @@ submissions, persisted products, the legacy path import, malformed input,
 size limits, unauthorized access and error status; it also ran the remote
 Playwright import test against the native server. The Rust bulk-import tests,
 server build and frontend build passed; the full Rust library suite passed 325
-tests with seven ignored, and all 128 frontend tests passed. Linux container and
-deployed-branch validation remain pending.
+tests with seven ignored, and all 128 frontend tests passed. Both hosted tests
+and the clean ARM64 image build passed for `b09491f01f530062cf6a6828ce90d2603e18e590`.
+The archive checksum and revision matched. Its server binary was layered onto
+the prior branch runtime, producing derived image
+`sha256:f021d9aabbab22fcfca222e0ab2d971e9f205f9484875c8bc5921d7c678cf980`;
+this is not the full hosted image. The candidate passed 44 Linux browser tests
+(one skipped), the PDF outage check, and 53 workflow tests. After a checked
+SQLite backup and retaining the previous image, it was deployed to the branch;
+product, MCP/mobile authorization, PDF and persistence acceptance passed across
+restart, as did MCP-origin checks and real 7B general and coding requests. A
+headless browser imported a uniquely named fixture into the branch; MCP verified
+the resulting product and then archived it. An initial cleanup used the wrong
+MCP argument name; that fixture was subsequently archived as well. The prior
+image is tagged `aruvi-studio-worktree-backup:pre-b09491f`, and the checked
+backup is in `/private/tmp/aruvi-import-b09491f`.
 
 ### Browser workspace file copies and Copilot tabs
 

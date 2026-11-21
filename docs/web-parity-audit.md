@@ -366,8 +366,9 @@ Browser Products and MCP can submit up to 1 MiB of inline UTF-8 JSON or CSV to
 the existing asynchronous importer, while desktop and MCP retain their
 server-file path option. The browser shows recent job status and errors. Import
 updates records with matching IDs and commits in batches; an error can leave
-prior batches applied. Native browser and MCP fixtures passed; Linux container
-and physical desktop comparison remain open.
+prior batches applied. Native and Linux browser/MCP fixtures passed, and a browser-created branch
+fixture was verified and archived through MCP. Physical desktop comparison
+remains open.
 
 ### Settings action inventory
 
