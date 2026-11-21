@@ -2244,6 +2244,14 @@ test("browser manages portfolio strategy and product dependencies", async ({ pag
     const response = await creation; expect(response.ok(), await response.text()).toBeTruthy(); node = await response.json();
     await expect(page.locator('#strategyList')).toContainText(node.name);
     await page.getByText('Edit strategy', {exact:true}).click();
+    await page.getByLabel('Edit strategy name').fill(`Stale strategy ${suffix}`);
+    await call('update_strategy_node', {id:node.id, name:`Concurrent strategy ${suffix}`});
+    await page.getByRole('button',{name:'Save strategy'}).click();
+    await expect(page.locator('#status')).toContainText('refresh before saving');
+    await expect(page.getByLabel('Edit strategy name')).toHaveValue(`Stale strategy ${suffix}`);
+    await page.getByRole('button',{name:'Refresh portfolio'}).click();
+    await expect(page.locator('#strategyList')).toContainText(`Concurrent strategy ${suffix}`);
+    await page.getByText('Edit strategy', {exact:true}).click();
     await page.getByLabel('Edit strategy name').fill(`Edited strategy ${suffix}`);
     await page.getByRole('button',{name:'Save strategy'}).click();
     await expect(page.locator('#strategyList')).toContainText(`Edited strategy ${suffix}`);

@@ -928,6 +928,9 @@ async fn mcp_portfolio_strategy_and_dependency_lifecycle() {
     let child = call(&state, "create_strategy_node", json!({"parent_node_id":root["id"],"node_kind":"domain","name":"Domain"})).await;
     let changed = call(&state, "update_strategy_node", json!({"id":child["id"],"name":"Updated domain"})).await;
     assert_eq!(changed["name"], "Updated domain");
+    let stale = dispatch_tool(&state, "aruvi_catalog", json!({"action":"update_strategy_node","arguments":{"id":child["id"],"expected":child,"name":"Stale overwrite"}})).await.unwrap_err();
+    assert!(stale.to_string().contains("refresh"));
+    assert_eq!(call(&state, "list_strategy_nodes", json!({})).await.as_array().unwrap().iter().find(|n| n["id"] == changed["id"]).unwrap()["name"], "Updated domain");
     assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"update_strategy_node","arguments":{"id":root["id"],"node_kind":"sub_domain","parent_node_id":child["id"]}})).await.is_err());
     assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"update_strategy_node","arguments":{"id":child["id"],"node_kind":"sub_domain","parent_node_id":child["id"]}})).await.is_err());
     assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"create_strategy_node","arguments":{"node_kind":"domain","name":"Invalid root"}})).await.is_err());
@@ -957,6 +960,8 @@ async fn mcp_portfolio_strategy_and_dependency_lifecycle() {
     let router = build_webhook_router(state);
     let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", None, Some(json!({"action":"list_strategy_nodes", "arguments":{}}))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", Some("portfolio-api-token"), Some(json!({"action":"update_strategy_node", "arguments":{"id":"missing", "name":"unsafe"}}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", Some("portfolio-api-token"), Some(json!({"action":"archive_product", "arguments":{"id":a["id"]}}))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, body) = send_json(&router, Method::POST, "/api/mobile/portfolio", Some("portfolio-api-token"), Some(json!({"action":"list_strategy_nodes", "arguments":{}}))).await;

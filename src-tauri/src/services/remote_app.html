@@ -2518,7 +2518,7 @@
           const description = document.createElement("textarea"); description.value = node.description; field("Edit strategy description", description);
           const owner = document.createElement("input"); owner.value = node.owner_label; field("Edit strategy owner", owner);
           const save = document.createElement("button"); save.type = "submit"; save.textContent = "Save strategy"; editForm.appendChild(save);
-          editForm.addEventListener("submit", async (event) => { event.preventDefault(); save.disabled = true; try { await portfolioChange("update_strategy_node", {id:node.id, name:name.value.trim(), node_kind:kind.value, parent_node_id:parent.value || null, clear_parent:!parent.value, description:description.value.trim(), owner_label:owner.value.trim()}); } finally { save.disabled = false; } });
+          editForm.addEventListener("submit", async (event) => { event.preventDefault(); save.disabled = true; try { await portfolioChange("update_strategy_node", {id:node.id, expected:node, name:name.value.trim(), node_kind:kind.value, parent_node_id:parent.value || null, clear_parent:!parent.value, description:description.value.trim(), owner_label:owner.value.trim()}); } finally { save.disabled = false; } });
           edit.appendChild(editForm); card.appendChild(edit);
           card.appendChild(portfolioButton("Delete strategy", async () => {
             if (confirm("Delete this strategy node and its descendant nodes and links?")) await portfolioChange("delete_strategy_node", {id:node.id});

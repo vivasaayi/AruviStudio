@@ -12,6 +12,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Strategy edit concurrency
+
+Strategy creation and updates now validate hierarchy inside an immediate SQLite
+write transaction, and browser strategy edits submit their displayed node as an
+expected snapshot. The native backend regression and a disposable browser/MCP
+fixture verified that a stale browser edit is rejected without losing the draft,
+and that refresh permits a new edit. Desktop and MCP callers that omit the optional expected snapshot remain
+last-write-wins, as do browser deletion and product-link operations; this is not
+complete concurrency protection. The running Docker branch still needs rebuilding.
+
 ### Browser portfolio management
 
 Products now includes browser controls for strategy nodes, product links and

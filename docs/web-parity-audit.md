@@ -84,10 +84,11 @@ is now transactional so a rejected replacement cannot remove the old primary.
 A disposable database test exercised the MCP dispatch lifecycle and rejected
 invalid hierarchy, self-dependency and an invalid primary replacement. Dependency
 writes reject capabilities that belong to the wrong side's product. Strategy edits
-reject cycles and incompatible existing children. The browser warns users to
-refresh before editing; concurrent edits are not protected by a revision check,
-and the hierarchy checks are not serialized with concurrent writes. Native-window
-acceptance and broader comparison remain open. This is not complete portfolio parity.
+reject cycles and incompatible existing children. Browser strategy edits require the displayed node snapshot and reject stale
+changes. Strategy creation and updates validate under SQLite write transactions;
+legacy desktop/MCP updates that omit a snapshot remain last-write-wins, and
+browser deletion and link operations do not yet use snapshot conflict checks.
+Native-window acceptance and broader comparison remain open. This is not complete portfolio parity.
 
 #### Settings and outbound contact comparison — 2026-11-14
 

@@ -3,7 +3,7 @@ use crate::domain::strategy::{
     StrategyNode, StrategyNodeKind,
 };
 use crate::error::AppError;
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqlitePool, SqliteConnection};
 
 const STRATEGY_NODE_COLUMNS: &str = "id, parent_node_id, node_kind, name, description, owner_label, sort_order, created_at, updated_at";
 const PRODUCT_STRATEGY_LINK_COLUMNS: &str =
@@ -83,25 +83,21 @@ pub async fn list_strategy_nodes(pool: &SqlitePool) -> Result<Vec<StrategyNode>,
     rows.into_iter().map(row_to_strategy_node).collect()
 }
 
-pub async fn get_strategy_node(pool: &SqlitePool, id: &str) -> Result<StrategyNode, AppError> {
-    let row = sqlx::query(&format!(
-        "SELECT {STRATEGY_NODE_COLUMNS} FROM strategy_nodes WHERE id = ?"
-    ))
-    .bind(id)
-    .fetch_optional(pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Strategy node {id} not found")))?;
+async fn strategy_node_on(conn: &mut SqliteConnection, id: &str) -> Result<StrategyNode, AppError> {
+    let row = sqlx::query(&format!("SELECT {STRATEGY_NODE_COLUMNS} FROM strategy_nodes WHERE id = ?"))
+        .bind(id).fetch_optional(&mut *conn).await?
+        .ok_or_else(|| AppError::NotFound(format!("Strategy node {id} not found")))?;
     row_to_strategy_node(row)
 }
 
 async fn validate_strategy_parent(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     parent_node_id: Option<&str>,
     node_kind: &StrategyNodeKind,
 ) -> Result<(), AppError> {
     match parent_node_id {
         Some(parent_id) => {
-            let parent = get_strategy_node(pool, parent_id).await?;
+            let parent = strategy_node_on(conn, parent_id).await?;
             if !parent.node_kind.supports_child_kind(node_kind) {
                 return Err(AppError::Validation(format!(
                     "{} cannot contain {} strategy nodes.",
@@ -131,12 +127,13 @@ pub async fn create_strategy_node(
     owner_label: &str,
 ) -> Result<StrategyNode, AppError> {
     let kind = parse_strategy_node_kind(node_kind)?;
-    validate_strategy_parent(pool, parent_node_id, &kind).await?;
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+    validate_strategy_parent(&mut transaction, parent_node_id, &kind).await?;
     let sort_order: i64 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM strategy_nodes WHERE parent_node_id IS ?",
     )
     .bind(parent_node_id)
-    .fetch_one(pool)
+    .fetch_one(&mut *transaction)
     .await?;
 
     sqlx::query(
@@ -150,10 +147,12 @@ pub async fn create_strategy_node(
     .bind(description)
     .bind(owner_label)
     .bind(sort_order)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
-    get_strategy_node(pool, id).await
+    let node = strategy_node_on(&mut transaction, id).await?;
+    transaction.commit().await?;
+    Ok(node)
 }
 
 pub async fn update_strategy_node(
@@ -165,20 +164,33 @@ pub async fn update_strategy_node(
     description: Option<&str>,
     owner_label: Option<&str>,
 ) -> Result<StrategyNode, AppError> {
-    let existing = get_strategy_node(pool, id).await?;
+    update_strategy_node_guarded(pool, id, parent_node_id, node_kind, name, description, owner_label, None).await
+}
+
+pub async fn update_strategy_node_guarded(
+    pool: &SqlitePool, id: &str, parent_node_id: Option<Option<&str>>, node_kind: Option<&str>,
+    name: Option<&str>, description: Option<&str>, owner_label: Option<&str>, expected: Option<&StrategyNode>,
+) -> Result<StrategyNode, AppError> {
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let existing = strategy_node_on(&mut transaction, id).await?;
+    if let Some(expected) = expected {
+        if expected.id != existing.id || expected.parent_node_id != existing.parent_node_id || expected.node_kind != existing.node_kind || expected.name != existing.name || expected.description != existing.description || expected.owner_label != existing.owner_label || expected.sort_order != existing.sort_order {
+            return Err(AppError::Validation("Strategy changed; refresh before saving.".into()));
+        }
+    }
     let next_kind = match node_kind {
         Some(value) => parse_strategy_node_kind(value)?,
-        None => existing.node_kind,
+        None => existing.node_kind.clone(),
     };
     let next_parent = parent_node_id.unwrap_or(existing.parent_node_id.as_deref());
-    validate_strategy_parent(pool, next_parent, &next_kind).await?;
+    validate_strategy_parent(&mut transaction, next_parent, &next_kind).await?;
     if let Some(parent_id) = next_parent {
         let cycle: i64 = sqlx::query_scalar("WITH RECURSIVE descendants(id) AS (SELECT id FROM strategy_nodes WHERE id=? UNION SELECT s.id FROM strategy_nodes s JOIN descendants d ON s.parent_node_id=d.id) SELECT EXISTS(SELECT 1 FROM descendants WHERE id=?)")
-            .bind(id).bind(parent_id).fetch_one(pool).await?;
+            .bind(id).bind(parent_id).fetch_one(&mut *transaction).await?;
         if cycle != 0 { return Err(AppError::Validation("A strategy node cannot be moved under itself or its descendants.".into())); }
     }
     let child_kinds: Vec<String> = sqlx::query_scalar("SELECT DISTINCT node_kind FROM strategy_nodes WHERE parent_node_id=?")
-        .bind(id).fetch_all(pool).await?;
+        .bind(id).fetch_all(&mut *transaction).await?;
     for child in child_kinds {
         if !next_kind.supports_child_kind(&parse_strategy_node_kind(&child)?) {
             return Err(AppError::Validation("The selected kind cannot contain the existing child nodes.".into()));
@@ -201,10 +213,12 @@ pub async fn update_strategy_node(
     .bind(description)
     .bind(owner_label)
     .bind(id)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
-    get_strategy_node(pool, id).await
+    let node = strategy_node_on(&mut transaction, id).await?;
+    transaction.commit().await?;
+    Ok(node)
 }
 
 pub async fn delete_strategy_node(pool: &SqlitePool, id: &str) -> Result<(), AppError> {

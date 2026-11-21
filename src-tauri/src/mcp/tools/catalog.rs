@@ -33,7 +33,8 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let name = args.optional_string(&["name"])?;
             let description = args.optional_string(&["description"])?;
             let owner = args.optional_string(&["owner_label", "ownerLabel"])?;
-            action_result("update_strategy_node", strategy_repo::update_strategy_node(&state.db, &id, next_parent, kind.as_deref(), name.as_deref(), description.as_deref(), owner.as_deref()).await?)
+            let expected: Option<crate::domain::strategy::StrategyNode> = args.optional_deserialize(&["expected"], "expected")?;
+            action_result("update_strategy_node", strategy_repo::update_strategy_node_guarded(&state.db, &id, next_parent, kind.as_deref(), name.as_deref(), description.as_deref(), owner.as_deref(), expected.as_ref()).await?)
         }
         "delete_strategy_node" => {
             strategy_repo::delete_strategy_node(&state.db, &args.required_string(&["id"], "id")?).await?;
