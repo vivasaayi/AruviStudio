@@ -12,6 +12,29 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Portfolio branch deployment
+
+Source commit `765a128` was compiled as an optimized Linux ARM64 server in a
+disposable 18 GiB ext4 filesystem, using the existing project-owned Rust build
+image. The binary SHA-256 was
+`530670f1bff05889cd92ebf6ce568ab7256e64f8a1f6c85c615e89d642ad4737`.
+The build completed; cleanup initially returned an unmount error because the
+working directory was inside the mount. The build container exited, no loop
+devices remained, and the temporary filesystem was removed. The frontend build
+passed. This was a separate server build, not a fresh complete Dockerfile build.
+
+The binary was layered onto the preceding branch runtime image. The candidate
+image ID is `sha256:d44fb01481f69f16dbc459a69900b37bd4b1182e998f682e766e31c9fb29d30b`.
+It passed 39 isolated browser tests, PDF isolation and outage checks, and 51
+workflow tests. With no active workflows, CLI runs or imports, the SQLite
+backup passed `quick_check`; the previous image is retained as
+`aruvi-studio-worktree-backup:pre-portfolio`. The candidate was deployed to
+the isolated worktree. After deployment, its image identity, product and PDF
+acceptance, a real local Model Host coding request through MCP, and published
+port origin/authentication checks passed. The backup and build log are in the
+worktree environment's private artifact directory. This is not staging or a
+release artifact; the derived image is distinct from the earlier clean OCI build.
+
 ### Strategy edit concurrency
 
 Strategy creation and updates now validate hierarchy inside an immediate SQLite
@@ -20,7 +43,7 @@ expected snapshot. The native backend regression and a disposable browser/MCP
 fixture verified that a stale browser edit is rejected without losing the draft,
 and that refresh permits a new edit. Desktop and MCP callers that omit the optional expected snapshot remain
 last-write-wins, as do browser deletion and product-link operations; this is not
-complete concurrency protection. The running Docker branch still needs rebuilding.
+complete concurrency protection. The subsequent portfolio branch deployment is recorded above.
 
 ### Browser portfolio management
 
@@ -34,8 +57,8 @@ product linking, dependency creation and confirmed deletion via the browser,
 with dependency reads checked through MCP. Editing and reparenting use the
 existing last-write-wins backend; users should refresh before editing, and
 concurrent hierarchy writes are not serialized. Capability references are entered
-as IDs rather than selected by name. The running Docker branch has not yet been
-rebuilt with this feature.
+as IDs rather than selected by name. The subsequent portfolio branch deployment is
+recorded above.
 
 ### Portfolio strategy MCP gap
 
@@ -48,7 +71,7 @@ failures, including rollback of an invalid primary replacement. A disposable
 native server also passed authenticated HTTP MCP discovery and strategy creation,
 with unauthenticated access rejected. The full native Rust library suite passed
 289 tests with seven ignored. The browser management interface and capability/product scope checks remain to be done.
-These changes have not been built into the running Docker image. See
+The subsequent portfolio branch deployment is recorded above. See
 `web-parity-audit.md` for the remaining scope.
 
 ### Deployment acceptance image identity
@@ -73,8 +96,7 @@ provider. A headless Chromium check loaded the updated HTML against the running
 branch origin and verified all four presets, their fields and provider selection.
 The rebuilt native server passed the browser model-configuration regression in
 a disposable database, including all presets, model creation, editing and
-conflict handling. It did not test third-party availability. The running Docker
-branch has not yet been rebuilt with these UI changes. Other management
+conflict handling. It did not test third-party availability. The subsequent portfolio branch deployment is recorded above. Other management
 operations and native-window behavior remain to be compared.
 
 ### Clean Dockerfile build and shutdown finding
