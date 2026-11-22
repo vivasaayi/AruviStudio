@@ -789,8 +789,8 @@
                   <div id="deliveryDetails" class="tool-list"></div>
                   <button class="secondary" id="editWorkWorkspaceButton" type="button">Change work item workspace</button>
                   <form id="workWorkspaceForm" class="stack" hidden>
-                    <label><span class="label">Work item workspace</span><select id="workWorkspaceRepository" required></select></label>
-                    <label><span class="label">Work item branch option</span><select id="workWorkspaceBranchMode"><option value="default">Workspace default branch</option><option value="work_item">Work item branch</option><option value="custom">Custom branch</option></select></label>
+                    <label><span class="label">Work item workspace</span><select id="workWorkspaceRepository" aria-label="Work item workspace" required></select></label>
+                    <label><span class="label">Work item branch option</span><select id="workWorkspaceBranchMode" aria-label="Work item branch option"><option value="default">Workspace default branch</option><option value="work_item">Work item branch</option><option value="custom">Custom branch</option></select></label>
                     <label id="workWorkspaceCustomLabel" hidden><span class="label">Custom work item branch</span><input id="workWorkspaceBranch" /></label>
                     <div id="workWorkspacePreview" class="empty"></div>
                     <div class="empty">Selects a server workspace and branch; it does not check out or create the branch. Changes are blocked while a workflow is active.</div>

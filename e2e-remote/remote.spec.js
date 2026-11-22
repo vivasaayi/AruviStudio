@@ -415,6 +415,10 @@ test("browser deletes a work item only after confirmation and stale checks", asy
 
 test("work item workspace can be assigned in browser and MCP with conflict protection", async ({ page, request }) => {
   test.skip(process.env.ARUVI_TEST_INSPECT !== "1", "Requires a disposable remote fixture");
+  if (process.env.ARUVI_TEST_REMOTE_HTML_SOURCE === "1") {
+    const html = await readFile("src-tauri/src/services/remote_app.html", "utf8");
+    await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
+  }
   const headers = { Authorization: `Bearer ${token}` };
   async function create(path, data) {
     const response = await request.post(path, { headers, data });

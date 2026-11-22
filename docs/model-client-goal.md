@@ -12,6 +12,20 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Hosted workspace selector diagnosis
+
+The diagnostic clean-image rerun reproduced the workspace test failure. Its
+browser trace shows the editor was open and the requested repository was present
+in the selector; the exact label lookup did not resolve. An isolated browser
+experiment also showed that a wrapping label's computed text can include select
+options. The workspace and branch selectors now have explicit accessible names.
+With the updated HTML, the disposable workspace assignment and conflict flow
+and the remote suite passed on cached Chromium (46 passed, one skipped), with
+the PDF outage check. The rest of that suite used the preceding server image;
+Linux clean-image validation is still required to confirm the hosted failure is
+resolved. The locally reproduced label behavior alone does not establish that
+it was the hosted failure's sole cause.
+
 ### Work-item creation refresh
 
 After a new work item is created, the browser now clears the previous delivery
