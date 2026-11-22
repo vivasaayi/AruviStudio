@@ -68,6 +68,14 @@ published-port MCP origin, real MCP coding and synthetic Piper/Whisper browser
 voice passed. The backup is `/private/tmp/aruvi-deploy-1215881/pre-deploy.db`.
 These are representative checks, not full parity or VPS staging acceptance.
 
+### VPS staging read-only recheck
+
+On 2026-11-22 the existing native staging and production services were both
+active and their loopback health endpoints returned HTTP 200. Their running
+binaries still resolved to revision `2d1130f921e9967cc8dffa77953ebc1355802e25`.
+This is the older native deployment, not the branch or the new staging Compose
+adapter. No VPS configuration, ingress, data, or services were changed.
+
 ### Real CI relay revalidation
 
 Using the deployed worktree's `f736e10` candidate and the separate Aruvici
