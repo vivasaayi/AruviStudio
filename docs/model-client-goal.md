@@ -50,6 +50,14 @@ bindings, and selected existing work items remain name-based. New unbound
 hierarchy proposals still create nodes. Real-model behavior and the full client
 matrix remain unverified; do not claim complete selected-catalog parity.
 
+For existing work-item parity, staging must bind the work item and its product,
+hierarchy and parent-work ancestry by ID. Confirmation must compare the original
+work-item snapshot, preserve workspace, status and execution state, and reject
+an active workflow or CLI run where the existing edit rules require it. New
+child work must remain attached to the intended existing parent. Duplicate
+titles, stale or deleted parents, cross-product IDs, rollback and retries need
+browser, MCP and server tests before replacing the current name-based shortcut.
+
 ### Scoped Planner action targets (in validation)
 
 Planner responses for a selected product now reject an explicit action target
