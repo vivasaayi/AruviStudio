@@ -12,6 +12,39 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Branch deployment and planner action audit
+
+Two unused project test images with no containers were removed individually,
+recovering about 700 MiB without deleting data volumes or rollback images.
+Instead of invoking BuildKit, a stopped disposable container from the previous
+runtime received the checksum-verified `6b86e00` server and was committed as
+`sha256:c9b73e5db8b7f1b1c5a996c660faf801edcb01d66d15c2fd342452ffc6cd0ed0`.
+Its runtime configuration matched the preceding image and the server hash
+matched the clean ARM64 artifact. This derived image is not a locally loaded
+copy of the complete clean image. It passed 60 workflow, 49 remote browser
+(one skipped), PDF outage/isolation and simulated CI tests, plus the packaged
+real-Model-Host quick start and simulated scoped-credential checks.
+
+After checking for active jobs, a new SQLite backup passed `quick_check`, and
+the prior image was tagged for rollback. The worktree app and PDF sidecar run
+the derived image. After restart, product persistence, MCP/mobile authorization
+and PDF checks passed, as did 13-section phone/desktop layout, MCP origin,
+real coding and Piper/Whisper round trips, and continuous voice with synthetic
+audio. Docker internal available space remained approximately 974 MiB.
+
+A subsequent real-model planner run against a disposable copy of the deployed
+image revealed that the prior fixture could pass if an earlier turn had already
+created the requested capability even when the selected turn proposed a
+different feature. The fixture now requires the initial draft to contain no
+child nodes and the selected turn to propose exactly the requested capability;
+a repeat failed safely before confirmation when the model invented a later
+request. The system prompt and format-repair message now restate the actual
+latest request and reject continuing invented conversation. This subsequent
+source change and its test are not in the running image and have not yet
+passed hosted or real-model validation. Model outputs still require review.
+Mac integration, staging, physical devices and live third-party providers
+remain unverified.
+
 ### Root-area repair: hosted and real-model validation
 
 GitHub Actions runs `44999813243` and `44999813226` passed at `6b86e00`,
@@ -32,9 +65,8 @@ nodes. The fixture now requires exactly the product, one inventory area and
 one stock capability before confirmation. A second run passed this stricter
 check and MCP verified the confirmed capability; its selected-node turn needed
 one model call without retries. These two samples do not establish general
-model reliability or eliminate the need to review proposals. The Docker
-worktree still runs the earlier `c48ee96`-derived runtime because internal
-Docker storage remains nearly full; this is not integration or staging.
+model reliability or eliminate the need to review proposals. The later branch deployment checkpoint above supersedes the runtime status at
+this point; this result is not integration or staging.
 
 ### Read-only binary planner fixture and root-area repair
 
@@ -53,8 +85,8 @@ either turn misses its expected draft.
 The source prompt and draft-repair guidance now state that product areas
 belong directly to the selected product and that creation actions require a
 top-level name. The existing simulated-provider draft-repair test also checks
-these instructions. This latest change has not yet passed hosted checks or
-real-model validation. No generated actions were silently accepted.
+these instructions. The later branch deployment checkpoint above records hosted and real-model
+validation. No generated actions were silently accepted in those failed runs.
 
 After Docker recovery, Mayyam E2E Zookeeper continued restarting and reported
 `Last transaction was partial` and `EOFException`. Its prior state was not

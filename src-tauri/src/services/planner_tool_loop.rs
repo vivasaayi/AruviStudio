@@ -206,7 +206,7 @@ pub(crate) async fn run_tool_loop(
                 });
                 messages.push(ChatMessage {
                     role: "user".to_string(),
-                    content: format!("Validation error: {}. Your previous answer did not follow the required JSON envelope or action schema. Return one JSON object with type final, assistant_response (string), needs_confirmation (boolean), clarification_question (string or null), and actions (array). Put each requested design action inside actions, not at the top level. Use only the action types in the system instructions. There is no create_feature action: use create_capability with details.nodeKind=capability for a capability under a product area, or details.nodeKind=feature for a feature under a capability. Preserve the user's requested hierarchy. Do not use Markdown.", error),
+                    content: format!("Validation error: {}. Your previous answer did not follow the required JSON envelope or action schema. Return one JSON object with type final, assistant_response (string), needs_confirmation (boolean), clarification_question (string or null), and actions (array). Put each requested design action inside actions, not at the top level. Use only the action types in the system instructions. There is no create_feature action: use create_capability with details.nodeKind=capability for a capability under a product area, or details.nodeKind=feature for a feature under a capability. Preserve the user's requested hierarchy. Do not continue any invented conversation or request in your previous answer. The actual latest user request is the following JSON string: {}. Do not use Markdown.", error, serde_json::to_string(input.user_input)?),
                 });
                 continue;
             }
@@ -518,10 +518,12 @@ mod tests {
                         .as_str()
                         .unwrap_or("")
                         .contains("previous answer did not follow")));
+                let repair = request["messages"].as_array().unwrap().last().unwrap()["content"]
+                    .as_str()
+                    .unwrap();
+                assert!(repair.contains("Do not continue any invented conversation"));
+                assert!(repair.contains("\"Add inventory\""));
                 if fixture.unsupported_action.load(Ordering::SeqCst) {
-                    let repair = request["messages"].as_array().unwrap().last().unwrap()["content"]
-                        .as_str()
-                        .unwrap();
                     assert!(repair.contains("unsupported type create_feature"));
                     assert!(repair.contains("no create_feature action"));
                     assert!(repair.contains("details.nodeKind=capability"));

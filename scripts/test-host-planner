@@ -148,6 +148,9 @@ try:
         print("Model output:", json.dumps(model_events, ensure_ascii=False)[:6000], flush=True)
         raise ValueError("Expected an inventory-related product area in the staged draft; response: " + json.dumps(result, ensure_ascii=False)[:3000])
     if args.selected_node:
+        actions = (result.get("pending_plan") or {}).get("actions") or []
+        if len(actions) != 1 or actions[0].get("type") != "create_capability" or "stock" not in str(actions[0].get("name", "")).lower() or (actions[0].get("details") or {}).get("nodeKind") == "feature":
+            raise ValueError("Selected turn did not propose exactly the requested stock capability: " + json.dumps(actions, ensure_ascii=False)[:3000])
         areas_in_draft = [node for node in nodes if node.get("node_type") == "product_area"]
         if len(areas_in_draft) != 1 or "inventory" not in areas_in_draft[0].get("label", "").lower():
             raise ValueError("Expected exactly one inventory product area in the draft")

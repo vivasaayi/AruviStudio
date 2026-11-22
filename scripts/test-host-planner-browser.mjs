@@ -47,6 +47,10 @@ try {
     throw new Error(`Planner response did not show Inventory: ${plannerDiagnostic(result)}`);
   }
   if (fixture.selected_node) {
+    const flatten = (nodes) => (nodes || []).flatMap((node) => [node, ...flatten(node.children)]);
+    const initialNodes = flatten(result.draft_tree_nodes);
+    assert.equal(initialNodes.filter((node) => node.node_type === "product_area").length, 1, "Initial draft must contain exactly one area");
+    assert.equal(initialNodes.filter((node) => ["capability", "feature"].includes(node.node_type)).length, 0, "Initial draft must not contain unrequested children");
     await page.locator("#draftTree button").filter({ hasText: /inventory/i }).first().click();
     const selectedNode = await page.evaluate(() => localStorage.getItem("aruvi.remote.selected_node"));
     assert.ok(selectedNode, "Expected an inventory draft node to be selected");
