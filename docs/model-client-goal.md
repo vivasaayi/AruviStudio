@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Product hierarchy ordering parity in progress
+### Product hierarchy ordering parity: branch validation
 
 Desktop supports reordering product areas, capabilities and features, but the
 browser did not. The product tree now offers move-up and move-down buttons for
@@ -35,8 +35,28 @@ run passed after adding an updating state. The full native Rust library suite
 passed 349 tests with eight ignored, followed by a focused test confirming that
 only one of two concurrent reorder requests succeeds. A repeat also exercised
 the capability and feature controls at 390×844 without document overflow.
-Clean-image validation,
-branch deployment and physical desktop comparison remain pending.
+Hosted test workflows `45027432866` and `45027437164` passed; clean ARM64 and
+AMD64 image validation in run `45027432925` passed for source `ba815c1`.
+Later commit `42b41f3` adds only the narrow-screen test and checkpoint. The local
+branch candidate used the hash-verified ARM64 server from the clean image on
+the existing runtime image, so it is derived rather than the complete clean
+image. Its image ID is
+`sha256:37de634fbb22607ef76d661cf69510a01728b496d27ab0700f13526daaebe186`;
+the server SHA-256 is
+`43c54b06f7c1cd8a80570195925fe7eddda921f74db1fdb7d9e0e894718a7b25`.
+The candidate passed 62 workflow tests, 51 browser tests (one skipped),
+simulated CI, PDF isolation and outage checks, and real-host packaged model
+quick start and stream cancellation. A scoped-credential fixture passed.
+
+After checking active jobs and backing up the database, the worktree app and
+PDF containers were updated. Restart acceptance checked product persistence,
+MCP, mobile authorization and PDF. The hierarchy ordering test then ran against
+the deployed branch with a disposable, archived product and passed for all
+three hierarchy levels, a stale MCP conflict and a phone-sized viewport.
+Chrome checked all 13 sections at phone and desktop widths and published-port
+MCP origin rules; real local coding and synthetic speech passed. The previous
+image remains tagged for rollback. Physical desktop and audio, live third-party
+providers, deployed Aruvici, Mac integration and VPS staging remain unverified.
 
 ### MCP file digest workspace snapshot: branch validation
 
