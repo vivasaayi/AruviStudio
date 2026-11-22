@@ -2318,6 +2318,7 @@ test("browser filters top-level work by hierarchy with pagination", async ({ pag
     expect(mcpDefault.map(x=>x.id)).toContain(child.id);
     const invalidMcp=await request.post("/api/mcp",{headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"},data:{jsonrpc:"2.0",id:2,method:"tools/call",params:{name:"aruvi_work_items",arguments:{action:"list_work_items",arguments:{top_level_only:"maybe"}}}}});
     expect((await invalidMcp.json()).result.isError).toBeTruthy();
+    await page.setViewportSize({width:390,height:844});
     expect((await (await request.get(`/api/mobile/work-items?product_id=${other.id}&source_node_id=${first.id}&source_node_type=capability&top_level_only=true`,{headers})).json()).items).toEqual([]);
     await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
     await page.getByRole("button",{name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
@@ -2326,6 +2327,7 @@ test("browser filters top-level work by hierarchy with pagination", async ({ pag
     await expect(page.locator("#workHierarchyFilter option").filter({hasText:"First feature"})).toHaveCount(1);
     await page.locator("#workHierarchyFilter").selectOption(scope);
     await expect(page.locator("#workPageStatus")).toContainText("100 work item(s) loaded");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
     await expect(page.locator("#workList")).not.toContainText("Other feature story");
     await expect(page.locator("#workList")).not.toContainText("Scoped child");
     await expect(page.locator("#workList [data-work-move]").first()).toBeDisabled();
