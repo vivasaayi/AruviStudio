@@ -12,6 +12,12 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
             empty_object_schema(),
         ),
         first_class_tool(
+            "repositories.attachments.list_all",
+            "List All Repository Attachments",
+            "List repository attachments across product and product area scopes.",
+            empty_object_schema(),
+        ),
+        first_class_tool(
             "repositories.register",
             "Register Repository",
             "Register a repository with Aruvi.",

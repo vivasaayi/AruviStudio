@@ -2790,3 +2790,36 @@ test("manual voice resumes suspended audio and releases it when navigation inter
   await expect(page.locator("#voiceRecordButton")).toHaveText("Record");
   expect(transcriptions).toBe(0);
 });
+
+test("MCP exposes scoped work summaries and attachment inventory", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  const invoke = async (name, arguments_) => {
+    const response = await request.post("/api/mcp", { headers, data: {
+      jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: arguments_ },
+    } });
+    expect(response.ok()).toBeTruthy();
+    const rpc = (await response.json()).result;
+    expect(rpc.isError).not.toBeTruthy();
+    return rpc.structuredContent.result;
+  };
+  const discovery = await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} } });
+  const names = (await discovery.json()).result.tools.map((tool) => tool.name);
+  expect(names).toContain("work_items.summarize_by_scope");
+  expect(names).toContain("repositories.attachments.list_all");
+  const product = await invoke("catalog.products.create", { name: "MCP scoped summary fixture" });
+  const other = await invoke("catalog.products.create", { name: "Other summary fixture" });
+  await invoke("work_items.create", { productId: product.id, title: "Scoped task", workItemType: "task" });
+  await invoke("work_items.create", { productId: other.id, title: "Other task", workItemType: "task" });
+  const rows = await invoke("work_items.summarize_by_scope", { productId: product.id });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ product_id: product.id, total_count: 1 });
+  expect(await invoke("aruvi_work_items", { action: "summarize_work_items_by_scope", arguments: { product_id: product.id } })).toEqual(rows);
+  const all = await invoke("work_items.summarize_by_scope", {});
+  expect(all.some((row) => row.product_id === product.id)).toBeTruthy();
+  expect(all.some((row) => row.product_id === other.id)).toBeTruthy();
+  await invoke("repositories.workspaces.create_for_scope", { productId: product.id, preferredPath: "/repositories/mcp-scope-summary-fixture" });
+  const attachments = await invoke("repositories.attachments.list_all", {});
+  expect(attachments.some((row) => row.scope_type === "product" && row.scope_id === product.id)).toBeTruthy();
+  expect(await invoke("aruvi_repositories", { action: "list_all_repository_attachments", arguments: {} })).toEqual(attachments);
+});

@@ -121,6 +121,41 @@ async fn catalog_exposes_desktop_capability_reads_and_tree_summary() {
 }
 
 #[tokio::test]
+async fn mcp_exposes_scope_summaries_and_all_repository_attachments() {
+    let state = create_test_state("scope_and_attachment_read_parity").await;
+    create_test_product(&state, "scope-product-a").await;
+    create_test_product(&state, "scope-product-b").await;
+    create_test_work_item(&state, "scope-work-a", "scope-product-a", "First").await;
+    create_test_work_item(&state, "scope-work-b", "scope-product-b", "Second").await;
+    crate::persistence::repository_repo::create_repository(&state.db, "scope-repo", "Workspace", "/tmp/scope-fixture", "", "main").await.unwrap();
+    crate::persistence::repository_repo::attach_repository(&state.db, "scope-attachment", "product", "scope-product-a", "scope-repo", true).await.unwrap();
+
+    let scoped = dispatch_tool(&state, "work_items.summarize_by_scope", json!({"productId": "scope-product-a"})).await.unwrap();
+    let rows = scoped["result"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["product_id"], "scope-product-a");
+    assert_eq!(rows[0]["total_count"], 1);
+    let legacy = dispatch_tool(&state, "aruvi_work_items", json!({
+        "action": "summarize_work_items_by_scope", "arguments": {"product_id": "scope-product-a"}
+    })).await.unwrap();
+    assert_eq!(legacy["result"], scoped["result"]);
+    let all = dispatch_tool(&state, "work_items.summarize_by_scope", json!({})).await.unwrap();
+    let all_rows = all["result"].as_array().unwrap();
+    assert!(all_rows.iter().any(|row| row["product_id"] == "scope-product-a"));
+    assert!(all_rows.iter().any(|row| row["product_id"] == "scope-product-b"));
+
+    let attachments = dispatch_tool(&state, "repositories.attachments.list_all", json!({})).await.unwrap();
+    let attachment_rows = attachments["result"].as_array().unwrap();
+    assert_eq!(attachment_rows.len(), 1);
+    assert_eq!(attachment_rows[0]["id"], "scope-attachment");
+    assert_eq!(attachment_rows[0]["scope_id"], "scope-product-a");
+    let legacy_attachments = dispatch_tool(&state, "aruvi_repositories", json!({
+        "action": "list_all_repository_attachments", "arguments": {}
+    })).await.unwrap();
+    assert_eq!(legacy_attachments["result"], attachments["result"]);
+}
+
+#[tokio::test]
 async fn work_items_list_supports_opt_in_pagination_metadata() {
     let state = create_test_state("work_item_list_pagination").await;
     create_test_product(&state, "mcp-product-page").await;

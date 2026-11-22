@@ -75,6 +75,10 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let scope_id = args.required_string(&["scope_id", "scopeId"], "scope_id")?;
             action_result("list_repository_attachments", repository_repo::list_repository_attachments(&state.db, &scope_type, &scope_id).await?)
         }
+        "list_all_repository_attachments" => action_result(
+            "list_all_repository_attachments",
+            repository_repo::list_all_repository_attachments(&state.db).await?,
+        ),
         "set_default_repository" | "detach_repository" => {
             let scope_type = normalize_repository_scope_type(&args.required_string(&["scope_type", "scopeType"], "scope_type")?)?;
             let scope_id = args.required_string(&["scope_id", "scopeId"], "scope_id")?;

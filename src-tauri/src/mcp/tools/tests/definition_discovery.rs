@@ -96,6 +96,15 @@ fn discovery_exposes_catalog_read_parity_tools() {
 }
 
 #[test]
+fn discovery_exposes_scope_and_attachment_read_tools() {
+    let definitions = definitions();
+    let scope = definitions.iter().find(|tool| tool.name == "work_items.summarize_by_scope").unwrap();
+    assert!(scope.input_schema["properties"]["productId"].is_object());
+    assert!(!scope.input_schema["required"].as_array().is_some_and(|required| required.contains(&json!("productId"))));
+    assert!(definitions.iter().any(|tool| tool.name == "repositories.attachments.list_all"));
+}
+
+#[test]
 fn discovery_exposes_bulk_import_tools() {
     let definitions = definitions();
     assert!(definitions

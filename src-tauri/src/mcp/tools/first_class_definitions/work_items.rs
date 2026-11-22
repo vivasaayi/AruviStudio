@@ -237,5 +237,14 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
             "Summarize work item counts grouped by product.",
             empty_object_schema(),
         ),
+        first_class_tool(
+            "work_items.summarize_by_scope",
+            "Summarize Work Items By Scope",
+            "Summarize work item counts by product, hierarchy scope and status, optionally for one product.",
+            object_schema(
+                vec![("productId", string_property("Optional product id filter."))],
+                &[],
+            ),
+        ),
     ]
 }

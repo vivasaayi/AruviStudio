@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### MCP work-summary and attachment read parity in progress
+
+Desktop work-item scope summaries and the complete workspace attachment list
+already use shared Rust queries but were not exposed through MCP. The current
+source adds `aruvi_work_items.summarize_work_items_by_scope` and
+`aruvi_repositories.list_all_repository_attachments`, with first-class
+`work_items.summarize_by_scope` and `repositories.attachments.list_all` tools.
+The optional product filter retains the desktop query's behavior. Discovery,
+legacy and first-class dispatch, filtering, and disposable HTTP workflow
+coverage are included. These changes have not yet passed hosted checks or been
+deployed; the broader parity audit remains open.
+
 ### MCP catalog read parity: branch validation
 
 Hosted test run `45003826053` passed 343 Rust unit tests (eight ignored),

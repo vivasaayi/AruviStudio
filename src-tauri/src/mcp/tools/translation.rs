@@ -65,6 +65,7 @@ pub(super) fn translate_first_class_tool(
         "work_items.summarize_by_product" => {
             ("aruvi_work_items", "summarize_work_items_by_product")
         }
+        "work_items.summarize_by_scope" => ("aruvi_work_items", "summarize_work_items_by_scope"),
         "agent_work.runs.upsert" => ("aruvi_agent_work", "upsert_run"),
         "agent_work.runs.get" => ("aruvi_agent_work", "get_run"),
         "agent_work.runs.list" => ("aruvi_agent_work", "list_runs"),
@@ -103,6 +104,7 @@ pub(super) fn translate_first_class_tool(
         "repositories.register" => ("aruvi_repositories", "register_repository"),
         "repositories.delete" => ("aruvi_repositories", "delete_repository"),
         "repositories.attachments.create" => ("aruvi_repositories", "attach_repository"),
+        "repositories.attachments.list_all" => ("aruvi_repositories", "list_all_repository_attachments"),
         "repositories.resolution.for_work_item" => {
             ("aruvi_repositories", "resolve_repository_for_work_item")
         }
