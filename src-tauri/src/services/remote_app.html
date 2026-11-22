@@ -3951,11 +3951,17 @@
           const page = await request("/api/mobile/work-items/" + encodeURIComponent(workItem.id) + "/children?offset=" + offset);
           if (!card.isConnected || state.selectedWorkItemId !== workItem.id) return;
           for (const child of page.items || []) {
+            const row = document.createElement("div"); row.className = "tool-card stack";
             const button = document.createElement("button"); button.type = "button"; button.className = "secondary";
-            button.textContent = child.title + " · " + String(child.work_item_type || "task").replaceAll("_", " ") + " · " + String(child.status || "draft").replaceAll("_", " ");
+            button.textContent = child.title + " · " + String(child.work_item_type || "task").replaceAll("_", " ") + " · " + String(child.status || "draft").replaceAll("_", " ") + " · " + String(child.priority || "medium").replaceAll("_", " ") + " priority · " + String(child.complexity || "medium").replaceAll("_", " ") + " complexity";
             button.disabled = child.product_id !== workItem.product_id;
             if (button.disabled) button.title = "Child belongs to another product";
-            button.addEventListener("click", () => void selectWorkItem(child.id)); list.appendChild(button);
+            button.addEventListener("click", () => void selectWorkItem(child.id)); row.appendChild(button);
+            if (child.description) {
+              const description = document.createElement("p"); description.style.cssText = "margin:0;white-space:pre-wrap;overflow-wrap:anywhere";
+              description.textContent = child.description; row.appendChild(description);
+            }
+            list.appendChild(row);
           }
           offset += page.items.length; load.hidden = !page.has_more; load.textContent = "Load more child work";
           status.textContent = offset ? offset + " child work item(s) loaded." : "No child work items.";

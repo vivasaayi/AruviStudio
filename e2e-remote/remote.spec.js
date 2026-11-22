@@ -2155,16 +2155,16 @@ test("browser places work in hierarchy and under a parent", async ({ page, reque
     await page.locator("#workList .work-card").filter({hasText:"Scoped item"}).click();
     await delayed;
     await expect(page.locator("#deliveryDetails")).toContainText("Scoped item");
-    await expect(page.getByRole("button",{name:/^Child item · task · draft$/})).toHaveCount(0);
+    await expect(page.getByRole("button",{name:/^Child item · task · draft ·/})).toHaveCount(0);
     await page.unroute(childRoute);
     await page.locator("#workList .work-card").filter({hasText:"Parent story"}).click();
     await page.getByRole("button",{name:"Load child work",exact:true}).click();
-    await page.getByRole("button",{name:/^Child item · task · draft$/}).click();
+    await page.getByRole("button",{name:/^Child item · task · draft ·/}).click();
     await expect(page.locator("#deliveryDetails")).toContainText("Child item");
     await page.getByRole("button",{name:"Open parent work"}).click();
     await expect(page.locator("#deliveryDetails")).toContainText("Parent story");
     await page.getByRole("button",{name:"Load child work",exact:true}).click();
-    await page.getByRole("button",{name:/^Child item · task · draft$/}).click();
+    await page.getByRole("button",{name:/^Child item · task · draft ·/}).click();
     await page.locator("#workTitleInput").fill("Shortcut child item");
     await page.getByRole("button",{name:"Use as parent for new work"}).click();
     await expect(page.locator("#workParentInput")).toHaveValue(child.id);
@@ -2194,12 +2194,16 @@ test("browser pages a story's child work", async ({ page, request }) => {
   let parent; const children = [];
   try {
     parent = await mcp("aruvi_work_items","create_story",{product_id:product.id,title:"Paged story"});
-    for (let index=0; index<101; index++) children.push(await mcp("aruvi_work_items","create_task",{story_id:parent.id,title:`Paged child ${String(index).padStart(3,"0")}`}));
+    for (let index=0; index<101; index++) children.push(await mcp("aruvi_work_items","create_task",{story_id:parent.id,title:`Paged child ${String(index).padStart(3,"0")}`,...(index === 0 ? {priority:"high",complexity:"low",description:'Task details <img src=x onerror="alert(1)">'} : {})}));
     await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
     await page.getByRole("button",{name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
     await page.locator("#workList .work-card").filter({hasText:"Paged story"}).click();
     await page.getByRole("button",{name:"Load child work",exact:true}).click();
     await expect(page.locator("#deliveryDetails")).toContainText("50 child work item(s) loaded.");
+    const firstChild = page.getByRole("button",{name:/^Paged child 000 ·/});
+    await expect(firstChild).toContainText("high priority · low complexity");
+    await expect(firstChild.locator("..")).toContainText('Task details <img src=x onerror="alert(1)">');
+    await expect(firstChild.locator("..").locator("img")).toHaveCount(0);
     await expect(page.getByRole("button",{name:/^Paged child 050 ·/})).toHaveCount(0);
     await page.getByRole("button",{name:"Load more child work"}).click();
     await expect(page.locator("#deliveryDetails")).toContainText("100 child work item(s) loaded.");

@@ -12,6 +12,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Child-work details: validation in progress
+
+The web parent-work list now displays each child's priority, complexity and
+description alongside its title and status, matching information available in
+the desktop story task list. Descriptions are rendered as text. A native server
+build and two disposable browser tests passed, including 101-child pagination,
+phone-width overflow and an HTML-like description. Clean-image and deployment
+validation are pending; this does not establish complete story-screen parity.
+
 ### Off-page work selection: branch validation
 
 Refreshing the backlog now checks an off-page selection against the server and
