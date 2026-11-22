@@ -6,6 +6,43 @@ import { createHmac } from "node:crypto";
 const token = process.env.ARUVI_MOBILE_API_TOKEN;
 const mcpToken = process.env.ARUVI_MCP_API_TOKEN;
 
+test("Docs exports keep unsafe reference URLs as text", async ({ page, request }) => {
+  test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
+  async function call(action, args) {
+    const response = await request.post("/api/mcp", {
+      headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json" },
+      data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_catalog", arguments: { action, arguments: args } } },
+    });
+    expect(response.ok()).toBeTruthy();
+    const body = await response.json();
+    expect(body.result.isError, JSON.stringify(body.result)).not.toBeTruthy();
+    return body.result.structuredContent.result;
+  }
+  const product = await call("create_product", { name: `Docs link fixture ${Date.now()}` });
+  try {
+    for (const uri of ["javascript:alert(1)", "data:text/html,evil", "https://example.org/safe", "docs/architecture.md"]) {
+      await call("create_reference", { scope_type: "product", scope_id: product.id, title: "Reference", uri });
+    }
+    const artifact = await call("export_product_book", { product_id: product.id, format: "docs_html" });
+    const mcpHtml = Buffer.from(artifact.data_base64, "base64").toString("utf8");
+    const response = await request.post(`/api/mobile/products/${product.id}/book-export`, {
+      headers: { Authorization: `Bearer ${token}` }, data: { format: "docs_html" },
+    });
+    expect(response.ok()).toBeTruthy();
+    for (const html of [mcpHtml, await response.text()]) {
+      await page.setContent(html);
+      for (const unsafe of ["javascript:alert(1)", "data:text/html,evil"]) {
+        await expect(page.locator(".reference-uri").filter({ hasText: unsafe })).toHaveText(unsafe);
+        await expect(page.locator("a.reference-uri").filter({ hasText: unsafe })).toHaveCount(0);
+      }
+      await expect(page.locator('a[href="https://example.org/safe"]')).toHaveCount(1);
+      await expect(page.locator('a[href="docs/architecture.md"]')).toHaveCount(1);
+    }
+  } finally {
+    await call("archive_product", { id: product.id });
+  }
+});
+
 test("browser rotates bridge tokens without exposing saved values", async ({ page, request }) => {
   test.skip(process.env.ARUVI_TEST_BRIDGE_TOKEN_ROTATION !== "1", "Requires disposable server with saved mobile token");
   const next = process.env.ARUVI_TEST_NEW_MOBILE_TOKEN;

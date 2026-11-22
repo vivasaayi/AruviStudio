@@ -41,6 +41,9 @@ comparison passed, including an unsafe URL in the backend-rendered output.
 The complete frontend suite passed 140 tests and the native Rust library suite
 passed 366 tests (eight ignored). Clean images and a worktree deployment
 containing this change remain pending.
+An additional disposable native-server browser regression checked authenticated
+MCP and mobile Docs exports, rendering the returned HTML and verifying unsafe
+URLs are text while safe external and relative URLs remain links.
 
 ### Voice selection of existing catalog items (in validation)
 
