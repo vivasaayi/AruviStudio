@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Short continuous voice turns (local validation)
+### Short continuous voice turns
 
 Continuous browser voice previously required 500 ms of above-threshold capture
 buffers, so a short answer in one 256 ms buffer could be discarded. The threshold
@@ -23,7 +23,38 @@ native debug server build passed. Detection remains a simple per-buffer RMS
 heuristic, not a speech classifier: short loud noises may be transcribed, quiet
 speech may be missed, and the actual resolution depends on the audio buffer and
 sample rate. Physical microphones and broader noise conditions remain unverified.
-This change is not yet in the running branch image.
+
+Both hosted test runs and the clean ARM64 image build passed for
+`e48b7092d11a614a247829a5392d45802fd8412d`. Its archive checksum and source
+revision were verified. The extracted server binary (SHA-256
+`715c3c7a142febdcfc2da1dc5031b5b5fe62a23d5ec4ab406b245b5f807b66ca`)
+was layered on the previous runtime with unchanged non-Rust inputs, producing
+derived image `sha256:8a4e6951cd7f0b28af4369e88f83956a7d61faf99c5a577e179876d4fa1254ae`,
+not the complete clean hosted image. The candidate passed 57 isolated workflow
+tests, 45 browser tests with one skipped, and the PDF outage check. After a
+verified SQLite backup and retention of the previous image, product, MCP, mobile,
+PDF and persistence checks passed across restart, as did the published-port MCP
+origin check, real local 7B MCP coding, synthetic MCP speech and a longer
+synthetic continuous browser voice turn. The branch endpoint was
+`127.0.0.1:55288`. Three additional deployed-browser turns using synthetic
+"Yes" reached real Whisper and the coding model: two transcripts were "Yes"
+and one was "Best". This is not integration or staging acceptance.
+
+A separate headless browser probe used the running branch server with only this
+threshold substituted in the served page, synthetic Piper "Yes" audio, real
+Model Host Whisper and a real local coding model. One turn was transcribed as
+"Yes" and reached chat; a second was transcribed as "this" and failed the
+expected-word assertion. Two direct MCP transcriptions of the same generated
+phrase returned "Yes". The runs do not establish a cause or reliable short-phrase
+recognition and did not use the updated Linux server image or a real microphone.
+For one captured clip Whisper returned "Best" on three repeats while its Piper
+source returned "Yes" on three repeats. Trimming the captured clip's leading
+silence yielded "Yes" on three repeats; trimming only trailing silence did not.
+In three additional captures, the untrimmed transcripts were "Yes", "Yes" and
+"Less"; retaining about half a second of leading silence yielded "Yes" for all
+three. This is a small synthetic sample, not evidence that automatic trimming
+is generally safe: a quiet start to speech could be removed. No trimming was
+added, and the sources of recognition errors remain unverified.
 
 ### Short browser voice diagnostic
 
