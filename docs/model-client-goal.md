@@ -38,7 +38,9 @@ URLs remain visible as text, while supported external and relative links remain
 clickable. Focused frontend tests (11), the production frontend build, three
 mocked desktop export tests and the embedded Rust renderer's desktop-fixture
 comparison passed, including an unsafe URL in the backend-rendered output.
-Clean images and a worktree deployment containing this change remain pending.
+The complete frontend suite passed 140 tests and the native Rust library suite
+passed 366 tests (eight ignored). Clean images and a worktree deployment
+containing this change remain pending.
 
 ### Voice selection of existing catalog items (in validation)
 
