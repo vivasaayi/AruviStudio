@@ -22,8 +22,11 @@ model-supplied parent IDs. Subsequent native Model Host attempts included one
 success and two safe failures; one failure was traced to a list of examples.
 Lists of text examples are now retained as newline-separated text; mixed-type
 lists are rejected. Parser tests and a simulated model proposal confirmed that
-the requested child is staged and created under the selected area. Real-model
-and packaged-image validation must be repeated against the latest revision.
+the requested child is staged and created under the selected area. A native
+real-Model-Host repeat then succeeded in two model calls, preserving the area ID
+and creating the requested child only after confirmation. This is one sample;
+the earlier failures remain evidence of model variability. Packaged-image
+validation must be repeated against the latest revision.
 
 ### Bound Planner catalog updates (in validation)
 
