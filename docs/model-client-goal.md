@@ -46,7 +46,8 @@ for correction. A separate real Piper/Whisper synthetic-speech round trip produc
 “Select existing product area Inventory” and staged the intended area in a
 disposable native server. A follow-up real coding-model proposal updated that
 same area after MCP confirmation without creating a duplicate. The full native Rust suite passed 366 tests with eight
-ignored. Physical microphone capture and clean image validation remain open.
+ignored. Physical microphone capture remains open; clean image and worktree checks are
+recorded above.
 
 ### Current worktree deployment at `1215881`
 
@@ -66,6 +67,27 @@ mobile and PDF; six focused Planner tests, 13-section phone/desktop layout,
 published-port MCP origin, real MCP coding and synthetic Piper/Whisper browser
 voice passed. The backup is `/private/tmp/aruvi-deploy-1215881/pre-deploy.db`.
 These are representative checks, not full parity or VPS staging acceptance.
+
+### Current worktree deployment at `f736e10`
+
+Hosted clean ARM64/AMD64 images and both hosted test runs passed. The Mac
+worktree runs a derived candidate containing the checksum-verified ARM64
+server from that build on the matching existing runtime; it is not the identical
+clean image. Server SHA-256:
+`6f12ffc6647d7641a23d5ded6328ae2dfcc269e5128d88217323072e835ede73`.
+The branch tip at deployment differed only in checkpoint documentation. A
+verified SQLite backup was taken with no active workflows, CLI runs or imports.
+The candidate passed 63 local browser tests (one skip), 62 workflow tests, the
+CI fixture, packaged model quick starts and scoped credential checks. One
+packaged synthetic voice selection was safely rejected as unmatched; its
+transcript was not recorded, so its cause is unknown. A repeat transcribed the
+request, selected the intended area and used the real coding model and MCP to
+update it after confirmation. After deployment, restart acceptance verified
+persistence, authenticated MCP, mobile and PDF; seven focused Planner tests,
+13-section phone/desktop layout, published-port MCP origin, real MCP coding,
+and synthetic Piper/Whisper browser voice passed. The backup is
+`/private/tmp/aruvi-deploy-f736e10/pre-deploy.db`. Physical audio and native
+window interaction, full parity and VPS staging acceptance remain open.
 
 ### Nested product and hierarchy updates (in validation)
 
