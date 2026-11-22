@@ -12,9 +12,9 @@ provider hosting into the model-host service as part of this work.
 
 ## Remaining acceptance work
 
-- [ ] Build and check the latest runtime revision on ARM64 and AMD64, and
-  validate and deploy the Mac worktree candidate. Repeat for the eventual
-  merged revision; the previous `f736e10` runtime passed these checks.
+- [x] Build and check the current runtime revision on ARM64 and AMD64, and
+  validate and deploy the Mac worktree candidate. Repeat these checks for any
+  later runtime changes and for the eventual merged revision.
 - [ ] Complete the action-by-action desktop/web/MCP parity inventory, including
   direct voice selection edge cases, native dialogs and deliberately platform-specific
   behavior. Validate actual native-window and physical audio interaction when
@@ -30,6 +30,27 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current worktree deployment at `227fde4`
+
+Both hosted clean-image architectures and both hosted test runs passed. The
+Mac worktree runs the downloaded ARM64 image from run `45072084045`. Its
+archive checksum and revision were verified. Docker imported it with local ID
+`sha256:420e1295e69f4c431f385ad5a8efcd50e535f32ea4e1889339b140a81aaf4e55`
+rather than the hosted ID
+`sha256:7aa924f2b01629a7c00860c37c78a54162aefdccbaf7aaa4651987184132e90c`;
+the imported configuration and all ten filesystem layer diff IDs matched the
+exported image. Branch changes after this runtime are test and documentation
+only. A checked SQLite backup was saved to
+`/private/tmp/aruvi-deploy-227fde4/pre-deploy.db`, and the prior image was
+retained as `aruvi-studio-worktree-backup:pre-227fde4`. The new image passed
+the local remote suite (64 passed, one skipped), workflow suite (62 passed),
+CI fixture and the targeted Docs export regression. After deployment, restart
+acceptance passed persistence, mobile and MCP authentication, and PDF;
+published-port MCP origin checks and 13-section phone/desktop layout passed.
+MCP real local-model coding and synthetic Piper/Whisper speech passed. The
+first deployed Docs export check overlapped the restart and failed; a sequential
+retry passed. Physical audio, native window, full parity and staging remain open.
+
 ### Docs export reference URLs
 
 Docs HTML previously escaped reference text but allowed unsafe URL schemes in
@@ -39,8 +60,8 @@ clickable. Focused frontend tests (11), the production frontend build, three
 mocked desktop export tests and the embedded Rust renderer's desktop-fixture
 comparison passed, including an unsafe URL in the backend-rendered output.
 The complete frontend suite passed 140 tests and the native Rust library suite
-passed 366 tests (eight ignored). Clean images and a worktree deployment
-containing this change remain pending.
+passed 366 tests (eight ignored). Clean-image and worktree deployment evidence
+is recorded above.
 An additional disposable native-server browser regression checked authenticated
 MCP and mobile Docs exports, rendering the returned HTML and verifying unsafe
 URLs are text while safe external and relative URLs remain links.
