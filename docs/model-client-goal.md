@@ -18,10 +18,12 @@ A real local model placed an update to the selected product description in
 `details`; an earlier disposable confirmation reported success without changing
 it. Product, area and capability update actions now normalize supported fields
 from `fields`, `details`, or the top level and reject empty, conflicting,
-malformed or unsupported update fields. After the fix, a native real Model Host
-proposal updated the original selected product only after confirmation. Parser
-and product-root conflict tests pass; broader regression and packaged-image
-validation remain. The real-model result is a single sample.
+malformed or unsupported update fields. After the fix, separate native real Model Host proposals updated the original
+selected product, area and capability only after confirmation. Parser and
+product-root conflict tests pass; broader regression and packaged-image
+validation remain. Each real-model result is a single sample. The desktop suite
+reported all 81 tests passing, but its runner was interrupted after lingering
+in teardown; a clean hosted result remains necessary.
 
 ### Product-root Planner binding (in validation)
 
