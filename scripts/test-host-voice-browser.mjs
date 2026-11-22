@@ -17,7 +17,7 @@ const plannerMode = process.argv.includes("--planner");
 const continuousMode = process.argv.includes("--continuous");
 const provider = providers.find((item) => item.name === "Aruvi Model Host (Native Staging)");
 if (!provider) throw new Error("Native Model Host provider is not configured");
-const args = { action: "generate_speech", arguments: { provider_id: provider.id, model: "piper-ljspeech", text: plannerMode ? "Show draft." : continuousMode ? "Say hello in one sentence." : "The quick brown fox jumps over the lazy dog." } };
+const args = { action: "generate_speech", arguments: { provider_id: provider.id, model: "piper-ljspeech", text: plannerMode ? "Show draft." : "The quick brown fox jumps over the lazy dog." } };
 const audio = JSON.parse(execFileSync("scripts/mcp", ["call", "aruvi_speech", "-"], { input: JSON.stringify(args), encoding: "utf8", maxBuffer: 24 * 1024 * 1024, timeout: 120000 })).result;
 assert.equal(audio.mime_type, "audio/wav");
 const directory = mkdtempSync(join(tmpdir(), "aruvi-fake-microphone-"));
@@ -33,11 +33,13 @@ source = wave.open(io.BytesIO(sys.stdin.buffer.read()), 'rb')
 channels, width, rate, frames = source.getnchannels(), source.getsampwidth(), source.getframerate(), source.getnframes()
 if width != 2: raise ValueError('Expected 16-bit PCM fixture')
 samples = source.readframes(frames)
+if sys.argv[1] == '1':
+    samples = bytes(rate * 2 * channels * width) + samples
 samples += bytes(max(0, rate * 7 - frames) * channels * width)
 out = io.BytesIO()
 with wave.open(out, 'wb') as writer:
     writer.setnchannels(channels); writer.setsampwidth(width); writer.setframerate(rate); writer.writeframes(samples)
-sys.stdout.buffer.write(out.getvalue())`], { input: wav, maxBuffer: 4 * 1024 * 1024 });
+sys.stdout.buffer.write(out.getvalue())`, continuousMode ? "1" : "0"], { input: wav, maxBuffer: 4 * 1024 * 1024 });
   }
   writeFileSync(path, wav, { mode: 0o600 });
   browser = await chromium.launch({ executablePath: process.env.ARUVI_CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true,
@@ -79,7 +81,8 @@ sys.stdout.buffer.write(out.getvalue())`], { input: wav, maxBuffer: 4 * 1024 * 1
     const body = await response.json();
     assert.ok(body.content?.trim(), "Expected a real coding-model response");
     const transcript = response.request().postDataJSON().messages.findLast((message) => message.role === "user")?.content || "";
-    assert.match(transcript.toLowerCase(), /\bhello\b/, "Expected the synthetic greeting in the recognized user turn");
+    assert.match(transcript.toLowerCase(), /\bfox\b/, "Expected the synthetic sentence in the recognized user turn");
+    assert.match(transcript.toLowerCase(), /\bdog\b/, "Expected the synthetic sentence in the recognized user turn");
     await page.getByRole("button", { name: "End voice conversation" }).click();
     await page.getByRole("button", { name: "Start voice conversation" }).waitFor({ state: "visible" });
     assert.ok(capturedRate >= 8000 && capturedRate <= 192000, "Browser sent an unsupported WAV sample rate");

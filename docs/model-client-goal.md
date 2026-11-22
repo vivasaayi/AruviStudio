@@ -33,9 +33,23 @@ artifact isolation. The mobile test checked that the page does not widen and
 the focused node is visible. Desktop and 390-pixel screenshots were reviewed;
 the first layout and focus failures were corrected and the fixture rerun. The
 frontend build and 128 frontend tests passed; the Rust library suite passed 333
-tests with seven ignored. This is not full desktop workflow
-parity or a physical native-window comparison. The deployed branch image predates
-this checkpoint until a clean image is built, validated and deployed.
+tests with seven ignored, and all 67 local browser tests passed. Both hosted
+test runs and a clean ARM64 build passed for `c28e337`. The archive checksum and
+revision were verified; its server binary (SHA-256
+`3ace41f7daa48deb2a8c01bd3c590f7ff1dccb031f22dc7723a499748e5633fb`)
+was layered onto the prior runtime to produce derived image
+`sha256:d803e3f524719ac6022ea0e23f0fd410f30f5d7b977be07abce6bd2d2a300e4e`,
+not the full clean artifact. The candidate passed 56 workflow tests, 45 browser
+tests with one skipped and the PDF outage check. A verified database backup and
+the prior image were retained; product, MCP, mobile and PDF acceptance passed
+across restart, along with browser-origin MCP, real local 7B MCP coding, MCP
+speech and manual browser transcription checks. Continuous browser voice reached the local coding model but a
+short synthetic greeting was misrecognized in two of three runs. A revised
+fixture with a two-second silent lead-in and a longer sentence recognized both
+expected words and received a model reply in two consecutive runs. This does not
+establish general speech-recognition reliability or physical audio behavior.
+The branch endpoint was `127.0.0.1:55288`. This is not full desktop workflow
+parity or a physical native-window comparison.
 
 ### Manual browser microphone cleanup
 
