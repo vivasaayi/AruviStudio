@@ -38,7 +38,7 @@ use crate::services::webhook_mobile_work::{
     mobile_external_cli_runs, mobile_run_external_cli, mobile_external_cli_events,
     mobile_task_decision, mobile_batch_task_decision, mobile_move_work_item,
 };
-use crate::services::webhook_remote_app::REMOTE_APP_HTML;
+use crate::services::webhook_remote_app::render_remote_app;
 use crate::services::webhook_twilio::{
     messaging_twiml, planner_reply_text, validate_twilio_signature, voice_gather_twiml,
 };
@@ -92,7 +92,7 @@ async fn healthcheck(State(state): State<WebhookState>) -> impl IntoResponse {
 }
 
 async fn remote_app() -> impl IntoResponse {
-    Html(REMOTE_APP_HTML)
+    Html(render_remote_app())
 }
 
 async fn remote_sha256() -> impl IntoResponse {

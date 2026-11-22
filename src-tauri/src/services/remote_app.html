@@ -1166,6 +1166,7 @@
   </div>
 
   <script src="/assets/js-sha256.js"></script>
+  <script type="application/json" id="workflowTopology">__ARUVI_WORKFLOW_TOPOLOGY__</script>
   <script>
     const storageKeys = {
       activeTab: "aruvi.remote.active_tab",
@@ -3848,13 +3849,13 @@
             const path = "/api/mobile/workflows/" + encodeURIComponent(workflow.id);
             const [history, runs, calls] = await Promise.all([request(path + "/history"), request(path + "/agent-runs"), request(path + "/model-calls")]);
             if (state.selectedWorkItemId !== workItem.id || state.delivery?.workflow_run?.id !== workflow.id || !historyCard.isConnected) return;
-            const lanes = [
-              ["Intake", [["Draft", "draft"], ["Requirement analysis", "requirement_analysis"]]],
-              ["Planning swarm", [["Plan split", ""], ["Architecture plan", "planning"], ["Unit test plan", "planning"], ["Integration plan", "planning"], ["UI test plan", "planning"], ["Lead merge", "pending_plan_approval"]]],
-              ["Execution", [["Coding", "coding"]]],
-              ["Verification swarm", [["Verify split", ""], ["Unit tests", "unit_test_generation"], ["Integration tests", "integration_test_generation"], ["UI verification", "ui_test_planning"], ["QA validation", "qa_validation"], ["Security review", "security_review"], ["Performance review", "performance_review"], ["Test review", "pending_test_review"]]],
-              ["Delivery", [["Push preparation", "push_preparation"], ["Git push", "git_push"], ["Done", "done"]]],
-            ];
+            const topology = JSON.parse(document.getElementById("workflowTopology").textContent);
+            const topologyNodes = new Map(topology.nodes.map((node) => [node.id, node]));
+            const lanes = topology.lanes.map((lane) => [lane.label, lane.nodeIds.map((id) => {
+              const node = topologyNodes.get(id);
+              if (!node) throw new Error("Workflow topology references an unknown node");
+              return [node.webLabel || node.label, node.actualStageIds[0] || "", id];
+            })]);
             const stages = [...new Set([workflow.current_stage, ...history.flatMap((entry) => [entry.from_stage, entry.to_stage]), ...runs.map((run) => run.stage), ...calls.map((call) => call.stage), ...lanes.flatMap((lane) => lane[1].map((node) => node[1]))].filter(Boolean))];
             stageSelect.replaceChildren();
             for (const stage of stages) { const option = document.createElement("option"); option.value = stage; option.textContent = stage.replaceAll("_", " "); stageSelect.appendChild(option); }
@@ -3887,15 +3888,9 @@
             stageMap.replaceChildren(); stageMap.className = "stack"; stageMap.style.cssText = "min-width:0;grid-template-columns:minmax(0,1fr)";
             const explanation = document.createElement("p"); explanation.className = "empty"; explanation.textContent = "Workflow map: Current marks the workflow's current stage; Entered means history recorded entry, not completion. Not recorded does not prove a step never ran. Split nodes and parallel lanes explain the design. Planning labels share one runtime stage, so their indicators do not prove individual branches ran."; stageMap.appendChild(explanation);
             const enteredStages = new Set(history.map((entry) => entry.to_stage));
-            const graphNodes = [
-              ["draft", "Draft", "draft", 90, 120], ["requirements", "Requirements", "requirement_analysis", 280, 120], ["plan_split", "Plan split", "", 470, 120, true],
-              ["architecture", "Architecture", "planning", 660, 40], ["unit_plan", "Unit plan", "planning", 660, 100], ["integration_plan", "Integration plan", "planning", 660, 160], ["ui_plan", "UI plan", "planning", 660, 220],
-              ["plan_merge", "Lead merge", "pending_plan_approval", 860, 120, true], ["coding", "Coding", "coding", 1060, 120], ["verify_split", "Verify split", "", 1260, 120, true],
-              ["unit", "Unit tests", "unit_test_generation", 1460, 40], ["integration", "Integration", "integration_test_generation", 1460, 100], ["ui", "UI verification", "ui_test_planning", 1460, 160],
-              ["qa", "QA validation", "qa_validation", 1660, 40], ["security", "Security review", "security_review", 1660, 100], ["performance", "Performance", "performance_review", 1660, 160],
-              ["test_review", "Test review", "pending_test_review", 1860, 120, true], ["push_prep", "Push prep", "push_preparation", 2060, 120], ["git_push", "Git push", "git_push", 2240, 120], ["done", "Done", "done", 2420, 120],
-            ];
-            const graphLinks = [["draft","requirements"],["requirements","plan_split"], ...["architecture","unit_plan","integration_plan","ui_plan"].flatMap((id) => [["plan_split",id],[id,"plan_merge"]]), ["plan_merge","coding"], ["coding","verify_split"], ...["unit","integration","ui","qa","security","performance"].flatMap((id) => [["verify_split",id],[id,"test_review"]]), ["test_review","push_prep"],["push_prep","git_push"],["git_push","done"]];
+            const graphNodes = topology.nodes.map((node) => [node.id, node.graphLabel || node.webLabel || node.label, node.actualStageIds[0] || "", node.x, node.y, node.kind === "split" || node.kind === "merge"]);
+            const graphLinks = topology.links;
+            const graphWidth = Math.max(...topology.lanes.map((lane) => lane.x + lane.width));
             const graphById = new Map(graphNodes.map((node) => [node[0], node]));
             const details = document.createElement("details"), summary = document.createElement("summary"), focusLabel = document.createElement("label"), focusInput = document.createElement("input"), viewport = document.createElement("div");
             details.style.cssText = "min-width:0;max-width:100%"; focusLabel.style.cssText = "display:flex;align-items:center;gap:8px;margin:8px 0"; focusInput.style.cssText = "width:auto;margin:0;padding:0";
@@ -3903,7 +3898,7 @@
             focusInput.type = "checkbox"; focusLabel.append(focusInput, document.createTextNode(" Focus diagram on selected stage"));
             viewport.style.cssText = "width:100%;min-width:0;max-width:100%;overflow-x:auto";
             const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg"), shapes = [];
-            svg.setAttribute("viewBox", "0 0 2480 260"); svg.setAttribute("aria-hidden", "true"); svg.style.cssText = "display:block;width:2480px;height:260px;max-width:none;background:#171b22";
+            svg.setAttribute("viewBox", `0 0 ${graphWidth} 260`); svg.setAttribute("aria-hidden", "true"); svg.style.cssText = `display:block;width:${graphWidth}px;height:260px;max-width:none;background:#171b22`;
             for (const [from, to] of graphLinks) {
               const a = graphById.get(from), b = graphById.get(to), line = document.createElementNS(ns, "line");
               line.setAttribute("x1", a[3] + (a[5] ? 22 : 52)); line.setAttribute("y1", a[4]); line.setAttribute("x2", b[3] - (b[5] ? 22 : 52)); line.setAttribute("y2", b[4]); line.setAttribute("stroke", "#657181"); line.setAttribute("stroke-width", "2"); svg.appendChild(line);
@@ -3926,16 +3921,16 @@
               }
               focusInput.disabled = !selected;
               if (!selected) focusInput.checked = false;
-              const focusLeft = focusInput.checked ? Math.max(0, Math.min(selected[3] - 300, 1880)) : 0;
-              svg.setAttribute("viewBox", focusInput.checked ? `${focusLeft} 0 600 260` : "0 0 2480 260");
-              svg.style.width = focusInput.checked ? "600px" : "2480px";
+              const focusLeft = focusInput.checked ? Math.max(0, Math.min(selected[3] - 300, Math.max(0, graphWidth - 600))) : 0;
+              svg.setAttribute("viewBox", focusInput.checked ? `${focusLeft} 0 600 260` : `0 0 ${graphWidth} 260`);
+              svg.style.width = focusInput.checked ? "600px" : `${graphWidth}px`;
               if (focusInput.checked) viewport.scrollLeft = Math.max(0, selected[3] - focusLeft - viewport.clientWidth / 2);
             };
             focusInput.addEventListener("change", () => updateDiagram(stageSelect.value));
             viewport.appendChild(svg); details.append(summary, focusLabel, viewport); stageMap.appendChild(details);
             for (const [laneName, nodes] of lanes) {
               const lane = document.createElement("div"), label = document.createElement("strong"); lane.className = "tool-card"; lane.style.display = "flex"; lane.style.flexWrap = "wrap"; lane.style.alignItems = "center"; lane.style.gap = "6px"; label.textContent = laneName + ": "; lane.appendChild(label);
-              for (const [name, stage] of nodes) {
+              for (const [name, stage, id] of nodes) {
                 if (!stage) { const split = document.createElement("span"); split.textContent = name + " · "; lane.appendChild(split); continue; }
                 const node = document.createElement("button");
                 const indicator = stage === workflow.current_stage ? "Current" : enteredStages.has(stage) ? "Entered" : "Not recorded";
@@ -3943,7 +3938,7 @@
                 node.setAttribute("aria-label", name); node.setAttribute("aria-description", indicator + " workflow stage");
                 node.textContent = name + " · " + indicator; node.style.maxWidth = "100%";
                 node.style.borderColor = indicator === "Current" ? "#57b0e5" : indicator === "Entered" ? "#4ec9b0" : "";
-                node.addEventListener("click", () => { const planningIds = { "Architecture plan": "architecture", "Unit test plan": "unit_plan", "Integration plan": "integration_plan", "UI test plan": "ui_plan" }; graphSelectedId = planningIds[name] || null; stageSelect.value = stage; renderStage(); }); lane.appendChild(node);
+                node.addEventListener("click", () => { graphSelectedId = id; stageSelect.value = stage; renderStage(); }); lane.appendChild(node);
               }
               stageMap.appendChild(lane);
             }

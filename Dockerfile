@@ -4,6 +4,7 @@ COPY package.json package-lock.json ./
 RUN npm ci
 COPY index.html tsconfig*.json vite.config.ts ./
 COPY src ./src
+COPY src-tauri/resources/workflow-topology.json ./src-tauri/resources/workflow-topology.json
 RUN npm run build
 
 FROM rust:1-bookworm AS build

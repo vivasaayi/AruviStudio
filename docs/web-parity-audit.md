@@ -14,9 +14,8 @@ browser fixture verified the navigation case. Hardware capture remains unverifie
 
 Stage review now includes an optional connected diagram and focused-stage view;
 a disposable native-server browser fixture checked its connections, selection,
-focus and mobile containment. Its topology is explanatory and duplicated with
-the desktop definition; a CI guard detects mismatched nodes or connections, and
-full native-window comparison remains open.
+focus and mobile containment. Its explanatory topology is shared with desktop
+through one repository resource; full native-window comparison remains open.
 
 **Earlier revalidation:** Docker capacity was increased and the worktree database
 passed a read-only SQLite `quick_check`. The current worktree image built and started

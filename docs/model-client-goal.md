@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Shared workflow topology
+
+Desktop and web now consume one repository-owned workflow topology resource.
+The desktop build imports it; Rust embeds it in the served browser page, escaping
+characters that could terminate the JSON element. The existing workflow behavior
+continues to be supplied by server APIs. A CI guard checks node and lane identity,
+runtime-stage compatibility, link validity, acyclicity and lane membership.
+It rejected synthetic missing-node, cyclic and duplicate-lane fixtures. The
+desktop production build and 128 frontend tests passed; a disposable native
+Studio and Chromium fixture passed workflow selection, history, artifact and
+diagram checks using the server-supplied data. All 67 browser tests and 334 Rust
+library tests (seven ignored) passed before the final diagram-label adjustment;
+the native fixture was rerun afterward, including a label-fit assertion and
+desktop/mobile screenshot review. Final focused Rust tests verified the rendered
+JSON and escaping of a script-closing label. Physical native-window comparison
+is still open. The branch image predates this checkpoint until a clean image is
+built, validated and deployed.
+
 ### Connected browser workflow diagram
 
 The browser stage review now offers an optional connected diagram using the
@@ -21,11 +39,8 @@ existing stage details; the existing labeled buttons provide keyboard and
 screen-reader access. An optional focused view follows the selected runtime
 stage, including scrolling it into view at mobile widths. Current and recorded
 entry colors do not assert completion; planning branches still share one runtime
-stage, while their selected diagram node remains distinct; the visual topology is explanatory. The diagram's presentation data
-is presently maintained alongside the desktop definition. A CI guard compares
-their 20 node positions, stage mappings, shapes and 27 connections, and was
-checked against an intentionally changed browser node; this detects drift but
-does not make the definitions a single source.
+stage, while their selected diagram node remains distinct; the visual topology is explanatory. The later shared topology checkpoint
+replaces the separate presentation definitions with one repository resource.
 
 A disposable native Studio server and Chromium fixture verified 27 connections,
 diagram and keyboard selection, focus behavior, unknown stages, stage history and

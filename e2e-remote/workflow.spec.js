@@ -2117,7 +2117,7 @@ test("workflow replaces a disabled coordinator before the next review", async ({
   await expect(diagram.locator('line[x1="1282"]')).toHaveCount(6);
   await expect(diagram.locator('line[x2="1838"]')).toHaveCount(6);
   await page.locator("#deliveryDetails").getByRole("button", { name: "Integration plan", exact: true }).click();
-  await expect(diagram.locator('[data-graph-node="integration_plan"] rect')).toHaveAttribute("stroke", "#8ecbff");
+  await expect(diagram.locator('[data-graph-node="integration_test_plan"] rect')).toHaveAttribute("stroke", "#8ecbff");
   await page.locator("#deliveryDetails").getByRole("button", { name: "Coding", exact: true }).click();
   await page.getByLabel("Focus diagram on selected stage").check();
   await expect(diagram).toHaveAttribute("viewBox", "760 0 600 260");
