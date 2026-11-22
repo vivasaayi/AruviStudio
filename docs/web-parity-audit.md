@@ -153,8 +153,9 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 Work detail now lists direct child work on demand in pages of 50, navigates to
 children or their parent, and can select a work item as the parent for a new
-draft. The list also shows each child's priority, complexity and description;
-the goal checkpoint records the current validation status. This supplies a
+draft. The list also shows each child's priority, complexity and description,
+and offers direct edit and guarded delete actions; the goal checkpoint records
+the current validation status. This supplies a
 browser equivalent to the desktop story's task list;
 it does not yet establish complete story-screen parity. The goal checkpoint
 records validation and pagination limits.

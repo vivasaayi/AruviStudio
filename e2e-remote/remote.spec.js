@@ -2106,7 +2106,7 @@ test("browser places work in hierarchy and under a parent", async ({ page, reque
   }
   const product = await mcp("aruvi_catalog", "create_product", { name: `Placement ${Date.now()}` });
   const other = await mcp("aruvi_catalog", "create_product", { name: `Other placement ${Date.now()}` });
-  let parent, child, grandchild, shortcutChild, scoped;
+  let parent, child, grandchild, shortcutChild, scoped, deleteChild;
   try {
     const area = await mcp("aruvi_catalog", "create_product_area", { product_id: product.id, name: "Placement area" });
     const feature = await mcp("aruvi_catalog", "create_capability", { product_area_id: area.id, name: "Placement capability" });
@@ -2175,8 +2175,35 @@ test("browser places work in hierarchy and under a parent", async ({ page, reque
     const exportItems = await mcp("aruvi_work_items", "list_product_export_work_items", { product_id: product.id });
     expect(exportItems.map((item) => item.id).sort()).toEqual([parent.id, scoped.id, child.id, grandchild.id, shortcutChild.id].sort());
     expect(exportItems.find((item) => item.id === child.id).parent_work_item_id).toBe(parent.id);
+    deleteChild = await mcp("aruvi_work_items", "create_task", {story_id:parent.id,title:"Disposable child"});
+    await page.locator("#workList .work-card").filter({hasText:"Parent story"}).click();
+    await page.getByRole("button",{name:"Load child work",exact:true}).click();
+    await page.getByRole("button",{name:"Edit Child item",exact:true}).click();
+    await expect(page.getByLabel("Edit title")).toHaveValue("Child item");
+    await page.getByLabel("Edit outcome and context").fill("Edited from the parent story");
+    await page.getByRole("button",{name:"Save task",exact:true}).click();
+    await expect(page.locator("#status")).toHaveText("Task saved");
+    expect((await (await request.get(`/api/mobile/work-items/${child.id}`,{headers})).json()).description).toBe("Edited from the parent story");
+    await page.getByRole("button",{name:"Open parent work"}).click();
+    await page.getByRole("button",{name:"Load child work",exact:true}).click();
+    page.once("dialog",dialog => dialog.dismiss());
+    await page.getByRole("button",{name:"Delete Disposable child",exact:true}).click();
+    expect((await request.get(`/api/mobile/work-items/${deleteChild.id}`,{headers})).status()).toBe(200);
+    await mcp("aruvi_work_items","update_work_item",{id:deleteChild.id,description:"Concurrent change"});
+    const staleDelete = page.waitForResponse(r => r.url().endsWith(`/api/mobile/work-items/${deleteChild.id}/delete`) && r.request().method() === "POST");
+    page.once("dialog",dialog => dialog.accept());
+    await page.getByRole("button",{name:"Delete Disposable child",exact:true}).click();
+    expect((await staleDelete).status()).toBe(409);
+    expect((await request.get(`/api/mobile/work-items/${deleteChild.id}`,{headers})).status()).toBe(200);
+    await page.locator("#refreshWorkButton").click();
+    await page.getByRole("button",{name:"Load child work",exact:true}).click();
+    page.once("dialog",dialog => dialog.accept());
+    await page.getByRole("button",{name:"Delete Disposable child",exact:true}).click();
+    await expect(page.locator("#status")).toHaveText("Work item deleted");
+    expect((await request.get(`/api/mobile/work-items/${deleteChild.id}`,{headers})).status()).toBe(404);
+    deleteChild = null;
   } finally {
-    for (const item of [shortcutChild, grandchild, child, scoped, parent]) if (item?.id) await mcp("aruvi_work_items", "delete_work_item", { id: item.id });
+    for (const item of [deleteChild, shortcutChild, grandchild, child, scoped, parent]) if (item?.id) await mcp("aruvi_work_items", "delete_work_item", { id: item.id });
     await mcp("aruvi_catalog", "archive_product", { id: other.id });
     await mcp("aruvi_catalog", "archive_product", { id: product.id });
   }

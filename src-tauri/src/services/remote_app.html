@@ -3961,6 +3961,27 @@
               const description = document.createElement("p"); description.style.cssText = "margin:0;white-space:pre-wrap;overflow-wrap:anywhere";
               description.textContent = child.description; row.appendChild(description);
             }
+            const actions = document.createElement("div"); actions.className = "button-row";
+            const edit = document.createElement("button"); edit.type = "button"; edit.className = "secondary"; edit.textContent = "Edit"; edit.setAttribute("aria-label", "Edit " + child.title);
+            const remove = document.createElement("button"); remove.type = "button"; remove.className = "secondary"; remove.textContent = "Delete"; remove.setAttribute("aria-label", "Delete " + child.title);
+            edit.disabled = remove.disabled = button.disabled;
+            edit.addEventListener("click", async () => {
+              if (state.busy || !card.isConnected || state.selectedWorkItemId !== workItem.id) return;
+              await selectWorkItem(child.id);
+              if (state.selectedWorkItemId === child.id && state.delivery?.work_item.id === child.id) { editWorkItem(); el.editWorkTitle.focus(); }
+            });
+            remove.addEventListener("click", async () => {
+              if (state.busy || !card.isConnected || state.selectedWorkItemId !== workItem.id) return;
+              if (!window.confirm(`Delete “${child.title}”? Its workflow history, approvals and artifact records will be removed. Direct child work items will be detached; workspace and artifact files remain on the server.`)) return;
+              const productId = state.selectedProductId;
+              try {
+                setBusy(true);
+                await request("/api/mobile/work-items/" + encodeURIComponent(child.id) + "/delete", {method:"POST",body:{expected:child}});
+                if (productId === state.selectedProductId) { await loadWorkItems(); if (state.selectedWorkItemId === workItem.id) setStatus("Work item deleted", "ok"); }
+              } catch (error) { if (productId === state.selectedProductId && state.selectedWorkItemId === workItem.id) setStatus(error.message || String(error), "error"); }
+              finally { setBusy(false); }
+            });
+            actions.append(edit, remove); row.appendChild(actions);
             list.appendChild(row);
           }
           offset += page.items.length; load.hidden = !page.has_more; load.textContent = "Load more child work";

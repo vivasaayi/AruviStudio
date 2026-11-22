@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Child task actions: validation in progress
+
+The browser parent-work list now offers direct edit and delete actions for each
+child, as the desktop story view does. Editing opens the existing guarded task
+form. Deletion asks for confirmation and uses the loaded child as the existing
+server-side stale-data baseline; the list is refreshed afterward. Cross-product
+legacy children remain disabled. A native server build and disposable browser
+tests passed edit/save, cancelled deletion, a concurrent MCP edit rejected by
+the delete endpoint, confirmed deletion and 101-child paging. Clean image and
+deployment checks remain pending. Physical desktop acceptance remains open.
+
 ### Independent model-client revalidation
 
 The packaged client passed 67 tests, and its independent consumer passed 32
