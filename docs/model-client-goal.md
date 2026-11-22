@@ -61,6 +61,17 @@ and passed `quick_check` in immutable read-only mode. `docker cp` could not
 access that temporary mount, so the successful transfer used `docker exec cat`.
 Docker's disk still reported zero available bytes; restore sufficient space,
 refresh the backup and recheck active work before deploying the tested image.
+To recover project-owned space, 123 historical candidate and rollback tags were
+saved in `/private/tmp/aruvi-deploy-c518bca/historical-images.tar.gz`; the
+archive's manifest contains every selected tag, gzip integrity passed, and its
+SHA-256 is `b9d08cd9854e114baa0b3812311a4a25b4e6426102b7317ed560abb2e0536ed1`.
+The tags were then removed locally and one rebuildable server-specific BuildKit
+cache entry was pruned using a description filter. The immediate running image
+and tested candidate were retained. Reclaimed space was insufficient: the app
+still reported zero available bytes. Historical tags can be restored with
+`docker load -i /private/tmp/aruvi-deploy-c518bca/historical-images.tar.gz`;
+do so only after sufficient Docker disk space is available. No global prune,
+unrelated project removal or volume deletion was performed.
 
 ### Current worktree deployment at `227fde4`
 
