@@ -857,8 +857,11 @@ The hierarchy filter shows top-level work directly attached to the selected
 area or capability; it does not include descendants from nested nodes. A child
 opened from a matching parent can remain selected outside the filtered list.
 MCP `aruvi_work_items` / `list_work_items` accepts `source_node_id`,
-`source_node_type`, and `top_level_only: true`; `include_pagination: true`
-returns page metadata. Without `top_level_only`, children remain included.
+`source_node_type`, and `top_level_only: true`; the first-class `work_items.list`
+tool advertises the equivalent `sourceNodeId`, `sourceNodeType`, and
+`topLevelOnly` properties. `include_pagination: true` (or
+`includePagination: true`) returns page metadata. Without the top-level option,
+children remain included.
 The authenticated mobile list endpoint accepts the same scope and top-level
 parameters and requires a product when a source node is specified. Both list
 APIs use offsets, so concurrent work changes can shift later pages.

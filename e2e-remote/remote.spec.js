@@ -2317,6 +2317,10 @@ test("browser filters top-level work by hierarchy with pagination", async ({ pag
     expect(mcpFlat.map(x=>x.id)).not.toContain(child.id);
     const mcpDefault=await mcp("aruvi_work_items","list_work_items",{product_id:product.id,source_node_id:first.id,source_node_type:"capability",limit:200});
     expect(mcpDefault.map(x=>x.id)).toContain(child.id);
+    const firstClass=await request.post("/api/mcp",{headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"},data:{jsonrpc:"2.0",id:3,method:"tools/call",params:{name:"work_items.list",arguments:{productId:product.id,sourceNodeId:first.id,sourceNodeType:"capability",topLevelOnly:true,includePagination:true,limit:100}}}});
+    const firstClassResult=(await firstClass.json()).result;
+    expect(firstClassResult.isError,JSON.stringify(firstClassResult)).not.toBeTruthy();
+    expect(firstClassResult.structuredContent.result.workItems.map(x=>x.id).sort()).toEqual(mcpPage.workItems.map(x=>x.id).sort());
     const invalidMcp=await request.post("/api/mcp",{headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"},data:{jsonrpc:"2.0",id:2,method:"tools/call",params:{name:"aruvi_work_items",arguments:{action:"list_work_items",arguments:{top_level_only:"maybe"}}}}});
     expect((await invalidMcp.json()).result.isError).toBeTruthy();
     await page.setViewportSize({width:390,height:844});

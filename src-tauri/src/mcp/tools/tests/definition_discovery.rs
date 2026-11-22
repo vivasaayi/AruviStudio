@@ -189,10 +189,12 @@ fn discovery_exposes_work_item_pagination_metadata_option() {
         .expect("work_items.list tool");
 
     assert!(list_tool.description.contains("includePagination=true"));
+    assert!(list_tool.description.contains("topLevelOnly=true"));
     let properties = list_tool
         .input_schema
         .get("properties")
         .and_then(Value::as_object)
         .expect("properties object");
     assert!(properties.contains_key("includePagination"));
+    assert_eq!(properties["topLevelOnly"]["type"], "boolean");
 }

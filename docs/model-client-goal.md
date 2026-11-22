@@ -20,7 +20,8 @@ lists. It now loads hierarchy choices separately from the creation draft and
 requests top-level work directly attached to the chosen area or capability.
 The authenticated mobile endpoint accepts paired source-node filters and an
 optional top-level flag. MCP `list_work_items` also accepts `top_level_only`
-with and without pagination; both APIs retain their prior defaults. Reordering
+with and without pagination; the first-class `work_items.list` tool advertises
+`topLevelOnly`. Both APIs retain their prior defaults. Reordering
 is disabled when either filter is active. An opened child can remain selected
 outside the filtered list if it belongs to the selected scope; the page reports
 that selection even when the filtered top-level list is empty.
@@ -30,7 +31,8 @@ pagination, status filtering, children, cross-product isolation, authorization,
 invalid input, legacy MCP defaults, stale page responses and changing product
 while hierarchy choices load, including at 390×844 without document overflow.
 It also checked that an area filter excludes work directly attached to nested
-capabilities and vice versa.
+capabilities and vice versa. First-class MCP discovery and a first-class scoped
+query were also checked.
 Lists use offsets and are not stable snapshots
 under concurrent changes. The configured native browser suite passed 49 tests
 with five fixture-dependent skips; the native Rust library suite passed 351
