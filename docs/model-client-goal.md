@@ -19,7 +19,8 @@ complexity, which the desktop story detail displays. A native server build and
 three disposable browser tests passed, including creating a high-priority,
 very-high-complexity bug and checking its displayed metadata. Clean-image and
 deployment validation remain pending; this does not establish full work-item
-parity.
+parity. A configured native browser run passed 48 tests and skipped five that
+require additional fixtures.
 
 ### Rust advisory revalidation: 2026-11-22
 
