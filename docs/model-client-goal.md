@@ -22,13 +22,25 @@ runtime-stage compatibility, link validity, acyclicity and lane membership.
 It rejected synthetic missing-node, cyclic and duplicate-lane fixtures. The
 desktop production build and 128 frontend tests passed; a disposable native
 Studio and Chromium fixture passed workflow selection, history, artifact and
-diagram checks using the server-supplied data. All 67 browser tests and 334 Rust
-library tests (seven ignored) passed before the final diagram-label adjustment;
-the native fixture was rerun afterward, including a label-fit assertion and
-desktop/mobile screenshot review. Final focused Rust tests verified the rendered
+diagram checks using the server-supplied data. On the final source, all 67 browser
+tests and 334 Rust library tests passed (seven ignored). The native fixture
+included a label-fit assertion and desktop/mobile screenshot review. Focused Rust tests verified the rendered
 JSON and escaping of a script-closing label. Physical native-window comparison
-is still open. The branch image predates this checkpoint until a clean image is
-built, validated and deployed.
+is still open.
+
+Both hosted test runs and the clean ARM64 image build passed for `37ffe58`,
+including the Docker frontend resource copy. The downloaded archive checksum
+and source revision were verified. Its server binary (SHA-256
+`ad63af4ba3964204a7f8abbbc152c30388d692bdb6f0072c56654edf835b3c0b`)
+was layered onto the prior runtime to produce derived image
+`sha256:d057feef085e46424d100b420259e04b2a148f1a78eb64ba150fa2e0c5cee923`,
+not the full clean artifact. It passed 56 isolated workflow tests, 45 browser
+tests with one skipped, and the PDF outage check. A checked database backup and
+the prior image were retained. Product, MCP, mobile and PDF checks passed across
+restart, along with browser-origin MCP, real local 7B MCP coding, MCP speech and
+continuous browser voice using synthetic audio with real Model Host Whisper and
+the local coding model. The branch endpoint was `127.0.0.1:55288`; physical
+audio and general recognition reliability remain unverified.
 
 ### Connected browser workflow diagram
 
@@ -411,6 +423,17 @@ lock to coordinate duplicate path checks. This protection requires cooperating
 versions sharing a database; legacy/direct writers and external filesystem
 changes are outside it. MCP write protection requires clients to supply the
 opened root, and desktop buffers do not yet have this guard.
+
+Desktop IDE follow-up: the current Tauri file-read command returns content but
+not the opened workspace root, and its save command fetches the repository's
+current path and writes without comparing the buffer's original content. A
+workspace-path change or external edit can therefore redirect or overwrite a
+stale desktop buffer. Reviewed desktop patches check the file hash/existence but
+also resolve the current workspace path without an opened-root check. A complete
+fix needs an atomic server-side snapshot of root and content at open, guarded
+save and patch operations coordinated with workspace updates, and tests for path
+changes, external content edits, concurrent updates and older IPC clients. This
+is an outstanding desktop data-integrity gap, not a completed parity claim.
 
 A disposable native browser/MCP fixture tested stale snapshots and preserved
 drafts, duplicate and concurrent registrations, active/paused workflow and CLI
