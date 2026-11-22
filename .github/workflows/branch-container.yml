@@ -15,6 +15,9 @@ on:
       - src/**
       - src-tauri/**
       - crates/**
+      - scripts/**
+      - e2e-remote/**
+      - playwright.remote.config.js
       - vendor/**
       - docs/mcp-resources/**
       - LICENSE
@@ -39,6 +42,24 @@ jobs:
             --tag "aruvi-branch:$GITHUB_SHA" .
           docker image inspect "aruvi-branch:$GITHUB_SHA" --format '{{.Id}} {{.Os}}/{{.Architecture}}' > image-identity.txt
           printf '%s\n' "$GITHUB_SHA" > source-revision.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install browser fixture dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Validate the exact clean image
+        env:
+          ARUVI_TEST_PROJECT: aruvi-studio-fixture-${{ github.run_id }}-${{ github.run_attempt }}
+          ARUVI_TEST_ENV_FILE: ${{ runner.temp }}/aruvi-fixture.env
+          ARUVI_TEST_APP_IMAGE: aruvi-branch:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf 'APP_IMAGE=%s\n' "$ARUVI_TEST_APP_IMAGE" > "$ARUVI_TEST_ENV_FILE"
+          bash scripts/test-host-browser-fixture.sh workflow
+          bash scripts/test-host-browser-fixture.sh remote
       - name: Export and checksum image
         run: |
           set -euo pipefail

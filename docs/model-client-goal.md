@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Clean-image browser validation
+
+The ARM64 branch build now runs the isolated workflow and remote-browser suites
+against the exact image it just built before exporting that image. CI supplies a
+uniquely named disposable Compose project, a private synthetic environment file
+and an explicit image, so the fixtures do not need a developer's organization
+checkout or credentials. The usual worktree path remains the default. Fixture
+identity validation rejects other project names and requires both an environment
+file and explicit test image.
+
+On the Mac, this explicit fixture mode passed 60 workflow tests, 45 remote UI
+tests with one skipped, and the PDF outage check against the existing derived
+worktree candidate; containers and test volumes were removed. An invalid
+project name was rejected before startup. The new hosted clean-image step has
+not yet completed at this checkpoint; its result must be checked before relying
+on it. The fixture uses simulated providers and does not establish staging,
+physical audio or real-provider behavior.
+
 ### Planner voice submission lifecycle
 
 Desktop Planner previously treated its own pending transcription as a busy
