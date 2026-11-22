@@ -51,8 +51,10 @@ the frontend build and 139 frontend tests passed. The focused desktop Planner
 suite passed all 12 tests. A wider run reported 80 passing tests only after the
 Playwright runner was interrupted during teardown; a second run with the list
 reporter completed cleanly with all 80 passing. This has not been validated in
-a physical native window. Direct voice selection of existing catalog items remains a separate
-parity gap. Worktree deployment and clean image validation for this frontend
+a physical native window. An isolated native debug process later started with a
+temporary database, but the computer-control interface reported
+`cgWindowNotFound` and could not inspect the window; that process was stopped.
+Direct voice selection of existing catalog items remains a separate parity gap. Worktree deployment and clean image validation for this frontend
 change are pending.
 
 ### Current worktree deployment at `79be018`
