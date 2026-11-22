@@ -26,7 +26,8 @@ the requested child is staged and created under the selected area. A native
 real-Model-Host repeat then succeeded in two model calls, preserving the area ID
 and creating the requested child only after confirmation. This is one sample;
 the earlier failures remain evidence of model variability. Packaged-image
-validation must be repeated against the latest revision.
+validation must be repeated against the latest revision. The full Rust library
+suite passed 361 tests with eight ignored after this change.
 
 ### Bound Planner catalog updates (in validation)
 
