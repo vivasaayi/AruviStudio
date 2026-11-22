@@ -3374,8 +3374,11 @@ test("browser manages portfolio strategy and product dependencies", async ({ pag
     await expect(page.locator('#portfolioScopeSummary')).toContainText('1 product(s) in scope');
     await expect(page.locator('#portfolioScopeProducts')).not.toContainText(a.name);
     await expect(page.locator('#portfolioScopeProducts')).toContainText(b.name);
+    await page.setViewportSize({width:390,height:844});
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.locator('#portfolioScopeProducts').getByRole('button',{name:b.name,exact:true}).click();
     await expect(page.locator('#productStatus')).toContainText(b.name);
+    await page.setViewportSize({width:1280,height:900});
     await call('delete_strategy_node',{id:child.id});
     await page.getByRole('button',{name:'Refresh portfolio'}).click();
     await expect(page.getByLabel('View products in strategy')).toHaveValue('');
