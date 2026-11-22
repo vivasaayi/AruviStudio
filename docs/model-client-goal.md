@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Hierarchy creation transaction in progress
+### Hierarchy creation transaction: branch validation
 
 Browser hierarchy creation previously checked product and area scope before
 dispatching a separate catalog insert. It now reserves the SQLite writer before
@@ -33,7 +33,27 @@ two-container Linux fixture reproduced an incorrect cross-product creation on
 the prior worktree image, then rejected it on the fixed candidate. It also
 verified distinct sort positions from concurrent browser and MCP creation
 across the two servers. The fixture uses its own disposable volume and tokens.
-Hosted clean-image checks and branch deployment remain pending.
+Hosted test workflows `45031694350` and `45031698565` passed; clean ARM64 and
+AMD64 image validation in run `45031694352` passed for source `3e08b81`.
+Later commits add only the repeatable two-container fixture and checkpoint
+material. The worktree candidate used the hash-verified ARM64 server from the
+clean image on the existing runtime image, so it is derived rather than the
+complete clean image. Its image ID is
+`sha256:901fd1d76699ab14298ee1bbb8265a0f82e8f8bca2eb10f6ee04eb915edce2ef`;
+the server SHA-256 is
+`27c6a7eaae8d6bbb6c9cd7a6bb886d92f0fa3d8a4a6ec5a1f3fc9e28cbdf4676`.
+The candidate passed 62 workflow tests, 51 browser tests (one skipped), PDF
+isolation and outage checks, simulated CI, and the real-host packaged quick
+start and stream cancellation. The scoped-credential fixture passed.
+
+After checking active jobs and backing up the database, the worktree app and
+PDF containers were updated. Restart acceptance checked product persistence,
+MCP, mobile authorization and PDF. The deployed branch passed browser
+hierarchy creation and ordering at phone and desktop widths using disposable,
+archived products. Chrome checked all 13 sections and published-port MCP
+origin rules; real local coding and synthetic speech passed. The previous image
+remains tagged for rollback. Physical desktop and audio, live third-party
+providers, deployed Aruvici, Mac integration and VPS staging remain unverified.
 
 ### Hierarchy creation details parity: branch validation
 
