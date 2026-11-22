@@ -34,8 +34,10 @@ pub struct UpdateProductAreaPatch<'a> {
 }
 
 pub async fn create_product_area(pool: &SqlitePool, input: CreateProductAreaInput<'_>) -> Result<ProductArea, AppError> {
-    let mut conn = pool.acquire().await?;
-    create_product_area_in_conn(&mut conn, input).await
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let result = create_product_area_in_conn(&mut tx, input).await?;
+    tx.commit().await?;
+    Ok(result)
 }
 
 pub(crate) async fn create_product_area_in_conn(conn: &mut SqliteConnection, input: CreateProductAreaInput<'_>) -> Result<ProductArea, AppError> {

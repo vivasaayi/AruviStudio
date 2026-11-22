@@ -12,15 +12,31 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Hierarchy creation transaction in progress
+
+Browser hierarchy creation previously checked product and area scope before
+dispatching a separate catalog insert. It now reserves the SQLite writer before
+checking scope and keeps the same transaction for hierarchy validation, sort
+allocation and insertion. The shared desktop/MCP area and capability creation
+functions also reserve the writer through sort allocation and insertion.
+The planner's existing in-transaction creation continues to use the shared
+connection helpers. These reservations coordinate SQLite writers using the
+same database; they do not make a multi-step planner or template operation
+atomic as a whole.
+
+An initial Rust race fixture held a competing area move and verified that a
+browser request waited, rejected the changed scope and created no child. The
+fixture also covers simultaneous browser and MCP creation. The full native
+suite and branch validation are pending for the final shared-writer changes.
+
 ### Hierarchy creation details parity: branch validation
 
 The desktop creation forms accept a product-area description and, for a
 capability or feature, a description, acceptance criteria and technical notes.
 The browser creation forms now accept those fields, and the mobile API forwards
-them to the existing catalog service. They are optional for older clients;
-criteria and technical notes are rejected for a product area. The existing
-creation scope checks remain as before and are not a single transaction with
-the subsequent catalog insert.
+them to the catalog persistence layer. They are optional for older clients;
+criteria and technical notes are rejected for a product area. The later
+transaction checkpoint covers the scope-check race.
 
 A disposable native server and headless browser created all three hierarchy
 levels, checked the stored values through the product tree and MCP, and checked

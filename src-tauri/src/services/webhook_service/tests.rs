@@ -118,6 +118,48 @@ async fn hierarchy_reordering_is_scoped_atomic_and_detects_stale_snapshots() {
     assert_ne!(first.is_ok(), second.is_ok());
 }
 
+#[tokio::test]
+async fn hierarchy_creation_validates_scope_within_the_write_transaction() {
+    let app: tauri::App<MockRuntime> = make_test_app("hierarchy_create_scope_race").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db,"mobile.api_token","create-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    async fn catalog(state: &AppState, action: &str, args: Value) -> Value {
+        crate::mcp::dispatch_tool(state,"aruvi_catalog",json!({"action":action,"arguments":args})).await.unwrap()["result"].clone()
+    }
+    let a = catalog(&state,"create_product",json!({"name":"Product A"})).await;
+    let b = catalog(&state,"create_product",json!({"name":"Product B"})).await;
+    let a_id = a["id"].as_str().unwrap().to_string(); let b_id = b["id"].as_str().unwrap();
+    let area = catalog(&state,"create_product_area",json!({"product_id":a_id,"name":"Movable area"})).await;
+    let area_id = area["id"].as_str().unwrap().to_string();
+    let mut writer = state.db.begin_with("BEGIN IMMEDIATE").await.unwrap();
+    sqlx::query("UPDATE product_areas SET product_id=? WHERE id=?").bind(b_id).bind(&area_id).execute(&mut *writer).await.unwrap();
+    let request_router = router.clone(); let uri = format!("/api/mobile/products/{a_id}/hierarchy");
+    let body = json!({"name":"Wrong-scope child","product_area_id":area_id,"description":"test"});
+    let pending = tokio::spawn(async move { send_json(&request_router,Method::POST,&uri,Some("create-token"),Some(body)).await });
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert!(!pending.is_finished(), "creation should wait for the concurrent writer");
+    writer.commit().await.unwrap();
+    assert_eq!(pending.await.unwrap().0,StatusCode::BAD_REQUEST);
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM capabilities WHERE product_area_id=?").bind(&area_id).fetch_one(&state.db).await.unwrap();
+    assert_eq!(count,0);
+    let uri = format!("/api/mobile/products/{b_id}/hierarchy");
+    let (first,second) = tokio::join!(
+        send_json(&router,Method::POST,&uri,Some("create-token"),Some(json!({"name":"One","description":"area details"}))),
+        crate::mcp::dispatch_tool(&state,"aruvi_catalog",json!({"action":"create_product_area","arguments":{"product_id":b_id,"name":"Two"}})),
+    );
+    assert_eq!(first.0,StatusCode::CREATED); assert!(second.is_ok());
+    let orders: Vec<i64> = sqlx::query_scalar("SELECT sort_order FROM product_areas WHERE product_id=? AND name IN ('One','Two') ORDER BY sort_order").bind(b_id).fetch_all(&state.db).await.unwrap();
+    assert_eq!(orders.len(),2); assert_ne!(orders[0],orders[1]);
+    let (first,second) = tokio::join!(
+        send_json(&router,Method::POST,&uri,Some("create-token"),Some(json!({"name":"Cap One","product_area_id":area_id}))),
+        crate::mcp::dispatch_tool(&state,"aruvi_catalog",json!({"action":"create_capability","arguments":{"product_area_id":area_id,"name":"Cap Two"}})),
+    );
+    assert_eq!(first.0,StatusCode::CREATED); assert!(second.is_ok());
+    let orders: Vec<i64> = sqlx::query_scalar("SELECT sort_order FROM capabilities WHERE product_area_id=? AND name IN ('Cap One','Cap Two') ORDER BY sort_order").bind(&area_id).fetch_all(&state.db).await.unwrap();
+    assert_eq!(orders.len(),2); assert_ne!(orders[0],orders[1]);
+}
+
 fn parse_json(body: &str) -> Value {
     serde_json::from_str(body).expect("response body should be JSON")
 }

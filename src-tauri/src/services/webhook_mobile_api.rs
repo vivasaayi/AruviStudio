@@ -2108,26 +2108,42 @@ pub(crate) struct MobileCreateHierarchyNode {
 
 pub(crate) async fn mobile_create_hierarchy_node(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Json(body): Json<MobileCreateHierarchyNode>) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
-    let db = &state.app_state.db;
     if body.name.trim().is_empty() || body.name.len() > 200 { return (StatusCode::BAD_REQUEST, "Name must contain 1 to 200 characters").into_response(); }
-    if product_repo::get_product(db, &product_id).await.is_err() { return (StatusCode::BAD_REQUEST, "Product not found").into_response(); }
     if body.product_area_id.is_some() && body.purpose.is_some() { return (StatusCode::BAD_REQUEST, "Purpose applies only to product areas").into_response(); }
     if body.product_area_id.is_none() && (body.acceptance_criteria.is_some() || body.technical_notes.is_some()) { return (StatusCode::BAD_REQUEST, "Acceptance criteria and technical notes apply only to capabilities and features").into_response(); }
-    let action = if let Some(area_id) = &body.product_area_id {
-        let exists = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM product_areas WHERE id=? AND product_id=?)").bind(area_id).bind(&product_id).fetch_one(db).await;
-        if !matches!(exists, Ok(true)) { return (StatusCode::BAD_REQUEST, "Product area does not belong to this product").into_response(); }
-        if let Some(parent_id) = &body.parent_capability_id {
-            let exists = sqlx::query_scalar::<_, bool>("SELECT EXISTS(SELECT 1 FROM capabilities WHERE id=? AND product_area_id=?)").bind(parent_id).bind(area_id).fetch_one(db).await;
-            if !matches!(exists, Ok(true)) { return (StatusCode::BAD_REQUEST, "Parent does not belong to this product area").into_response(); }
-        }
-        "create_capability"
-    } else {
-        if body.parent_capability_id.is_some() { return (StatusCode::BAD_REQUEST, "Product area is required for a child").into_response(); }
-        "create_product_area"
-    };
-    let arguments = serde_json::json!({"product_id": product_id, "product_area_id":body.product_area_id, "parent_capability_id":body.parent_capability_id, "name":body.name.trim(), "description":body.description.unwrap_or_default(), "purpose":body.purpose.unwrap_or_default(), "acceptance_criteria":body.acceptance_criteria.unwrap_or_default(), "technical_notes":body.technical_notes.unwrap_or_default()});
-    match crate::mcp::dispatch_tool(&state.app_state, "aruvi_catalog", serde_json::json!({"action":action,"arguments":arguments})).await {
-        Ok(result) => (StatusCode::CREATED, Json(result["result"].clone())).into_response(),
+    if body.product_area_id.is_none() && body.parent_capability_id.is_some() { return (StatusCode::BAD_REQUEST, "Product area is required for a child").into_response(); }
+    let result: Result<serde_json::Value, crate::error::AppError> = async {
+        use crate::persistence::{product_area_repo, product_capability_repo, product_core_repo};
+        use crate::error::AppError;
+        // Reserve the writer before validating scope, and retain it through the
+        // insert and sort-order allocation. Other SQLite writers cannot move or
+        // delete the validated area or parent in the middle of this operation.
+        let mut tx = state.app_state.db.begin_with("BEGIN IMMEDIATE").await?;
+        product_core_repo::get_product_in_conn(&mut tx, &product_id).await?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let description = body.description.as_deref().unwrap_or_default();
+        let created = if let Some(area_id) = &body.product_area_id {
+            let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM product_areas WHERE id=? AND product_id=?)").bind(area_id).bind(&product_id).fetch_one(&mut *tx).await?;
+            if !exists { return Err(AppError::Validation("Product area does not belong to this product".into())); }
+            let capability = product_capability_repo::create_capability_in_conn(&mut tx, product_capability_repo::CreateCapabilityInput {
+                id:&id, product_area_id:area_id, parent_capability_id:body.parent_capability_id.as_deref(), name:body.name.trim(), description,
+                acceptance_criteria:body.acceptance_criteria.as_deref().unwrap_or_default(), priority:"medium", risk:"medium",
+                technical_notes:body.technical_notes.as_deref().unwrap_or_default(), node_kind:None,
+                explanation:"", examples:"", implementation_notes:"", test_guidance:"",
+            }).await?;
+            serde_json::to_value(capability)?
+        } else {
+            let area = product_area_repo::create_product_area_in_conn(&mut tx, product_area_repo::CreateProductAreaInput {
+                id:&id, product_id:&product_id, name:body.name.trim(), description, purpose:body.purpose.as_deref().unwrap_or_default(),
+                node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"",
+            }).await?;
+            serde_json::to_value(area)?
+        };
+        tx.commit().await?;
+        Ok(created)
+    }.await;
+    match result {
+        Ok(result) => (StatusCode::CREATED, Json(result)).into_response(),
         Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
     }
 }

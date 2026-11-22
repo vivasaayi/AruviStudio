@@ -155,8 +155,8 @@ Browser hierarchy creation now supports the desktop's product-area description
 and capability/feature description, acceptance criteria and technical notes.
 The server forwards them to the catalog service; older clients can omit them.
 A disposable browser verified creation and MCP reads at phone and desktop
-widths. See the goal checkpoint for validation and the existing scope-check
-race limitation.
+widths. A later change moves the browser's scope checks into its write
+transaction; see the goal checkpoint for validation and limits.
 
 The browser product tree now offers move-up and move-down controls for product
 areas and for capability or feature siblings. Its authenticated reorder call
