@@ -30,6 +30,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Native Model Host revalidation with portfolio revision
+
+A disposable current native server passed Model Host discovery, coding and
+general Copilot through MCP, browser general Copilot, and a synthetic
+Piper/Whisper speech round trip. Coding used `qwen25-coder-7b-q4` on the
+validation worktree; speech used the integration host. Two preceding attempts
+with the integration host's `qwen-05b-comparison` returned coding output but
+hit the configured token limit on the general Copilot prompt, so they did not
+reach browser or speech checks. This records individual model outcomes, not a
+guarantee for other prompts, physical audio or deployed Docker behavior.
+
 ### Portfolio strategy scope
 
 Browser Products now displays all products or those linked within a selected
