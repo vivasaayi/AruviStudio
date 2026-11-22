@@ -12,6 +12,25 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Hierarchy creation details parity in progress
+
+The desktop creation forms accept a product-area description and, for a
+capability or feature, a description, acceptance criteria and technical notes.
+The browser creation forms now accept those fields, and the mobile API forwards
+them to the existing catalog service. They are optional for older clients;
+criteria and technical notes are rejected for a product area. The existing
+creation scope checks remain as before and are not a single transaction with
+the subsequent catalog insert.
+
+A disposable native server and headless browser created all three hierarchy
+levels, checked the stored values through the product tree and MCP, and checked
+unauthenticated, wrong-product and invalid-field requests. Creation was also
+exercised at 390×844 without document overflow; the ordering regression passed.
+The first browser run revealed ambiguous accessible labels and selectors; the
+subsequent run passed after the optional-field labels were clarified. Full Rust,
+hosted clean-image checks, branch deployment and physical desktop comparison
+remain pending.
+
 ### Product hierarchy ordering parity: branch validation
 
 Desktop supports reordering product areas, capabilities and features, but the

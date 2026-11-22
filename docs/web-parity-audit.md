@@ -151,6 +151,13 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+Browser hierarchy creation now supports the desktop's product-area description
+and capability/feature description, acceptance criteria and technical notes.
+The server forwards them to the catalog service; older clients can omit them.
+A disposable browser verified creation and MCP reads at phone and desktop
+widths. See the goal checkpoint for validation and the existing scope-check
+race limitation.
+
 The browser product tree now offers move-up and move-down controls for product
 areas and for capability or feature siblings. Its authenticated reorder call
 checks the complete displayed order and product scope, then updates the group

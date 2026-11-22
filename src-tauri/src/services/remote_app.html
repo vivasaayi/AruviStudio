@@ -617,6 +617,7 @@
                 </div>
                 <form id="createAreaForm" class="stack">
                   <label><span class="label">New product area</span><input id="newAreaName" maxlength="200" required /></label>
+                  <label><span class="label">Product area description (optional)</span><textarea id="newAreaDescription"></textarea></label>
                   <label><span class="label">Product area purpose (optional)</span><input id="newAreaPurpose" /></label>
                   <button id="createAreaButton" type="submit" disabled>Add product area</button>
                 </form>
@@ -3406,11 +3407,19 @@
             const form = document.createElement("form"); form.className = "stack";
             const input = document.createElement("input"); input.required = true; input.maxLength = 200;
             input.setAttribute("aria-label", "New " + kind + " in " + item.name); input.placeholder = "New " + kind + " name";
+            const optional = document.createElement("details");
+            const optionalTitle = document.createElement("summary"); optionalTitle.textContent = "Additional fields"; optional.appendChild(optionalTitle);
+            const fields = {};
+            for (const [key, label] of [["description", "Description"], ["acceptance_criteria", "Acceptance criteria"], ["technical_notes", "Technical notes"]]) {
+              const fieldLabel = document.createElement("label"); fieldLabel.textContent = label;
+              const field = document.createElement("textarea"); field.setAttribute("aria-label", label + " for " + kind + " under " + item.name);
+              fieldLabel.appendChild(field); optional.appendChild(fieldLabel); fields[key] = field;
+            }
             const submit = document.createElement("button"); submit.type = "submit"; submit.className = "secondary"; submit.textContent = "Add " + kind;
-            form.append(input, submit);
+            form.append(input, optional, submit);
             form.addEventListener("submit", async (event) => {
               event.preventDefault(); submit.disabled = true;
-              try { await createHierarchyNode(productId, areaId, item.node_kind === "product_area" ? null : item.id, input.value); }
+              try { await createHierarchyNode(productId, areaId, item.node_kind === "product_area" ? null : item.id, input.value, null, Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value]))); }
               finally { submit.disabled = false; }
             });
             details.appendChild(form);
@@ -3447,12 +3456,12 @@
       finally { if (state.selectedProductId === productId) el.resetPlanButton.disabled = !state.productSummary; }
     }
 
-    async function createHierarchyNode(productId, areaId, parentId, name, purpose = null) {
+    async function createHierarchyNode(productId, areaId, parentId, name, purpose = null, details = {}) {
       if (!productId || !name.trim()) { setStatus("Enter a name", "error"); return; }
       try {
-        await request("/api/mobile/products/" + encodeURIComponent(productId) + "/hierarchy", { method: "POST", body: { name: name.trim(), product_area_id: areaId, parent_capability_id: parentId, purpose } });
+        await request("/api/mobile/products/" + encodeURIComponent(productId) + "/hierarchy", { method: "POST", body: { name: name.trim(), product_area_id: areaId, parent_capability_id: parentId, purpose, ...details } });
         if (state.selectedProductId !== productId) return;
-        if (!areaId) { el.newAreaName.value = ""; document.getElementById("newAreaPurpose").value = ""; }
+        if (!areaId) { el.newAreaName.value = ""; document.getElementById("newAreaPurpose").value = ""; document.getElementById("newAreaDescription").value = ""; }
         await loadProductSummary(productId);
         const button = el.productTree.querySelector("button");
         if (button && state.selectedProductId === productId) await loadProductTree(productId, button);
@@ -3463,7 +3472,7 @@
       event.preventDefault();
       const productId = state.selectedProductId;
       el.createAreaButton.disabled = true;
-      try { await createHierarchyNode(productId, null, null, el.newAreaName.value, document.getElementById("newAreaPurpose").value); }
+      try { await createHierarchyNode(productId, null, null, el.newAreaName.value, document.getElementById("newAreaPurpose").value, {description:document.getElementById("newAreaDescription").value}); }
       finally { el.createAreaButton.disabled = !state.selectedProductId; }
     }
 
