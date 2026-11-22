@@ -69,8 +69,10 @@ integration and staging remain unverified.
 The separate Model Host draft branch `1302b938bbc4edaf260d247ac64b4d607c82dd19`
 remains unmerged. Two isolated lifecycle tests passed against its existing local
 binary, including inference access and denial for all unapproved protected
-routes derived from the current router. This does not establish that the deployed
-host uses scoped credentials. An attempted full offline Cargo rerun started a
+routes derived from the current router. Two further isolated lifecycle tests
+passed against the same binary: existing authentication when no inference token
+is configured, and inference-token streaming and media with simulated workers.
+These do not establish that the deployed host uses scoped credentials. An attempted full offline Cargo rerun started a
 fresh dependency compilation; it was stopped to avoid exhausting the Mac's disk,
 and only files created by that interrupted attempt were removed. The earlier
 full-suite results remain historical evidence rather than a new full-suite pass.
