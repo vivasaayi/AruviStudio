@@ -30,6 +30,33 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Worktree deployment at `4576218`
+
+The clean ARM64 and AMD64 image jobs and both hosted test workflows passed for
+`4576218102304e4d98ffe0d4d3e0e8f1f26e725c`. The ARM64 archive checksum and
+source revision were verified; its exported configuration and layer digests
+matched the imported Docker image `sha256:1068980450ccd55e315e59627f698869042f1681fec9553d01c18251709d0cfa`
+(hosted image ID `sha256:ebf8072e1006f3f77f0458525bc1b8af85b4332590d633de116af9db4485b3c4`).
+The isolated local packaged browser fixture passed 65 tests with one skipped;
+workflow passed 62, CI passed one, and PDF isolation and outage checks passed.
+The latest native Rust suite passed 368 tests with eight ignored; frontend passed
+145, mocked desktop browser passed 84, and the native server browser fixture
+passed 44 with 22 skips. The first desktop rerun used the wrong Chrome path
+variable and failed to start the browser; the corrected run passed.
+
+With no active workflow, CLI or import jobs, an online SQLite backup passed
+`quick_check` and was retained under `/private/tmp/aruvi-deploy-4576218` before
+deploying. The previous image is tagged `aruvi-studio-worktree-backup:pre-4576218`.
+App and PDF health, exact running image, persistent product and authenticated
+MCP/mobile/PDF checks passed across restart. Published-port MCP origin checks,
+phone and desktop layout for 13 sections, real local coding through MCP and
+browser streaming, synthetic Piper/Whisper speech through MCP and continuous
+browser voice all passed. The deployed MCP snapshot test returned an escaped,
+offline hierarchy without scripts. A disposable real-model Planner fixture
+staged an existing area in the browser and confirmed via MCP; it needed one
+model-format retry. Physical microphone and native-window behavior remain
+unverified. This is a worktree deployment, not Mac integration or VPS staging.
+
 ### Offline Planner snapshot diagrams
 
 The no-session snapshot packet now renders a self-contained SVG overview and a
