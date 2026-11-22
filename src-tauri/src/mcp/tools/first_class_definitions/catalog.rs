@@ -8,6 +8,18 @@ mod product_design;
 pub(super) fn definitions() -> Vec<ToolDefinition> {
     let mut definitions = vec![
         first_class_tool(
+            "catalog.hierarchy.reorder_checked",
+            "Reorder Hierarchy",
+            "Atomically reorder all siblings if their displayed order is unchanged. Omit areaId for product areas, or supply areaId and optionally parentId for capabilities and features.",
+            object_schema(vec![
+                ("productId", string_property("Product owning the sibling group.")),
+                ("areaId", string_property("Product area containing the capabilities, if applicable.")),
+                ("parentId", string_property("Parent capability, if reordering its children.")),
+                ("expectedOrder", string_array_property("All sibling IDs in their displayed order.")),
+                ("orderedIds", string_array_property("The same sibling IDs in the requested order.")),
+            ], &["productId", "expectedOrder", "orderedIds"]),
+        ),
+        first_class_tool(
             "catalog.products.list",
             "List Products",
             "List visible products in the Aruvi catalog.",

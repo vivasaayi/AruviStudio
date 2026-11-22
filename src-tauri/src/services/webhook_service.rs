@@ -12,7 +12,7 @@ use crate::services::webhook_mobile_api::{
     mobile_submit_bulk_import, mobile_bulk_import_jobs, mobile_bulk_import_status,
     mobile_update_repository,
     mobile_export_product_book, mobile_export_planner_review_packet, mobile_validate_planner_draft, mobile_planner_suggestions, mobile_planner_match_actions, mobile_analyze_planner_repository, mobile_clear_planner_turn, mobile_confirm_planner_turn, mobile_create_planner_session, mobile_create_product, mobile_edit_planner_draft,
-    mobile_list_scoped_references, mobile_create_scoped_reference, mobile_delete_scoped_reference, mobile_get_model_call, mobile_get_product_tree, mobile_get_product_tree_summary, mobile_list_product_areas, mobile_create_hierarchy_node, mobile_update_hierarchy_node, mobile_delete_hierarchy_node, mobile_reset_product_plan,
+    mobile_list_scoped_references, mobile_create_scoped_reference, mobile_delete_scoped_reference, mobile_get_model_call, mobile_get_product_tree, mobile_get_product_tree_summary, mobile_list_product_areas, mobile_create_hierarchy_node, mobile_update_hierarchy_node, mobile_delete_hierarchy_node, mobile_reorder_hierarchy, mobile_reset_product_plan,
     mobile_update_product, mobile_healthcheck, mobile_list_model_calls, mobile_workflow_model_calls, mobile_workflow_agent_runs, mobile_workflow_history, mobile_model_call_snapshot, mobile_list_products, mobile_submit_planner_turn,
     mobile_list_providers, mobile_discover_provider_models, mobile_provider_transport_capabilities, mobile_provider_stream_usage, mobile_update_provider_stream_usage, mobile_provider_transcription_mode, mobile_update_provider_transcription_mode, mobile_create_provider, mobile_update_provider, mobile_delete_provider, mobile_rotate_provider_credential, mobile_clear_provider_credential, mobile_cleanup_provider_credentials, mobile_list_models, mobile_create_model, mobile_register_local_model, mobile_install_local_model, mobile_update_model, mobile_delete_model, mobile_test_provider,
     mobile_list_repositories, mobile_register_repository, mobile_create_workspace, mobile_inspect_repository, mobile_save_repository_file, mobile_list_repository_attachments, mobile_attach_repository, mobile_set_default_repository, mobile_detach_repository,
@@ -429,6 +429,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         .route("/api/mobile/products/:product_id/hierarchy", post(mobile_create_hierarchy_node))
         .route("/api/mobile/products/:product_id/hierarchy/update", post(mobile_update_hierarchy_node))
         .route("/api/mobile/products/:product_id/hierarchy/delete", post(mobile_delete_hierarchy_node))
+        .route("/api/mobile/products/:product_id/hierarchy/reorder", post(mobile_reorder_hierarchy))
         .route("/api/mobile/products/:product_id/reset-plan", post(mobile_reset_product_plan))
         .route("/api/mobile/repositories", get(mobile_list_repositories).post(mobile_register_repository))
         .route("/api/mobile/repositories/:repository_id/update", post(mobile_update_repository))

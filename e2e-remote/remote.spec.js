@@ -2311,6 +2311,54 @@ test("browser builds a product hierarchy", async ({ page, request }) => {
   }
 });
 
+test("browser reorders product hierarchy with concurrent MCP protection", async ({ page, request }) => {
+  test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
+  async function catalog(action, arguments_) {
+    const response = await request.post("/api/mcp", { headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"}, data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"aruvi_catalog",arguments:{action,arguments:arguments_}}} });
+    const result = (await response.json()).result;
+    expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
+    return result.structuredContent.result;
+  }
+  const product = await catalog("create_product", {name:`Reorder fixture ${Date.now()}`});
+  try {
+    const areaA = await catalog("create_product_area", {product_id:product.id,name:"Area A"});
+    const areaB = await catalog("create_product_area", {product_id:product.id,name:"Area B"});
+    const capC = await catalog("create_capability", {product_area_id:areaA.id,name:"Capability C"});
+    const capD = await catalog("create_capability", {product_area_id:areaA.id,name:"Capability D"});
+    await catalog("create_capability", {product_area_id:areaA.id,parent_capability_id:capC.id,name:"Feature X"});
+    await catalog("create_capability", {product_area_id:areaA.id,parent_capability_id:capC.id,name:"Feature Y"});
+    await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+    await page.getByRole("button",{name:"Products",exact:true}).click();
+    await page.locator("#productList").getByRole("button",{name:new RegExp(product.name)}).click();
+    await page.getByRole("button",{name:"Load product tree"}).click();
+    await page.locator("#productTree > details > summary").filter({hasText:"Area B"}).click();
+    await page.getByRole("button",{name:"Move up Area B"}).click();
+    await expect(page.locator("#status")).toHaveText("Hierarchy order saved");
+    await expect(page.locator("#productTree > details > summary").first()).toContainText("Area B");
+    await page.locator("#productTree > details > summary").filter({hasText:"Area A"}).click();
+    await page.locator("#productTree summary").filter({hasText:"Capability D"}).click();
+    await page.getByRole("button",{name:"Move up Capability D"}).click();
+    await expect(page.locator("#status")).toHaveText("Hierarchy order saved");
+    await page.locator("#productTree > details > summary").filter({hasText:"Area A"}).click();
+    await page.locator("#productTree summary").filter({hasText:"Capability C"}).click();
+    await page.locator("#productTree summary").filter({hasText:"Feature Y"}).click();
+    await page.getByRole("button",{name:"Move up Feature Y"}).click();
+    await expect(page.locator("#status")).toHaveText("Hierarchy order saved");
+    const tree = await (await request.get(`/api/mobile/products/${product.id}/tree`,{headers:{Authorization:`Bearer ${token}`}})).json();
+    expect(tree.product_areas.map((a) => a.product_area.id)).toEqual([areaB.id,areaA.id]);
+    expect(tree.product_areas[1].features.map((c) => c.capability.id)).toEqual([capD.id,capC.id]);
+    expect(tree.product_areas[1].features[1].children.map((c) => c.capability.name)).toEqual(["Feature Y","Feature X"]);
+    await catalog("reorder_hierarchy_checked",{product_id:product.id,expected_order:[areaB.id,areaA.id],ordered_ids:[areaA.id,areaB.id]});
+    await page.locator("#productTree > details > summary").filter({hasText:"Area B"}).click();
+    const stale = page.waitForResponse((response) => response.url().endsWith("/hierarchy/reorder") && response.request().method() === "POST");
+    await page.getByRole("button",{name:"Move down Area B"}).click();
+    expect((await stale).status()).toBe(409);
+    await expect(page.locator("#status")).toContainText("Hierarchy changed");
+    const after = await (await request.get(`/api/mobile/products/${product.id}/tree`,{headers:{Authorization:`Bearer ${token}`}})).json();
+    expect(after.product_areas.map((a) => a.product_area.id)).toEqual([areaA.id,areaB.id]);
+  } finally { await catalog("archive_product",{id:product.id}); }
+});
+
 test("hierarchy deletion reconciles related data", async ({ page, request }) => {
   test.skip(!token || !mcpToken || !process.env.ARUVI_TEST_REPOSITORY_PATH, "Requires tokens and a disposable repository");
   async function call(name, action, arguments_) {

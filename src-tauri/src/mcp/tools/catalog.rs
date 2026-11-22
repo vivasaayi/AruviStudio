@@ -251,6 +251,17 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             product_repo::delete_product_area(&state.db, &id).await?;
             Ok(action_ok(action))
         }
+        "reorder_hierarchy_checked" => {
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            let area_id = args.optional_string(&["area_id", "areaId"])?;
+            let parent_id = args.optional_string(&["parent_id", "parentId"])?;
+            let expected = args.required_string_list(&["expected_order", "expectedOrder"], "expected_order")?;
+            let ordered = args.required_string_list(&["ordered_ids", "orderedIds"], "ordered_ids")?;
+            if !crate::persistence::product_tree_repo::reorder_hierarchy_checked(&state.db, &product_id, area_id.as_deref(), parent_id.as_deref(), &expected, &ordered).await? {
+                return Err(AppError::Validation("Hierarchy changed or belongs to another product. Refresh before reordering.".into()));
+            }
+            Ok(action_ok("reorder_hierarchy_checked"))
+        }
         action @ "reorder_product_areas" => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             let ordered_ids =

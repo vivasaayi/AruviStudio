@@ -73,6 +73,51 @@ async fn send_json(
     )
 }
 
+#[tokio::test]
+async fn hierarchy_reordering_is_scoped_atomic_and_detects_stale_snapshots() {
+    async fn catalog(state: &AppState, action: &str, args: Value) -> Value {
+        crate::mcp::dispatch_tool(state, "aruvi_catalog", json!({"action":action,"arguments":args})).await.unwrap()["result"].clone()
+    }
+    let app: tauri::App<MockRuntime> = make_test_app("hierarchy_reordering").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "reorder-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let product = catalog(&state,"create_product",json!({"name":"Reorder"})).await;
+    let other = catalog(&state,"create_product",json!({"name":"Other"})).await;
+    let product_id = product["id"].as_str().unwrap();
+    let a = catalog(&state,"create_product_area",json!({"product_id":product_id,"name":"Area A"})).await;
+    let b = catalog(&state,"create_product_area",json!({"product_id":product_id,"name":"Area B"})).await;
+    let a_id = a["id"].as_str().unwrap(); let b_id = b["id"].as_str().unwrap();
+    let c = catalog(&state,"create_capability",json!({"product_area_id":a_id,"name":"Capability C"})).await;
+    let d = catalog(&state,"create_capability",json!({"product_area_id":a_id,"name":"Capability D"})).await;
+    let c_id = c["id"].as_str().unwrap(); let d_id = d["id"].as_str().unwrap();
+    let uri = format!("/api/mobile/products/{product_id}/hierarchy/reorder");
+    let area_order = json!({"expected_order":[a_id,b_id],"ordered_ids":[b_id,a_id]});
+    assert_eq!(send_json(&router,Method::POST,&uri,None,Some(area_order.clone())).await.0,StatusCode::UNAUTHORIZED);
+    let other_uri = format!("/api/mobile/products/{}/hierarchy/reorder",other["id"].as_str().unwrap());
+    assert_eq!(send_json(&router,Method::POST,&other_uri,Some("reorder-token"),Some(area_order.clone())).await.0,StatusCode::CONFLICT);
+    assert_eq!(send_json(&router,Method::POST,&uri,Some("reorder-token"),Some(json!({"expected_order":[a_id,b_id],"ordered_ids":[a_id,a_id]}))).await.0,StatusCode::BAD_REQUEST);
+    sqlx::query(&format!("CREATE TRIGGER reject_reorder BEFORE UPDATE OF sort_order ON product_areas WHEN OLD.id='{a_id}' BEGIN SELECT RAISE(ABORT,'fixture'); END")).execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router,Method::POST,&uri,Some("reorder-token"),Some(area_order.clone())).await.0,StatusCode::BAD_REQUEST);
+    let original: Vec<String> = sqlx::query_scalar("SELECT id FROM product_areas WHERE product_id=? ORDER BY sort_order").bind(product_id).fetch_all(&state.db).await.unwrap();
+    assert_eq!(original,vec![a_id,b_id]);
+    sqlx::query("DROP TRIGGER reject_reorder").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router,Method::POST,&uri,Some("reorder-token"),Some(area_order.clone())).await.0,StatusCode::OK);
+    assert_eq!(send_json(&router,Method::POST,&uri,Some("reorder-token"),Some(area_order)).await.0,StatusCode::CONFLICT);
+    let cap_order = json!({"product_id":product_id,"area_id":a_id,"expected_order":[c_id,d_id],"ordered_ids":[d_id,c_id]});
+    catalog(&state,"reorder_hierarchy_checked",cap_order.clone()).await;
+    assert!(crate::mcp::dispatch_tool(&state,"aruvi_catalog",json!({"action":"reorder_hierarchy_checked","arguments":cap_order})).await.is_err());
+    let tree = product_repo::get_product_tree(&state.db,product_id).await.unwrap();
+    assert_eq!(tree.product_areas[0].product_area.id,b_id);
+    assert_eq!(tree.product_areas[1].features[0].capability.id,d_id);
+    crate::mcp::dispatch_tool(&state,"catalog.hierarchy.reorder_checked",json!({"productId":product_id,"areaId":a_id,"expectedOrder":[d_id,c_id],"orderedIds":[c_id,d_id]})).await.unwrap();
+    let tree = product_repo::get_product_tree(&state.db,product_id).await.unwrap();
+    assert_eq!(tree.product_areas[1].features[0].capability.id,c_id);
+    let request = json!({"productId":product_id,"areaId":a_id,"expectedOrder":[c_id,d_id],"orderedIds":[d_id,c_id]});
+    let (first, second) = tokio::join!(crate::mcp::dispatch_tool(&state,"catalog.hierarchy.reorder_checked",request.clone()), crate::mcp::dispatch_tool(&state,"catalog.hierarchy.reorder_checked",request));
+    assert_ne!(first.is_ok(), second.is_ok());
+}
+
 fn parse_json(body: &str) -> Value {
     serde_json::from_str(body).expect("response body should be JSON")
 }

@@ -35,6 +35,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "update_product_area",
                 "delete_product_area",
                 "reorder_product_areas",
+                "reorder_hierarchy_checked",
                 "create_capability",
                 "list_capabilities",
                 "list_product_capabilities",

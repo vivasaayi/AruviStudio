@@ -43,6 +43,7 @@ pub(super) fn translate_first_class_tool(
         "catalog.product_areas.create" => ("aruvi_catalog", "create_product_area"),
         "catalog.product_areas.update" => ("aruvi_catalog", "update_product_area"),
         "catalog.product_areas.delete" => ("aruvi_catalog", "delete_product_area"),
+        "catalog.hierarchy.reorder_checked" => ("aruvi_catalog", "reorder_hierarchy_checked"),
         "catalog.product_areas.reorder" => ("aruvi_catalog", "reorder_product_areas"),
         "catalog.capabilities.list" => ("aruvi_catalog", "list_capabilities"),
         "catalog.capabilities.list_for_product" => ("aruvi_catalog", "list_product_capabilities"),

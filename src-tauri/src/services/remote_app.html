@@ -3298,7 +3298,7 @@
           el.productTree.textContent = "No product areas yet.";
           return;
         }
-        const addNode = (parent, item, children, areaId) => {
+        const addNode = (parent, item, children, areaId, siblingIds, parentId) => {
           const details = document.createElement("details");
           const title = document.createElement("summary");
           title.textContent = (item.node_kind || "node").replaceAll("_", " ") + ": " + item.name;
@@ -3308,7 +3308,28 @@
             description.textContent = item.description;
             details.appendChild(description);
           }
-          children.forEach((child) => addNode(details, child.capability, child.children || [], areaId));
+          const index = siblingIds.indexOf(item.id);
+          if (siblingIds.length > 1 && siblingIds.length <= 1000) {
+            const controls = document.createElement("div");
+            for (const [label, delta] of [["Move up", -1], ["Move down", 1]]) {
+              const move = document.createElement("button"); move.type = "button"; move.className = "secondary";
+              move.textContent = label; move.setAttribute("aria-label", label + " " + item.name);
+              move.disabled = index + delta < 0 || index + delta >= siblingIds.length;
+              move.addEventListener("click", async () => {
+                controls.querySelectorAll("button").forEach((entry) => { entry.disabled = true; });
+                setStatus("Updating hierarchy order…", "info");
+                const ordered = siblingIds.slice(); [ordered[index], ordered[index + delta]] = [ordered[index + delta], ordered[index]];
+                try {
+                  await request("/api/mobile/products/" + encodeURIComponent(productId) + "/hierarchy/reorder", { method:"POST", body:{ area_id:item.node_kind === "product_area" ? null : areaId, parent_id:parentId, expected_order:siblingIds, ordered_ids:ordered } });
+                  if (state.selectedProductId === productId) { await loadProductTree(productId, move); setStatus("Hierarchy order saved", "ok"); }
+                } catch (error) { setStatus(error.message || String(error), "error"); controls.querySelectorAll("button").forEach((entry, buttonIndex) => { entry.disabled = buttonIndex === 0 ? index === 0 : index === siblingIds.length - 1; }); }
+              });
+              controls.appendChild(move);
+            }
+            details.appendChild(controls);
+          }
+          const childIds = children.map((child) => child.capability.id);
+          children.forEach((child) => addNode(details, child.capability, child.children || [], areaId, childIds, item.node_kind === "product_area" ? null : item.id));
           details.appendChild(referenceSection(productId, item.node_kind, item.id));
           const editSection = document.createElement("details");
           const editTitle = document.createElement("summary"); editTitle.textContent = "Edit details";
@@ -3396,7 +3417,8 @@
           }
           parent.appendChild(details);
         };
-        areas.forEach((area) => addNode(el.productTree, area.product_area, area.features || [], area.product_area.id));
+        const areaIds = areas.map((area) => area.product_area.id);
+        areas.forEach((area) => addNode(el.productTree, area.product_area, area.features || [], area.product_area.id, areaIds, null));
       } catch (error) {
         if (state.selectedProductId !== productId) return;
         button.disabled = false;

@@ -151,6 +151,15 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+The browser product tree now offers move-up and move-down controls for product
+areas and for capability or feature siblings. Its authenticated reorder call
+checks the complete displayed order and product scope, then updates the group
+atomically; the guarded MCP actions provide the same operation. Groups above
+1,000 items have no browser reorder controls. Older desktop and MCP reorder
+actions retain their previous last-write behavior. A native browser test covered
+all three hierarchy levels and a concurrent MCP reorder; see the goal
+checkpoint for validation and remaining limits.
+
 Web work-item review now displays the same scoped findings available to desktop
 and MCP, including severity, category, status and blocking state. A disposable
 native server checked nonempty task isolation, authorization and MCP agreement;

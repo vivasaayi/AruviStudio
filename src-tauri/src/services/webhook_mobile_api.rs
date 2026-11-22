@@ -2169,6 +2169,20 @@ pub(crate) async fn mobile_update_hierarchy_node(State(state): State<WebhookStat
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct MobileReorderHierarchy {
+    area_id: Option<String>, parent_id: Option<String>, expected_order: Vec<String>, ordered_ids: Vec<String>,
+}
+
+pub(crate) async fn mobile_reorder_hierarchy(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Json(body): Json<MobileReorderHierarchy>) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::persistence::product_tree_repo::reorder_hierarchy_checked(&state.app_state.db, &product_id, body.area_id.as_deref(), body.parent_id.as_deref(), &body.expected_order, &body.ordered_ids).await {
+        Ok(true) => Json(serde_json::json!({"ok":true})).into_response(),
+        Ok(false) => (StatusCode::CONFLICT, "Hierarchy changed or belongs to another product. Refresh before reordering.").into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct MobileDeleteHierarchyNode { node_type: String, id: String, expected_name: String }
 
 pub(crate) async fn mobile_delete_hierarchy_node(State(state): State<WebhookState>, headers: HeaderMap, Path(product_id): Path<String>, Json(body): Json<MobileDeleteHierarchyNode>) -> impl IntoResponse {

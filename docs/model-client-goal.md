@@ -12,6 +12,30 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Product hierarchy ordering parity in progress
+
+Desktop supports reordering product areas, capabilities and features, but the
+browser did not. The product tree now offers move-up and move-down buttons for
+each sibling group of at most 1,000 items. The authenticated endpoint compares
+the complete displayed sibling order, checks product and parent scope, and
+applies the new permutation under one SQLite write transaction. A stale order
+is rejected rather than overwriting a concurrent edit. MCP exposes the same
+guard as `aruvi_catalog.reorder_hierarchy_checked` and
+`catalog.hierarchy.reorder_checked`. The legacy desktop and MCP reorder calls
+remain compatible and do not gain this conflict check. Direct SQL writers and
+older clients are not required to use it; separate changes after a successful
+request remain possible.
+
+A focused Rust test checked authentication, invalid permutations, cross-product
+scope, stale requests, both guarded MCP names, and rollback after an injected
+failure. A disposable native server and headless browser reordered areas,
+capabilities and features and rejected a stale browser move after an MCP edit.
+The initial browser run exposed a stale status-message timing issue; the final
+run passed after adding an updating state. The full native Rust library suite
+passed 349 tests with eight ignored, followed by a focused test confirming that
+only one of two concurrent reorder requests succeeds. Clean-image validation,
+branch deployment and physical desktop comparison remain pending.
+
 ### MCP file digest workspace snapshot: branch validation
 
 `aruvi_repositories.get_repository_file_sha256` and
