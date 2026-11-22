@@ -45,7 +45,13 @@ returning the host credential, and completed browser coding chat. The fixture
 was removed afterward. The check can be repeated with
 `bash scripts/test host-model-quickstart`; `--packaged` tests the candidate's
 embedded HTML instead. The host's scoped-credential draft is not deployed.
-Packaged-image, real third-party provider and staging validation remain pending.
+Hosted clean-image run `44992754890` at `c24887cb0bcb78095c5abd3de3976bdeef736741`
+passed on ARM64 and AMD64, including the initial quick-start test, 60 workflow
+tests, 47 remote tests (one skipped), PDF isolation/outage checks and the
+simulated CI-service test on each architecture. Builds with the later mobile
+accessibility and extended browser/MCP test are still pending. The real-host
+quick-start check has not yet been run against packaged HTML; real third-party
+provider and staging validation remain pending.
 
 ### Selector fix: clean-image and branch validation
 
