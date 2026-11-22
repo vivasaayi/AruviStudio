@@ -40,8 +40,9 @@ atomically. Missing, ambiguous and cross-product matches are rejected without
 staging a different item. ASCII case-insensitive matching is supported;
 non-ASCII names require their stored case. An isolated database test covers
 scope, duplicates, story/task identity and rollback on conversation failure. A
-native browser/MCP fixture stages an area and capability through voice
-transcripts. A separate real Piper/Whisper synthetic-speech round trip produced
+native browser/MCP fixture stages an area, capability, story and task through
+voice transcripts and verifies that an ambiguous request preserves its text
+for correction. A separate real Piper/Whisper synthetic-speech round trip produced
 “Select existing product area Inventory” and staged the intended area in a
 disposable native server. The full native Rust suite passed 366 tests with eight
 ignored. Physical microphone capture and clean image validation remain open.

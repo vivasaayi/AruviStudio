@@ -831,6 +831,14 @@ test("voice stages an existing catalog node through browser and MCP", async ({ p
     const response=await submitted; expect(response.status()).toBe(200);
     const staged=await response.json(); expect(staged.selected_draft_node_id).toBe(area.id);
     await expect(page.locator("#voiceConversation")).toContainText("Staged existing product area");
+    await mcp("aruvi_catalog","create_product_area",{product_id:product.id,name:"Voice inventory"});
+    await page.getByRole("button",{name:"Voice",exact:true}).click();
+    const duplicateRequest="Select existing product area Voice inventory";
+    await page.locator("#voiceComposer").fill(duplicateRequest);
+    const rejected=page.waitForResponse(response=>response.url().endsWith("/voice-turn"));
+    await page.locator("#voiceSendButton").click();
+    expect((await rejected).status()).toBe(400);
+    await expect(page.locator("#voiceComposer")).toHaveValue(duplicateRequest);
     const session=await mcp("aruvi_planner","create_planner_session",{});
     const selected=await mcp("aruvi_planner","submit_planner_voice_turn",{session_id:session.session_id,product_id:product.id,transcript:"Select existing capability Voice stock alerts"});
     expect(selected.selected_draft_node_id).toBe(capability.id);

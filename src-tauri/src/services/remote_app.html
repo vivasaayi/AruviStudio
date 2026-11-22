@@ -2787,7 +2787,7 @@
         });
         applyPlannerResponse(response, config.target);
         if (response.status === "error") {
-          if (mode === "planner" && !config.box.value) config.box.value = prompt;
+          if ((mode === "planner" || plannerVoice) && !config.box.value) config.box.value = prompt;
           setStatus(response.assistant_message || "Planner request failed", "error");
           return;
         }
@@ -2816,7 +2816,7 @@
         }
         setStatus("Connected", "ok");
       } catch (error) {
-        if (mode === "planner" && !config.box.value) config.box.value = prompt;
+        if ((mode === "planner" || plannerVoice) && !config.box.value) config.box.value = prompt;
         appendMessage(config.target, "assistant", "Error: " + (error.message || String(error)));
         setStatus(error.message || String(error), "error");
       } finally {
