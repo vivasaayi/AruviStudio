@@ -12,6 +12,14 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Clean-image CI-service fixture
+
+The hosted clean-image validation also runs the isolated CI-service browser and
+MCP fixture. A local run in explicit disposable-project mode passed against
+the preceding branch candidate with cached Chromium. This fixture uses a
+simulated CI socket and does not prove the real Aruvici integration or staging.
+The hosted run containing the new step has not yet completed.
+
 ### Hosted workspace selector diagnosis
 
 The diagnostic clean-image rerun reproduced the workspace test failure. Its
