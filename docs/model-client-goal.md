@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Work-item findings in web review: in progress
+### Work-item findings in web review: branch validation
 
 Desktop review displays finding counts and severity, and MCP already returns
 the work item's findings, but browser delivery omitted them. The authenticated
@@ -28,7 +28,37 @@ the same work-item-scoped findings, excludes a second item's finding, and
 renders an HTML-looking title as text. A separate simulated-response browser
 test covers the rendering in the remote suite. The frontend suite passed 139
 tests, the frontend build passed, and the native Rust suite passed 348 tests
-with eight ignored. Clean-image and deployment checks remain pending.
+with eight ignored. Hosted test run `45017718956` passed, and clean-image run
+`45017718948` passed on ARM64 and AMD64: each ran 62 workflow tests, 50 remote
+browser tests (one skipped), PDF isolation/outage and simulated CI. The remote
+findings rendering fixture supplies a simulated delivery response.
+
+The packaged shared client passed 66 tests from its packaged source; its
+consumer pin and the SQLx vendor-provenance checks also passed. This does not
+verify live third-party providers or resolve the recorded lockfile advisories.
+
+The streamed ARM64 archive SHA-256 was
+`e87bd31ddb7d0a1bd6c38590f85c4e2f66f9b0a44660d3c2e1a0e84d48d5e795`,
+its server layer was
+`9942566b10bc3fe7968d2e472cdcaa989324032925bc0030d8d80a0b91fbdcea`,
+and its server binary was
+`ed2cc4488a87064f0ce8ebc6c9a0a4061cd7efd1357397da8ed9e4ce11d00827`.
+The verified server was added to the previous runtime to produce derived image
+`sha256:5bff8b55dca9a3d9e0d381e5c8cd6401cb0caa0290a59074c1b07911113bede0`.
+Its binary hash and runtime configuration matched, and separately packaged
+runtime inputs were unchanged. This is not a locally loaded full clean image.
+Local workflow, browser, PDF outage/isolation and simulated CI suites passed,
+as did real Model Host quick start and stream cancellation and simulated scoped
+credentials; the running host still uses a management-capable credential.
+
+An active-job guard and verified database backup preceded the worktree switch;
+the previous image remains tagged. Product, MCP, mobile authorization, PDF,
+13-section layout, published-port MCP origin, real coding, Piper/Whisper and
+synthetic-audio continuous voice passed after restart. The worktree database had
+no existing findings, so nonempty, scoped backend data was verified in the
+disposable native fixture and Linux rendering used the simulated response.
+Physical audio and native windows, live third-party providers, deployed Aruvici,
+Mac integration, staging and complete desktop parity remain unverified.
 
 ### Nested work-item creation parity: branch validation
 

@@ -151,6 +151,14 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+Web work-item review now displays the same scoped findings available to desktop
+and MCP, including severity, category, status and blocking state. A disposable
+native server checked nonempty task isolation, authorization and MCP agreement;
+native and clean-image browser fixtures checked safe rendering of untrusted
+text. The worktree database contained no findings at acceptance. The list is
+unbounded and delivery sections are not read as a single snapshot; the goal
+checkpoint records the remaining validation limits.
+
 Browser work creation now lists child work items as possible parents, matching
 the backend and MCP's support for deeper nesting. A disposable native fixture
 and ARM64/AMD64 clean-image browser suites created a nested child and verified
