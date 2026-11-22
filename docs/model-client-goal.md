@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### File-aware Copilot branch revalidation
+
+The worktree runtime derived from `03da1d0` passed two disposable
+file-aware Copilot fixtures against the real `qwen25-coder-7b-q4` Model Host
+model. Browser and MCP follow-ups identified the fixture function and its
+multiplier. Each interface previewed a requested one-file patch without
+changing the repository, then applied it and checked the saved content. The
+browser also discussed an unsaved Monaco buffer without saving it and reviewed
+and applied a proposal. With `ARUVI_TEST_MULTI_FILE_PROPOSAL=1`, MCP previewed
+and applied the two requested files. The fixtures used disposable repositories
+and containers, which were removed. These samples do not prove general model
+quality, native-window parity or authenticated remote delivery.
+
 ### Planner retry: validated branch deployment
 
 Hosted runs `45001703218` and `45001703222` passed at `03da1d0`, including
