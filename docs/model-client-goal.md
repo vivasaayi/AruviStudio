@@ -21,9 +21,11 @@ Model Host, that pinned consumer passed discovery, completion, streaming,
 token-limit handling and synthetic Piper-to-Whisper speech. These checks do not
 establish live third-party provider compatibility or physical audio behavior.
 The same 32 consumer tests also passed offline in an ARM64 Linux container with
-read-only dependency caches and no network; this does not establish AMD64
-coverage for the updated pin. Hosted AMD64 CI now runs the independent consumer
-suite; its first run for this workflow change is pending.
+read-only dependency caches and no network. A separately built ARM64 Linux probe
+then passed real Model Host discovery, text completion, streaming, token-limit
+handling and synthetic speech generation/transcription. This does not establish
+AMD64 coverage for the updated pin. Hosted AMD64 CI now runs the independent
+consumer suite; its first run for this workflow change is pending.
 
 ### Child-work details: validation in progress
 
