@@ -30,6 +30,26 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Docker capacity recovery and interim worktree deployment
+
+At the user's request to clean Docker, a BuildKit cache cleanup limited to
+entries older than 24 hours reclaimed 14.22 GB; volumes, containers and images
+were not removed by that cleanup. Docker then reported approximately 12 GB
+available and the existing worktree passed a product write/archive, MCP, mobile
+authorization and PDF check. Superseded branch push and pull-request workflow
+runs were cancelled to let the current revision run; the latest runs remain.
+
+The already-tested `c518bca` ARM64 image was deployed as an interim update;
+the later portfolio runtime is still awaiting clean-image validation and
+deployment. A fresh SQLite backup passed `quick_check` at
+`/private/tmp/aruvi-deploy-c518bca/pre-deploy-final.db`; no workflows, CLI runs
+or imports were active immediately before the switch. The prior running image
+was retained as `aruvi-studio-worktree-backup:pre-c518bca`. Restart acceptance
+passed persistence, MCP and mobile authorization, and PDF; published-port MCP
+origin checks and 13-section phone/desktop layout passed. Real Model Host coding
+and a synthetic Piper/Whisper speech round trip passed through MCP. This does
+not establish physical audio, native-window parity, integration or VPS staging.
+
 ### Shared client packaging recheck
 
 With the portfolio work on the branch, the offline package check again passed
@@ -63,9 +83,8 @@ horizontal overflow.
 The broader disposable native-server browser suite passed 43 tests
 and skipped 22 requiring additional fixtures. The frontend suite passed 140
 tests, the terminology check passed, and the native Rust library suite passed
-366 tests with eight ignored. This covers a desktop portfolio action
-but is not a complete portfolio audit. Clean images and worktree deployment remain pending; the Docker
-disk condition below still prevents a safe restart.
+366 tests with eight ignored. This covers a desktop portfolio action but is not
+a complete portfolio audit. Clean images and worktree deployment remain pending.
 
 ### Workflow-stage artifact paging
 
@@ -75,8 +94,8 @@ artifact. A disposable native-server browser test passed with a real recorded
 artifact, checked next/previous pages and rejection of a changed file, and
 confirmed the other workflow's artifact was excluded. The first
 test attempt asserted the page status before the asynchronous request finished;
-the corrected test waits for the status and passed. Clean-image and worktree
-deployment validation remain pending. The full native Rust library suite also
+the corrected test waits for the status and passed. The deployment evidence is
+recorded above. The full native Rust library suite also
 passed 366 tests, with eight ignored.
 
 Clean ARM64 and AMD64 hosted image checks and both hosted test runs passed for
@@ -96,8 +115,7 @@ removed. A later SQLite online backup through the container's memory-backed
 `/dev/shm` was streamed to `/private/tmp/aruvi-deploy-c518bca/pre-deploy.db`
 and passed `quick_check` in immutable read-only mode. `docker cp` could not
 access that temporary mount, so the successful transfer used `docker exec cat`.
-Docker's disk still reported zero available bytes; restore sufficient space,
-refresh the backup and recheck active work before deploying the tested image.
+At that point Docker's disk still reported zero available bytes.
 To recover project-owned space, 123 historical candidate and rollback tags were
 saved in `/private/tmp/aruvi-deploy-c518bca/historical-images.tar.gz`; the
 archive's manifest contains every selected tag, gzip integrity passed, and its
@@ -106,9 +124,8 @@ The tags were then removed locally and one rebuildable server-specific BuildKit
 cache entry was pruned using a description filter. The immediate running image
 and tested candidate were retained. Reclaimed space was insufficient: the app
 still reported zero available bytes. Historical tags can be restored with
-`docker load -i /private/tmp/aruvi-deploy-c518bca/historical-images.tar.gz`;
-do so only after sufficient Docker disk space is available. No global prune,
-unrelated project removal or volume deletion was performed.
+`docker load -i /private/tmp/aruvi-deploy-c518bca/historical-images.tar.gz`.
+The subsequent user-authorized cache cleanup and deployment are recorded above.
 
 ### Current worktree deployment at `227fde4`
 
