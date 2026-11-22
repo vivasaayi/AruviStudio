@@ -3,6 +3,10 @@ import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 
 test("browser and MCP inspect a configured CI socket", async ({ page, request }) => {
+  if (process.env.ARUVI_TEST_REMOTE_HTML_SOURCE === "1") {
+    const html = await readFile("src-tauri/src/services/remote_app.html", "utf8");
+    await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
+  }
   const token = process.env.ARUVI_MOBILE_API_TOKEN;
   const headers = { Authorization: `Bearer ${token}` };
   async function post(path, data) { const response = await request.post(path, { headers, data }); expect(response.ok(), await response.text()).toBeTruthy(); return response.json(); }

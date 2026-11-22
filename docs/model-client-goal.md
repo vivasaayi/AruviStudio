@@ -12,6 +12,21 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser provider card and checkbox layout
+
+A visual review of the running Models screen found provider settings crowded
+together and checkboxes stretched across their containers. The source now puts
+provider identity before its settings, groups the actions, separates the
+transcription control and sizes checkboxes correctly across browser forms.
+The updated provider card was visually inspected at 390 and 1280 pixels.
+With the updated HTML and the preceding server image, 47 remote tests (one
+skipped), 60 workflow tests and the simulated CI-service test passed; the
+provider-setting and CI cases used the updated source HTML. The read-only
+13-section layout check passed at both widths with no oversized visible
+checkboxes, overflow or page errors. As a regression control, the prior running
+image failed the new checkbox-size check in six sections at both widths.
+Packaged-image and deployment validation of this layout change remain pending.
+
 ### Scoped quick-start fixture
 
 The reusable quick-start check accepts `--credential-scope inference`, requires

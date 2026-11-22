@@ -1658,6 +1658,28 @@ test("browser configures and selects a model", async ({ page, request }) => {
     expect((await request.post("/api/mobile/providers/update", { headers: { Authorization: `Bearer ${token}` }, data: { id: providerId, expected: expectedProvider, fields: { ...expectedProvider, base_url: "http://user:pass@example.com" } } })).status()).toBe(400);
     await expect(page.locator("#providerList")).toContainText(name);
     const capabilityCard = page.locator("#providerList .tool-card").filter({ hasText: name });
+    for (const width of [390, 1280]) {
+      await page.setViewportSize({ width, height: 900 });
+      const layout = await capabilityCard.evaluate((card) => {
+        const bounds = (selector) => {
+          const rect = card.querySelector(selector).getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom, width: rect.width };
+        };
+        return { title: bounds(".provider-card-title"), usage: bounds(".provider-option"), checkbox: bounds(".provider-option input"), language: bounds(".provider-language"), actions: bounds(".button-row"), scrollWidth: document.documentElement.scrollWidth, viewportWidth: document.documentElement.clientWidth };
+      });
+      expect(layout.title.bottom).toBeLessThanOrEqual(layout.usage.top);
+      expect(layout.usage.bottom).toBeLessThanOrEqual(layout.language.top);
+      expect(layout.language.bottom).toBeLessThanOrEqual(layout.actions.top);
+      expect(layout.checkbox.width).toBeLessThan(30);
+      expect(layout.checkbox.bottom).toBeGreaterThan(layout.usage.top);
+      expect(layout.scrollWidth).toBeLessThanOrEqual(layout.viewportWidth + 1);
+      await capabilityCard.getByText("Manage provider", { exact: true }).click();
+      const enabledCheckbox = capabilityCard.locator('details input[type="checkbox"]');
+      await expect(enabledCheckbox).toBeVisible();
+      expect((await enabledCheckbox.boundingBox()).width).toBeLessThan(30);
+      await capabilityCard.getByText("Manage provider", { exact: true }).click();
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
     await capabilityCard.getByRole("button", { name: "Show transport capabilities" }).click();
     await expect(capabilityCard).toContainText("Transport supports: text, streaming, model discovery, transcription, speech, JSON object mode.");
     await expect(capabilityCard).toContainText("Actual provider and model support can differ.");

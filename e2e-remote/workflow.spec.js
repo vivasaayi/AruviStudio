@@ -2393,6 +2393,10 @@ test("agent model inspection reports bindings and discovery in browser and MCP",
 
 test("transcription language format is configurable across browser and MCP", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  if (process.env.ARUVI_TEST_REMOTE_HTML_SOURCE === "1") {
+    const html = readFileSync("src-tauri/src/services/remote_app.html", "utf8");
+    await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
+  }
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
   const base_url = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/array-voice/v1");
   const created = await request.post("/api/mobile/providers", { headers, data: { name: "Array voice fixture", base_url } });
@@ -2427,6 +2431,10 @@ test("transcription language format is configurable across browser and MCP", asy
 
 test("provider streaming usage is opt-in across browser and MCP", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  if (process.env.ARUVI_TEST_REMOTE_HTML_SOURCE === "1") {
+    const html = readFileSync("src-tauri/src/services/remote_app.html", "utf8");
+    await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
+  }
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
   const base = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/usage/v1");
   const created = await request.post("/api/mobile/providers", { headers, data: { name: "Usage fixture", base_url: base } });

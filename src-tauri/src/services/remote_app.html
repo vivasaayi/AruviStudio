@@ -79,6 +79,12 @@
       padding: 11px 12px;
     }
 
+    input[type="checkbox"] {
+      width: auto;
+      padding: 0;
+      vertical-align: middle;
+    }
+
     textarea {
       min-height: 104px;
       resize: vertical;
@@ -350,6 +356,32 @@
       color: var(--muted);
       font-size: 12px;
       line-height: 1.45;
+    }
+
+    .provider-card {
+      display: grid;
+      gap: 10px;
+    }
+
+    .provider-card-title {
+      overflow-wrap: anywhere;
+      line-height: 1.4;
+    }
+
+    .provider-option {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      line-height: 1.4;
+    }
+
+    .provider-option input[type="checkbox"] {
+      flex: 0 0 auto;
+    }
+
+    .provider-language {
+      display: grid;
+      gap: 6px;
     }
 
     .metrics {
@@ -5663,9 +5695,11 @@
           option.textContent = provider.name;
           el.modelProvider.appendChild(option);
           const card = document.createElement("div");
-          card.className = "tool-card";
+          card.className = "tool-card provider-card";
           const title = document.createElement("div");
+          title.className = "provider-card-title";
           title.textContent = provider.name + " · " + provider.protocol + " · " + provider.base_url + (provider.enabled ? "" : " · disabled");
+          card.appendChild(title);
           const test = document.createElement("button");
           test.type = "button";
           test.className = "secondary";
@@ -5679,7 +5713,7 @@
             finally { test.disabled = false; }
           });
           if (provider.provider_type === "openai_compatible" && provider.protocol === "openai_compatible") {
-            const row = document.createElement("label");
+            const row = document.createElement("label"); row.className = "provider-option";
             const check = document.createElement("input"); check.type = "checkbox"; check.disabled = true;
             check.setAttribute("aria-label", "Request streaming usage for " + provider.name);
             const message = document.createElement("span"); message.textContent = " Request streaming usage (only if supported by this provider)";
@@ -5694,8 +5728,9 @@
               finally { check.disabled = false; }
             });
             card.appendChild(row);
-            const languageRow = document.createElement("label");
-            languageRow.appendChild(document.createTextNode("Transcription language field "));
+            const languageRow = document.createElement("label"); languageRow.className = "provider-language";
+            const languageCaption = document.createElement("span"); languageCaption.className = "label"; languageCaption.textContent = "Transcription language field";
+            languageRow.appendChild(languageCaption);
             const languageMode = document.createElement("select"); languageMode.disabled = true;
             languageMode.setAttribute("aria-label", "Transcription language field for " + provider.name);
             [["auto", "Automatic"], ["singular", "language"], ["array", "languages[]"]].forEach(([value, label]) => { const option = document.createElement("option"); option.value = value; option.textContent = label; languageMode.appendChild(option); });
@@ -5793,7 +5828,8 @@
             } catch (error) { setStatus(error.message || String(error), "error"); }
             finally { cleanup.disabled = false; }
           });
-          card.append(title, test, capabilities, capabilityText, edit);
+          const actions = document.createElement("div"); actions.className = "button-row"; actions.append(test, capabilities);
+          card.append(actions, capabilityText, edit);
           el.providerList.appendChild(card);
         });
         if (providers.some((provider) => provider.id === previous)) el.modelProvider.value = previous;
