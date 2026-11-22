@@ -149,6 +149,8 @@ mod tests {
         assert!(pdf_html.contains(&gif));
         let small_gif = "<img src=\"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7\" />";
         assert!(prepare_book_images(small_gif, ImageTarget::Epub).is_ok());
+        let browser_fixture = "<img src=\"data:image/gif;base64,R0lGODdhEQANAJEAAAAAAB4eHv///wAAACH5BAkAAAMALAAAAAARAA0AAAINjI+py+0Po5y02otfAQA7\" />";
+        assert!(prepare_book_images(browser_fixture, ImageTarget::Epub).is_ok());
     }
 
     #[test]

@@ -89,8 +89,12 @@ limitations and validation items below are not complete.
   desktop shares the same image packaging code. Static GIF packaging and
   animated-GIF rejection have local Rust coverage; a desktop-rendered fixture
   with an inserted GIF passed EPUBCheck, and a native PDF worker rendered a
-  GIF that was visually inspected. Updated Linux browser/MCP validation remains
-  pending until a candidate is built.
+  GIF that was visually inspected. The Linux browser/MCP fixture verified the
+  GIF's exact bytes in EPUB, rejected animated GIFs, and generated PDF. Its
+  captured EPUB passed EPUBCheck without findings, and the PDF contained the
+  distinct GIF-sized image. A disposable deployed-branch product also exported
+  the GIF through MCP and was archived. Reader and physical desktop acceptance
+  remain open.
   The export action accepts `product_id`, `format` (`docs_html`, `book_html`,
   `epub`, or `pdf`) and `trim_preset` (`trade-6x9`, `a5`, or `us-letter`). For example:
 

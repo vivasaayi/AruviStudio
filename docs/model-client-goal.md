@@ -25,12 +25,28 @@ suite passed 339 tests with eight ignored; the new GIF PDF test was run separate
 A desktop-rendered EPUB fixture with
 an inserted static GIF passed EPUBCheck 5.4.0 with no errors or warnings, and a
 native PDF worker rendered a static GIF; the rasterized first page was inspected.
-The browser/MCP export fixture now includes a GIF, but Linux container validation
-is pending. A RustSec scan against the existing 2026-11-21 advisory database
+The Linux browser/MCP export fixture includes a distinct 17×13 GIF and verified
+its exact EPUB bytes and manifest, accepted the PDF, and rejected animated GIFs.
+The captured EPUB passed EPUBCheck 5.4.0 with no errors or warnings, and the
+captured PDF's image list included the 17×13 image. A RustSec scan against the existing 2026-11-21 advisory database
 reported the same RSA advisory and maintenance/soundness warnings as the prior
 lockfile; this is not a fresh advisory-database scan. Remote URLs,
-repository-relative resources and animated PNG/GIF remain unsupported. The
-running branch image predates this change.
+repository-relative resources and animated PNG/GIF remain unsupported.
+
+Both hosted test runs and the clean ARM64 build passed for
+`643e9d625654528e424e6a97885d4a5c5abd62a7`. The downloaded archive checksum
+and revision were verified. Its server binary (SHA-256
+`af845ed72538101b8d93026fcba9269fbf3233c574f3304cd53ca0fb53f3ea4b`)
+was layered onto the previous runtime with unchanged non-Rust inputs, producing
+derived image `sha256:110f280d717e2c1d02d38fecba88cc738fad5100649be5738c7ee67518f7f05c`,
+not the complete hosted image. The candidate passed 45 browser tests with one
+skipped, the PDF outage check and 57 workflow tests. A checked database backup
+and prior image were retained; product, MCP, mobile, PDF and persistence passed
+across restart, as did browser-origin MCP, real local 7B MCP coding, synthetic
+MCP speech and continuous browser voice. A disposable product on the deployed
+branch exported an EPUB containing the exact GIF bytes and a PDF through MCP;
+the product was archived. The branch endpoint was `127.0.0.1:55288`. This does
+not establish Mac integration, VPS staging, physical audio or full parity.
 
 ### Saved binary workspace downloads
 

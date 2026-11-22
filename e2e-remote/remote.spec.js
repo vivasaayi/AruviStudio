@@ -893,7 +893,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
     }
     const embeddedPng = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAANUlEQVR4nO3QQQ0AMAwDsa5Awp/lpqHIxyFwkU+SO8VtM+4AAQIECBAgQIAAAQIECBAg8Akey+kBmSTYPGgAAAAASUVORK5CYII=";
     const embeddedJpeg = (await readFile(new URL("./fixtures/book-photo.jpg", import.meta.url))).toString("base64");
-    const embeddedGif = "R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+    const embeddedGif = "R0lGODdhEQANAJEAAAAAAB4eHv///wAAACH5BAkAAAMALAAAAAARAA0AAAINjI+py+0Po5y02otfAQA7";
     await call("aruvi_catalog", "update_product", { id: product.id, description: `![Inline diagram](data:image/png;base64,${embeddedPng})\n![Repeated diagram](data:image/png;base64,${embeddedPng})\n![Inline photo](data:image/jpeg;base64,${embeddedJpeg})\n![Inline GIF](data:image/gif;base64,${embeddedGif})` });
     const imageEpub = await call("aruvi_catalog", "export_product_book", artifactArgs);
     const imageEpubBytes = Buffer.from(imageEpub.data_base64, "base64");
@@ -902,6 +902,8 @@ test("browser registers and attaches a container workspace", async ({ page, requ
     expect(imageManifest.manifest).toContain("image/png");
     expect(imageManifest.manifest).toContain("image/jpeg");
     expect(imageManifest.manifest).toContain("image/gif");
+    const extractedGif = execFileSync("python3", ["-c", "import base64,io,sys,zipfile; z=zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())); names=[n for n in z.namelist() if n.startswith('OEBPS/images/') and n.endswith('.gif')]; assert len(names)==1; sys.stdout.write(base64.b64encode(z.read(names[0])).decode())"], { input:imageEpubBytes, encoding:"utf8" });
+    expect(extractedGif).toBe(embeddedGif);
     expect(imageManifest.book).toContain("Inline diagram");
     expect(imageManifest.book).toContain("Inline photo");
     expect(imageManifest.book).toContain("Inline GIF");
