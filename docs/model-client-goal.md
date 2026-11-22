@@ -10,6 +10,23 @@ use it in AruviStudio while preserving existing desktop, web, MCP and workflow
 behavior. Route local model inference to Aruvi Model Host. Do not move third-party
 provider hosting into the model-host service as part of this work.
 
+## Remaining acceptance work
+
+- [ ] Finish the clean ARM64 and AMD64 builds and hosted checks for the latest
+  runtime revision; test the verified Mac candidate and update the worktree.
+- [ ] Complete the action-by-action desktop/web/MCP parity inventory, including
+  direct voice selection, native dialogs and deliberately platform-specific
+  behavior. Validate actual native-window and physical audio interaction when
+  the Mac window is accessible.
+- [ ] Validate live third-party provider and real Aruvici paths where available;
+  retain explicit limitations where credentials or external services are absent.
+- [ ] Reconcile the final branch with `main` and run all required checks. Merge
+  only when the parity and validation work is ready, then build the exact merged
+  revision and pass the Mac integration environment acceptance.
+- [ ] Promote that accepted revision to the isolated VPS staging environment,
+  including ingress, persistence, authentication, MCP, PDF and Model Host
+  connectivity checks. Production promotion and release require separate work.
+
 ## Checkpoints
 
 ### Nested product and hierarchy updates (in validation)
