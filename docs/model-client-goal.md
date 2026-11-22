@@ -12,6 +12,26 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Branch deployment after Planner voice fix
+
+The branch service at `127.0.0.1:55288` runs derived image
+`sha256:e6cb7aa37642ecefc574545f4495c7d7f33506e17fcea5e81364a65518d717dc`.
+It contains the server binary from the checksum-verified clean ARM64 build of
+`735c965`; the previous branch runtime supplies unchanged non-Rust inputs.
+Docker storage was insufficient to load the full clean artifact safely. Before
+deployment there were no active jobs, and a SQLite backup passed `quick_check`;
+the previous image remains tagged for rollback.
+
+The candidate passed 60 isolated workflow tests, 45 remote browser tests (one
+skipped), PDF isolation and outage checks. After deployment, restart persistence,
+product, MCP/mobile authorization and PDF acceptance passed, as did browser MCP
+origin enforcement. A real local coding model completed requests through MCP;
+Piper and Whisper completed a real speech round trip, and browser manual and
+continuous voice tests used synthetic Piper audio with the real speech and local
+coding services. These are branch checks, not physical microphone, external
+provider, Mac integration or staging acceptance. The subsequent hosted
+clean-image workflow is still running at this checkpoint.
+
 ### Clean-image browser validation
 
 The ARM64 branch build now runs the isolated workflow and remote-browser suites
