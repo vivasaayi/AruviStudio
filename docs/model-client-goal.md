@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Off-page work selection: validation in progress
+### Off-page work selection: branch validation
 
 Refreshing the backlog now checks an off-page selection against the server and
 keeps it when it still belongs to the selected product and matches the status
@@ -22,8 +22,24 @@ older selection cannot replace a newer selection. The interface indicates when
 the selected item is outside the loaded page. A native browser fixture covered
 101 children, refresh, a simulated lookup failure, a selection race and status
 filtering. Three focused native browser tests passed; the native Rust library
-suite passed 351 tests with eight ignored. The code is pushed as `76d08fa`;
-clean-image and deployment validation remain in progress.
+suite passed 351 tests with eight ignored. Both hosted test workflows and the
+clean ARM64/AMD64 image workflow passed for `76d08fa`. The deployed worktree
+candidate uses the checksum-verified ARM64 server from that image on the prior
+runtime image, rather than the full clean image. Its image ID is
+`sha256:6ba15c7996131a5accbcf22d5150e613d3a5922c4619ba81ac726ab961881a97`
+and its server SHA-256 is
+`eea10f4828372d3ae80e54ab02fa92da901a48942d15d5f24100016720316ec7`.
+The candidate passed isolated workflow, browser, PDF and simulated-CI suites,
+plus real Model Host browser chat, cancellation and scoped-credential checks.
+
+After a checked database backup and an active-job check, the worktree app and
+PDF containers were updated. Restart acceptance verified product persistence,
+MCP, mobile authorization and PDF. The deployed browser passed hierarchy and
+101-child navigation tests, all 13 sections at phone and desktop sizes, and
+published-port MCP origin checks. Real local coding and speech through MCP and
+continuous browser voice with synthetic audio passed. The previous image is
+tagged for rollback. Physical desktop and audio, live third-party providers,
+deployed Aruvici, Mac integration and VPS staging remain unverified.
 
 ### Child-work navigation parity: branch validation
 
