@@ -12,6 +12,23 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Real-model delivery revalidation after URL update
+
+Using the branch image
+`sha256:62f6b86206c231d9f6057749f901e8df483bac3ef03d344a80895958efa9341e`,
+the disposable multi-file workflow used `qwen25-coder-7b-q4` on the real
+native Model Host. Headless Chrome approved the plan and test gates; the model
+created both linked modules, the workflow syntax gate passed, and an independent
+network-isolated behavior and import check passed before delivery. The
+disposable Git remote remained unchanged before review and received the result
+after approval. The work-item workspace override was used and the default
+workspace remained untouched. This is one successful model sample using a
+management-capable host credential, not proof of general model reliability,
+physical desktop parity, real Aruvici or staging acceptance. Repeat with
+`ARUVI_CODING_TEST_MODEL=qwen25-coder-7b-q4 bash scripts/test
+host-coding-workflow --scenario multi-file --json-mode --workspace-override
+--non-coding-max-tokens 4096 --browser-approvals`.
+
 ### URL dependency security update: branch validation
 
 The refreshed RustSec database at `d1fe6ac3eba823a3515e849045f36dc34543885d`
