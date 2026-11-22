@@ -26,12 +26,28 @@ is read; the operation does not promise an immutable snapshot. The native Rust
 suite passed 339 tests with seven ignored; 136 frontend tests, 69 local browser
 tests, the frontend production build and terminology check passed. A disposable native browser/server fixture verified
 binary bytes, both MCP names, authorization, stale root and the 8 MiB boundary.
-The native workspace-edit and code-editor fixtures passed. Linux container validation and
-deployment remain pending; physical desktop and complete parity remain open.
+The native workspace-edit and code-editor fixtures passed. Physical desktop and
+complete parity remain open.
 The first Linux browser regression run found that the new flex rows stayed
 visible after filtering. A scoped CSS rule corrected their hidden state; a
 native browser fixture confirmed matching and nonmatching rows after the tree
-loaded. The Linux suite must be rerun on a new candidate containing the fix.
+loaded. The same fixture downloaded an 8 MiB saved file byte-for-byte in the
+browser and verified that a larger file was rejected.
+
+Both hosted test runs and a clean ARM64 build passed for
+`342edf668c06c612d4749bbf98214fdbb5226a75`. The downloaded archive checksum and
+source revision were verified; the extracted server binary (SHA-256
+`f8d54d9345d6cc9b6e954b2669e42bc4b502dfb6bacec0cf77c5daba7aa828f1`)
+was layered onto the preceding runtime with unchanged non-Rust inputs to create
+derived image `sha256:c7009a02bf948d14b5ff88483e1a0365cdcb4272030dcafee9f3ea37c70a1540`,
+not the complete hosted image. Its isolated browser suite passed 45 tests with
+one skipped, including filtering, binary/MCP access, the 8 MiB download and
+over-limit rejection; the PDF outage check and all 57 workflow tests passed.
+After a verified SQLite backup and retention of the prior image, product, MCP,
+mobile, PDF and persistence checks passed across restart, as did browser-origin
+MCP, real local 7B MCP coding, synthetic MCP speech and a synthetic continuous
+browser voice turn. The branch endpoint was `127.0.0.1:55288`. These checks do
+not establish Mac integration, staging or physical desktop parity.
 
 ### Short continuous voice turns
 

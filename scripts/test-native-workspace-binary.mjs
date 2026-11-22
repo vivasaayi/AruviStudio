@@ -47,6 +47,12 @@ try {
   await page.getByLabel("Filter workspace files").fill("boundary.bin");
   assert.equal(await page.getByRole("button", {name:"Download saved fixture.bin", includeHidden:true}).isVisible(), false);
   assert.equal(await page.getByRole("button", {name:"Download saved boundary.bin"}).isVisible(), true);
+  const boundaryEvent = page.waitForEvent("download");
+  await page.getByRole("button", {name:"Download saved boundary.bin"}).click();
+  assert.deepEqual(await readFile(await (await boundaryEvent).path()), boundary);
+  await page.getByLabel("Filter workspace files").fill("too-large.bin");
+  await page.getByRole("button", {name:"Download saved too-large.bin"}).click();
+  await page.waitForFunction(() => document.querySelector("#status")?.textContent.includes("8 MiB"));
   await page.getByLabel("Filter workspace files").fill("");
   const event = page.waitForEvent("download"); await page.getByRole("button", {name:"Download saved fixture.bin"}).click();
   const download = await event; assert.equal(download.suggestedFilename(), "fixture.bin");

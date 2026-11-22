@@ -86,8 +86,9 @@ non-regular files. Non-Unix reads use a canonical-path check with weaker race
 protection. External writers may modify file contents while a download is read;
 it is not an immutable snapshot. Native disposable server/browser and MCP tests
 covered a binary download, both MCP names, authorization, stale root and the
-8 MiB boundary; a Rust test covered traversal, links and oversized files. Linux
-container and physical desktop acceptance are not yet complete for this change.
+8 MiB boundary; a Rust test covered traversal, links and oversized files. The
+Linux candidate browser suite verified the same full-size download, filtering,
+authorization and over-limit rejection. Physical desktop acceptance remains open.
 
 The desktop IDE supports ⌘/Ctrl+S. The browser file editor now supports the
 same shortcut while the editor is focused, using its existing conflict-checked
