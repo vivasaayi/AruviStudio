@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Hierarchy creation details parity in progress
+### Hierarchy creation details parity: branch validation
 
 The desktop creation forms accept a product-area description and, for a
 capability or feature, a description, acceptance criteria and technical notes.
@@ -29,8 +29,29 @@ exercised at 390×844 without document overflow; the ordering regression passed.
 The first browser run revealed ambiguous accessible labels and selectors; the
 subsequent run passed after the optional-field labels were clarified. The full
 native Rust library suite passed 349 tests with eight ignored, and the product
-terminology check passed. Hosted clean-image checks, branch deployment and
-physical desktop comparison remain pending.
+terminology check passed.
+
+Hosted test workflows `45029526022` and `45029531077` passed; clean ARM64 and
+AMD64 image validation in run `45029526024` passed for source `71300e8`. Later
+commit `c8dbf7e` only records the native checks. The worktree candidate used
+the hash-verified ARM64 server from the clean image on the existing runtime
+image, so it is derived rather than the complete clean image. Its image ID is
+`sha256:860d1024ec4ac3cb336b9bb874028cb76417b39ad9c9284114cff11a31071391`;
+the server SHA-256 is
+`d6606a9deab8dc9906b10a2caa2567a99aff17cc4188c0df6ab08fb421758984`.
+The candidate passed 62 workflow tests, 51 browser tests (one skipped), PDF
+isolation and outage checks, simulated CI, and the real-host packaged quick
+start and stream cancellation. The scoped-credential fixture passed.
+
+After checking active jobs and backing up the database, the worktree app and
+PDF containers were updated. Restart acceptance checked product persistence,
+MCP, mobile authorization and PDF. Creation and ordering were then verified
+in Chrome against the deployed branch with disposable, archived products at
+desktop and phone widths; MCP confirmed the created details. Chrome checked all
+13 sections and published-port MCP origin rules; real local coding and synthetic
+speech passed. The previous image remains tagged for rollback. Physical desktop
+and audio, live third-party providers, deployed Aruvici, Mac integration and
+VPS staging remain unverified.
 
 ### Product hierarchy ordering parity: branch validation
 
