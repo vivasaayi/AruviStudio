@@ -36,3 +36,20 @@ it("keeps supplied context, draft, actions and validation in the packet", () => 
     expect(packet.html).toContain(text);
   }
 });
+
+it("renders an offline, escaped overview and complete hierarchy beyond the visual limit", () => {
+  const nodes = Array.from({ length: 101 }, (_, i) => ({
+    id: `node-${i}`, label: i === 100 ? 'Last <script>alert("x")</script>' : `Node ${i}`,
+    node_type: "product_area", children: i === 0 ? [{ id: "child", label: "Child & sibling", node_type: "product_area", children: [] }] : [],
+  }));
+  const snapshot = { title:"Offline", generatedAt:"fixture", activeProductName:null, currentProducts:[], currentProductTrees:[],
+    currentWorkItems:[], currentWorkItemsHasMore:false, draftTreeNodes:nodes, plan:null, validation:{score:0,issues:[]}, selectedNode:null };
+  const { html } = JSON.parse(renderJson(JSON.stringify(snapshot)));
+  expect(html).toContain('aria-label="Staged design hierarchy"');
+  expect(html).toContain('aria-label="Complete staged design hierarchy"');
+  expect(html).toContain('Diagram shows the first 100 nodes');
+  expect(html).toContain('Child &amp; sibling');
+  expect(html).toContain('Last &lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;');
+  expect(html).not.toContain('<script');
+  expect(html).not.toContain('cdn.jsdelivr.net');
+});

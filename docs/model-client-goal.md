@@ -30,6 +30,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Offline Planner snapshot diagrams
+
+The no-session snapshot packet now renders a self-contained SVG overview and a
+complete text hierarchy instead of loading Mermaid from a public CDN. The SVG
+shows at most 100 nodes; the text retains all nodes and the existing serialized
+change set remains available. Labels are escaped. A focused frontend test checks
+the over-limit tree and malicious markup, and headless Chrome rendered the
+packet with networking disabled and made no requests. The frontend build passed.
+The legacy TypeScript renderer still runs inside the bounded Rust service; a
+native Rust replacement, clean-image and deployed checks remain open.
+
 ### Planner proposal packet identity
 
 Desktop proposal messages now retain independent copies of the plan and staged
@@ -58,9 +69,9 @@ is exposed as MCP `render_planner_packet_snapshot`; it does not query or modify
 the catalog and labels the snapshot as potentially stale. Serialized input is
 capped at 8 MiB, execution at 10 seconds, JavaScript memory at 128 MiB and
 concurrency at two; transport limits can be lower. The legacy TypeScript
-renderer is bundled in the backend and its HTML retains an external Mermaid
-script reference, so deleting the source and fully native Rust rendering remain
-open. Proposal identity handling is recorded above. Direct desktop IPC, a no-session desktop browser harness, authenticated
+renderer is bundled in the backend, so deleting the source and fully native
+Rust rendering remain open. The later offline-diagram checkpoint removes the
+external Mermaid script. Proposal identity handling is recorded above. Direct desktop IPC, a no-session desktop browser harness, authenticated
 and unauthorized MCP, invalid and oversized snapshots, and nonempty draft/action
 content passed. The full mocked desktop browser suite passed 82 tests, including
 14 Planner tests; a disposable native-server browser suite passed 44 tests and

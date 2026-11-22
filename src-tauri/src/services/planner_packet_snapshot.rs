@@ -83,7 +83,9 @@ mod tests {
         detailed["plan"] = json!({"actions":[{"type":"create_work_item","title":"Count stock"}]});
         detailed["validation"] = json!({"score":72,"issues":[{"tone":"warn","title":"Review risk","detail":"Missing owner"}]});
         let html = render_snapshot(detailed).await.unwrap().html;
-        for text in ["Stock &lt;&amp;&gt;", "Count stock", "Review risk", "Missing owner"] { assert!(html.contains(text), "missing {text}"); }
+        for text in ["Stock &lt;&amp;&gt;", "Count stock", "Review risk", "Missing owner", "Complete staged design hierarchy"] { assert!(html.contains(text), "missing {text}"); }
+        assert!(!html.contains("<script"));
+        assert!(!html.contains("cdn.jsdelivr.net"));
         assert!(matches!(render_snapshot(json!({})).await, Err(AppError::Validation(_))));
         let mut invalid_kind = snapshot(); invalid_kind["snapshotKind"] = json!("unknown");
         assert!(matches!(render_snapshot(invalid_kind).await, Err(AppError::Validation(_))));
