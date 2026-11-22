@@ -33,7 +33,9 @@ capabilities and features and rejected a stale browser move after an MCP edit.
 The initial browser run exposed a stale status-message timing issue; the final
 run passed after adding an updating state. The full native Rust library suite
 passed 349 tests with eight ignored, followed by a focused test confirming that
-only one of two concurrent reorder requests succeeds. Clean-image validation,
+only one of two concurrent reorder requests succeeds. A repeat also exercised
+the capability and feature controls at 390×844 without document overflow.
+Clean-image validation,
 branch deployment and physical desktop comparison remain pending.
 
 ### MCP file digest workspace snapshot: branch validation

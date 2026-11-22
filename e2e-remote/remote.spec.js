@@ -2335,8 +2335,10 @@ test("browser reorders product hierarchy with concurrent MCP protection", async 
     await page.getByRole("button",{name:"Move up Area B"}).click();
     await expect(page.locator("#status")).toHaveText("Hierarchy order saved");
     await expect(page.locator("#productTree > details > summary").first()).toContainText("Area B");
+    await page.setViewportSize({width:390,height:844});
     await page.locator("#productTree > details > summary").filter({hasText:"Area A"}).click();
     await page.locator("#productTree summary").filter({hasText:"Capability D"}).click();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
     await page.getByRole("button",{name:"Move up Capability D"}).click();
     await expect(page.locator("#status")).toHaveText("Hierarchy order saved");
     await page.locator("#productTree > details > summary").filter({hasText:"Area A"}).click();
@@ -2348,6 +2350,7 @@ test("browser reorders product hierarchy with concurrent MCP protection", async 
     expect(tree.product_areas.map((a) => a.product_area.id)).toEqual([areaB.id,areaA.id]);
     expect(tree.product_areas[1].features.map((c) => c.capability.id)).toEqual([capD.id,capC.id]);
     expect(tree.product_areas[1].features[1].children.map((c) => c.capability.name)).toEqual(["Feature Y","Feature X"]);
+    await page.setViewportSize({width:1440,height:900});
     await catalog("reorder_hierarchy_checked",{product_id:product.id,expected_order:[areaB.id,areaA.id],ordered_ids:[areaA.id,areaB.id]});
     await page.locator("#productTree > details > summary").filter({hasText:"Area B"}).click();
     const stale = page.waitForResponse((response) => response.url().endsWith("/hierarchy/reorder") && response.request().method() === "POST");
