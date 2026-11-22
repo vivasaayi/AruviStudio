@@ -27,9 +27,10 @@ levels, checked the stored values through the product tree and MCP, and checked
 unauthenticated, wrong-product and invalid-field requests. Creation was also
 exercised at 390×844 without document overflow; the ordering regression passed.
 The first browser run revealed ambiguous accessible labels and selectors; the
-subsequent run passed after the optional-field labels were clarified. Full Rust,
-hosted clean-image checks, branch deployment and physical desktop comparison
-remain pending.
+subsequent run passed after the optional-field labels were clarified. The full
+native Rust library suite passed 349 tests with eight ignored, and the product
+terminology check passed. Hosted clean-image checks, branch deployment and
+physical desktop comparison remain pending.
 
 ### Product hierarchy ordering parity: branch validation
 
