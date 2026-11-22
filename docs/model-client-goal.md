@@ -22,9 +22,26 @@ output, which can contain fixture content. Private synthetic logs were kept
 under `/private/tmp/aruvi-selected-node-trace*.log`. The planner system prompt
 and schema-repair message now explicitly distinguish capabilities from features
 and tell the model not to use `create_feature`; invalid actions are still
-rejected rather than silently reinterpreted. A simulated-provider regression
-case is included but has not yet run. Hosted build and tests, a rebuilt branch
-runtime and real-model revalidation of this change remain pending.
+rejected rather than silently reinterpreted. GitHub Actions run `44998245597` passed at `7f3ea40`: the simulated-provider
+repair regression passed along with 341 Rust unit tests (eight ignored), Rust
+integration, frontend and Playwright UI checks. Clean ARM64 and AMD64 image validation also passed in run `44998245595` at
+`7f3ea40`. The ARM64 archive was streamed and verified against SHA-256
+`afd999c5ce3e6dfec34e94aeebecf862584b54024c7e600214a71f123f8c1097`;
+the server layer hash was `9d1f1c0d6b0ac93dbe67f27a6b52ba0baa43ca194f8cd63a65a33a70b6b0acfb`
+and extracted binary hash was `3b65ae14faf462c502381a83fd6a41db658b136025828f5c6af5eb2e1908d72c`.
+
+A local derived-image build failed while Docker storage was full. Docker Desktop
+stopped because the Mac had no free space, interrupting the branch and other
+containers. One older temporary image archive was removed after confirming its
+GitHub artifact remained available; its binary and database backup were retained.
+Docker Desktop was restarted, the existing branch app and PDF sidecar were
+started and reported healthy, `/health` returned 200, and the read-only worktree
+database `quick_check` passed. Two interrupted Tamilsteam worktree stacks were
+restarted and all six containers reported healthy. The Mayyam E2E Zookeeper
+container was observed restarting after Docker returned; its prior state was
+not established. Docker internal free space was approximately 348 MiB after
+recovery, so no additional build or cleanup was attempted. A rebuilt branch
+runtime and real-model revalidation of the planner change remain pending.
 
 ### Real-model selected-node planner revalidation
 
