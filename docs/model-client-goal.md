@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Short browser voice diagnostic
+
+With the deployed `37ffe58` runtime and real Model Host Whisper, the short
+synthetic phrase "Say hello in one sentence" transcribed correctly in three
+direct MCP requests. Four separately captured browser recordings all contained
+the full voiced interval; when independently sent through MCP, three produced
+the expected transcript and one did not. This demonstrates variability in the
+tested path but does not establish whether browser audio processing or model
+inference caused it. The fixture uses synthetic audio, and it does not validate
+physical microphone input or recognition reliability across speakers.
+
 ### Desktop IDE workspace snapshots
 
 The desktop IDE now opens a file with a backend-captured workspace root and
@@ -35,8 +46,22 @@ and mocked desktop UI checks passed. The frontend build and 136 frontend tests
 passed, as did 69 browser tests and 338 Rust library tests (seven ignored). The
 first full Rust run exposed a fixture using a noncanonical macOS temporary path;
 the fixture was corrected to use registered paths and the full suite passed.
-Physical native-window interaction remains unverified. The deployed branch
-image predates this checkpoint until a clean image is built, validated and deployed.
+Physical native-window interaction remains unverified.
+
+Both hosted test runs and the clean Linux ARM64 image build passed for
+`e4f8613e54600fa17b33ea87682fd194d321eb92`. The archive checksum and source
+revision were verified. Its server binary (SHA-256
+`cf92733bcc4d263a5c876316d4a81c7c346c1f00bc80bbac3b23480e07f31a5b`)
+was layered onto the preceding runtime with unchanged non-Rust inputs, producing
+derived image `sha256:7f0d3761fba496f456212440fb244901940f5fe71e6d324c3cee26041c05601f`;
+this is not the complete clean hosted image. The candidate passed 56 isolated
+workflow tests, 45 browser tests with one skipped, and the PDF outage check.
+After a verified SQLite backup and retention of the prior image, product, MCP,
+mobile authorization, PDF and persistence checks passed across a restart. The
+published-port MCP origin test, real local 7B MCP coding, synthetic MCP speech,
+and continuous synthetic browser voice with real Whisper and a coding model also
+passed. The worktree endpoint was `127.0.0.1:55288`. These results do not establish
+complete desktop parity, physical audio behavior, Mac integration or VPS staging.
 
 ### Shared workflow topology
 
