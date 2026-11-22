@@ -27,8 +27,9 @@ response consumers can continue to use `sha256`.
 Focused Rust tests covered both MCP names, discovery, unchanged hashes and
 stale-root rejection. A disposable native server and browser fixture verified
 the returned pair and rejection while another process held a workspace change.
-The headless guide documents the paired values. Full Rust, hosted clean-image
-checks and branch deployment remain pending at this checkpoint.
+The full native Rust library suite passed 348 tests with eight ignored. The
+headless guide documents the paired values. Hosted clean-image checks and branch
+deployment remain pending at this checkpoint.
 
 ### File Copilot workspace-root guard: branch validation
 
