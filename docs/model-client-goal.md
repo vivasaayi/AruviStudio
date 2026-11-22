@@ -30,6 +30,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Planner packet fallback audit
+
+The desktop no-session export still builds a packet from in-memory product,
+tree, work, draft, plan, validation and assistant-message snapshots. The shared
+Rust session renderer requires a persisted staged draft, so it cannot replace
+that fallback without losing the no-session behavior. Proposal-message buttons
+also invoke one shared exporter using the current state, rather than passing the
+clicked message's plan. A backend migration needs explicit snapshot identity,
+bounded inputs and scope/staleness rules, and tests for no-session and older
+proposal exports; do not remove the fallback merely to eliminate the source file.
+
 ### Current worktree deployment at `38d0acb`
 
 Clean ARM64 and AMD64 images and both hosted test runs passed for `38d0acb`.
