@@ -542,6 +542,13 @@ a selector that hid valid mapped host/container targets; the backend validates
 target identity when assigning or queueing. Cancellation and other actions are
 still covered only by simulated-service tests.
 
+The current branch's Linux container and a newly built native Studio server
+repeated the real-service relay fixture with Aruvici protocol candidate
+`33e5a08`. Container-queued and browser-queued disposable Rust/OCI builds,
+browser inspection and artifact verification passed. The fixture now checks
+the required scanner, formatter, linter and Buildx before starting. This is not
+the deployed Aruvici service, a production product build or staging acceptance.
+
 | Desktop action | Dependency or constraint for web parity |
 | --- | --- |
 | Show service health, configured targets, pipeline readiness and recent runs | Authenticated browser and MCP reads now use the existing bounded JSON bridge. An explicitly configured trusted service still needs end-to-end validation. |

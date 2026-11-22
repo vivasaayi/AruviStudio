@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
 import socket
 import sqlite3
 import subprocess
@@ -49,6 +50,21 @@ if args.relay_artifact and args.large_real_artifact:
     parser.error("Run relay and real large artifact fixtures separately")
 studio = args.studio_binary.resolve(strict=True)
 aruvici = args.aruvici_binary.resolve(strict=True)
+
+if args.execute_build:
+    # Fail before creating services or queuing a run when the fixture cannot
+    # execute the same tools required by Aruvici's Rust/OCI pipeline.
+    for program in ("git", "gitleaks", "cargo", "rustc", "docker"):
+        if not shutil.which(program):
+            parser.error(f"--execute-build requires {program} on PATH")
+    for command, label in [(["cargo", "fmt", "--version"], "cargo fmt"),
+                           (["cargo", "clippy", "--version"], "cargo clippy"),
+                           (["docker", "buildx", "version"], "docker buildx")]:
+        try:
+            subprocess.run(command, check=True, stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=15)
+        except (OSError, subprocess.SubprocessError):
+            parser.error(f"--execute-build requires a working {label}")
 
 def stop(process):
     if process and process.poll() is None:

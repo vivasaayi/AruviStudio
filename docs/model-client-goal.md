@@ -12,6 +12,32 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Real CI service and container relay revalidation
+
+Studio source `bd06190` was built as a native Mac server with only the `rlib`
+crate type and package debug information disabled to reduce disk usage. A
+disposable Aruvici protocol-branch service at `33e5a08` and the running branch's
+`9c412bb`-based Linux image then passed an authenticated host-loopback relay
+fixture. It checked invalid-token and forbidden-operation rejection, target and
+repository binding, and a container-queued Rust/OCI fixture build through the
+real service. Headless Chrome inspected the completed run and verified its
+artifact, then queued and inspected a different revision. This ran twice after
+the prerequisites were available; it does not exercise the deployed Aruvici
+service, a real product build, external ingress or staging.
+
+The first native build exhausted disk while producing a static library; a second
+attempt exhausted disk at link time. Only this project's failed Cargo outputs
+were cleaned, and a checksum-verified, re-downloadable branch image archive was
+removed; the running image and pre-deployment database backup were retained.
+The first CI attempt failed at the secret-scan stage because `gitleaks` was not
+on PATH. A second passed that stage but lacked `cargo fmt`. For the successful
+runs, official Gitleaks 8.30.1 was downloaded to a temporary directory and its
+release checksum verified, and the installed stable Rust toolchain supplied
+formatting and Clippy. The fixture now checks these and Docker Buildx before
+starting services; a missing-Gitleaks control fails at preflight. This is a
+fixture convenience check, not a substitute for assessing tool provenance or
+the deployed service's configuration. Disk remains constrained.
+
 ### Real-model two-file workflow and test-gate review
 
 Against the deployed branch runtime `643e9d6`, disposable workflows used the
