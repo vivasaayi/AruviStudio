@@ -156,6 +156,52 @@ async fn mcp_exposes_scope_summaries_and_all_repository_attachments() {
 }
 
 #[tokio::test]
+async fn mcp_reviewed_patch_rejects_changed_workspace_and_file() {
+    let state = create_test_state("reviewed_patch_workspace_parity").await;
+    let first = state.app_data_dir.join("first-workspace");
+    let second = state.app_data_dir.join("second-workspace");
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    std::fs::write(first.join("sample.txt"), "original\n").unwrap();
+    std::fs::write(second.join("sample.txt"), "original\n").unwrap();
+    let first_root = first.to_str().unwrap();
+    let second_root = second.to_str().unwrap();
+    crate::persistence::repository_repo::create_repository(&state.db, "review-repo", "Review", first_root, "", "main").await.unwrap();
+    let patch = "@@ -1 +1 @@\n-original\n+updated\n";
+
+    let read = dispatch_tool(&state, "repositories.files.read", json!({"repositoryId":"review-repo", "relativePath":"sample.txt"})).await.unwrap();
+    assert_eq!(read["result"]["workspace_root"], first_root);
+    assert_eq!(read["result"]["content"], "original\n");
+    assert!(dispatch_tool(&state, "repositories.files.preview_patch", json!({"repositoryId":"review-repo", "relativePath":"sample.txt", "patch":patch})).await.is_err());
+    let preview = dispatch_tool(&state, "repositories.files.preview_patch", json!({"repositoryId":"review-repo", "relativePath":"sample.txt", "patch":patch, "expectedRoot":first_root})).await.unwrap();
+    assert_eq!(preview["result"]["workspace_root"], first_root);
+    assert_eq!(preview["result"]["result_content"], "updated\n");
+    let legacy_preview = dispatch_tool(&state, "aruvi_repositories", json!({"action":"preview_repository_patch", "arguments":{"repository_id":"review-repo", "relative_path":"sample.txt", "patch":patch}})).await.unwrap();
+    assert_eq!(legacy_preview["result"], preview["result"]);
+    let base = preview["result"]["base_sha256"].as_str().unwrap();
+    let reviewed = json!({"repositoryId":"review-repo", "relativePath":"sample.txt", "patch":patch, "baseSha256":base, "expectedExists":true, "expectedRoot":first_root});
+    let mut missing_root = reviewed.clone();
+    missing_root.as_object_mut().unwrap().remove("expectedRoot");
+    assert!(dispatch_tool(&state, "repositories.files.apply_reviewed_patch", missing_root).await.is_err());
+
+    sqlx::query("UPDATE repositories SET local_path=? WHERE id=?").bind(second_root).bind("review-repo").execute(&state.db).await.unwrap();
+    assert!(dispatch_tool(&state, "repositories.files.read", json!({"repositoryId":"review-repo", "relativePath":"sample.txt", "expectedRoot":first_root})).await.is_err());
+    assert!(dispatch_tool(&state, "repositories.files.preview_patch", json!({"repositoryId":"review-repo", "relativePath":"sample.txt", "patch":patch, "expectedRoot":first_root})).await.is_err());
+    assert!(dispatch_tool(&state, "repositories.files.apply_reviewed_patch", reviewed.clone()).await.is_err());
+    assert_eq!(std::fs::read_to_string(second.join("sample.txt")).unwrap(), "original\n");
+
+    sqlx::query("UPDATE repositories SET local_path=? WHERE id=?").bind(first_root).bind("review-repo").execute(&state.db).await.unwrap();
+    std::fs::write(first.join("sample.txt"), "changed elsewhere\n").unwrap();
+    assert!(dispatch_tool(&state, "repositories.files.apply_reviewed_patch", reviewed.clone()).await.is_err());
+    assert_eq!(std::fs::read_to_string(first.join("sample.txt")).unwrap(), "changed elsewhere\n");
+    std::fs::write(first.join("sample.txt"), "original\n").unwrap();
+    dispatch_tool(&state, "repositories.files.apply_reviewed_patch", reviewed).await.unwrap();
+    assert_eq!(std::fs::read_to_string(first.join("sample.txt")).unwrap(), "updated\n");
+    let legacy = dispatch_tool(&state, "aruvi_repositories", json!({"action":"read_repository_file", "arguments":{"repository_id":"review-repo", "relative_path":"sample.txt"}})).await.unwrap();
+    assert_eq!(legacy["result"]["content"], "updated\n");
+}
+
+#[tokio::test]
 async fn work_items_list_supports_opt_in_pagination_metadata() {
     let state = create_test_state("work_item_list_pagination").await;
     create_test_product(&state, "mcp-product-page").await;

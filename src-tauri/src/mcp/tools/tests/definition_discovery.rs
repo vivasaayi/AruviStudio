@@ -105,6 +105,15 @@ fn discovery_exposes_scope_and_attachment_read_tools() {
 }
 
 #[test]
+fn discovery_requires_workspace_root_for_reviewed_patch_tools() {
+    let definitions = definitions();
+    for name in ["repositories.files.preview_patch", "repositories.files.apply_reviewed_patch"] {
+        let tool = definitions.iter().find(|tool| tool.name == name).unwrap();
+        assert!(tool.input_schema["required"].as_array().unwrap().contains(&json!("expectedRoot")));
+    }
+}
+
+#[test]
 fn discovery_exposes_bulk_import_tools() {
     let definitions = definitions();
     assert!(definitions

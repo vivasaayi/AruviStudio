@@ -135,12 +135,14 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         "read_repository_file" => {
             let repository_id =
                 args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
-            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
             let content = repo_service::read_repository_file(
-                &repository.local_path,
+                &root,
                 &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
             )?;
-            action_result("read_repository_file", json!({ "content": content, "workspace_root": repository.local_path }))
+            transaction.commit().await?;
+            action_result("read_repository_file", json!({ "content": content, "workspace_root": root }))
         }
         "read_repository_binary" => {
             use base64::Engine as _;
@@ -190,14 +192,18 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         }
         "preview_repository_patch" => {
             let repository_id = args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
-            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
             let preview = repo_service::preview_repository_patch(
-                &repository.local_path,
+                &root,
                 &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
                 &args.required_string(&["patch"], "patch")?,
                 args.optional_string(&["base_sha256", "baseSha256"])?.as_deref(),
             )?;
-            action_result("preview_repository_patch", preview)
+            let mut result = serde_json::to_value(preview)?;
+            result["workspace_root"] = json!(root);
+            transaction.commit().await?;
+            action_result("preview_repository_patch", result)
         }
         "apply_repository_patch" => {
             let repository_id =

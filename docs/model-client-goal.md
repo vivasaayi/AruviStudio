@@ -12,6 +12,25 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### MCP reviewed-patch workspace guard in progress
+
+Desktop reviewed patches bind reads, previews and application to a captured
+workspace root. MCP reads and previews previously loaded the repository path
+without that lock; preview did not return the root. The current source now
+uses the shared root guard for text reads and patch previews, accepts optional
+`expected_root`, and returns `workspace_root` from preview. It also exposes
+first-class `repositories.files.preview_patch` and
+`repositories.files.apply_reviewed_patch`; both require a nonblank captured
+root in dispatch as well as discovery. The existing first-class read, write and
+legacy apply-patch schemas expose their optional root guard. Legacy namespace
+actions remain compatible when the guard is omitted. This coordinates only
+cooperating Studio processes; external filesystem writers can still race.
+
+Rust tests cover root changes, stale content, missing root, successful review
+and legacy behavior; the disposable browser/MCP fixture covers the first-class
+flow and rejection. These changes have not yet passed hosted checks or been
+deployed.
+
 ### MCP scoped work and attachment parity: branch validation
 
 Hosted test run `45005749461` passed 345 Rust unit tests (eight ignored),

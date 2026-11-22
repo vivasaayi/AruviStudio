@@ -1065,6 +1065,27 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       expect(preview.exists).toBe(true);
       expect(preview.base_sha256).toBe(patchHash);
       expect(preview.result_content).toBe("alpha\nmiddle\nbeta\n");
+      expect(preview.workspace_root).toBe(process.env.ARUVI_TEST_REPOSITORY_PATH);
+      const firstClass = async (name, arguments_) => {
+        const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 71, method: "tools/call", params: { name, arguments: arguments_ } } });
+        return response.json();
+      };
+      const guardedArgs = { repositoryId, relativePath: patchFile, patch: previewArgs.patch, baseSha256: patchHash, expectedRoot: preview.workspace_root };
+      const guardedPreview = await firstClass("repositories.files.preview_patch", guardedArgs);
+      expect(guardedPreview.result.isError).not.toBeTruthy();
+      expect(guardedPreview.result.structuredContent.result).toEqual(preview);
+      for (const expectedRoot of [undefined, "/stale-workspace"]) {
+        const rejected = await firstClass("repositories.files.apply_reviewed_patch", { ...guardedArgs, expectedRoot, expectedExists: true });
+        expect(rejected.result?.isError || rejected.error).toBeTruthy();
+      }
+      expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: patchFile })).content).toBe("alpha\nbeta\n");
+      const dedicated = "preview-only/first-class.txt";
+      await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: dedicated, content: "old\n" });
+      const dedicatedArgs = { repositoryId, relativePath: dedicated, patch: "@@ -1 +1 @@\n-old\n+new\n", expectedRoot: preview.workspace_root };
+      const dedicatedPreview = (await firstClass("repositories.files.preview_patch", dedicatedArgs)).result.structuredContent.result;
+      const applied = await firstClass("repositories.files.apply_reviewed_patch", { ...dedicatedArgs, baseSha256: dedicatedPreview.base_sha256, expectedExists: true });
+      expect(applied.result.isError).not.toBeTruthy();
+      expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: dedicated })).content).toBe("new\n");
       const browserPreview = await request.post("/api/mobile/repository-inspect", { headers: { Authorization: `Bearer ${token}` }, data: { action: "preview_repository_patch", ...previewArgs } });
       expect(browserPreview.status()).toBe(200);
       expect(await browserPreview.json()).toEqual(preview);

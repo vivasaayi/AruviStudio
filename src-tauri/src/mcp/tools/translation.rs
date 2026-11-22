@@ -120,6 +120,8 @@ pub(super) fn translate_first_class_tool(
         "repositories.files.write" => ("aruvi_repositories", "write_repository_file"),
         "repositories.files.get_sha256" => ("aruvi_repositories", "get_repository_file_sha256"),
         "repositories.files.apply_patch" => ("aruvi_repositories", "apply_repository_patch"),
+        "repositories.files.preview_patch" => ("aruvi_repositories", "preview_repository_patch"),
+        "repositories.files.apply_reviewed_patch" => ("aruvi_repositories", "apply_reviewed_repository_patch"),
         "repositories.git.status" => ("aruvi_repositories", "get_git_status"),
         "repositories.git.diff" => ("aruvi_repositories", "get_git_diff"),
         "repositories.git.changed_files" => ("aruvi_repositories", "list_git_changed_files"),
@@ -136,6 +138,13 @@ pub(super) fn translate_first_class_tool(
             )))
         }
     };
+
+    if matches!(tool_name, "repositories.files.preview_patch" | "repositories.files.apply_reviewed_patch")
+        && !arguments.get("expected_root").or_else(|| arguments.get("expectedRoot"))
+            .and_then(Value::as_str).is_some_and(|root| !root.trim().is_empty())
+    {
+        return Err(AppError::Validation("A captured expectedRoot is required for reviewed patch operations".into()));
+    }
 
     Ok(Some((
         namespace_tool,
