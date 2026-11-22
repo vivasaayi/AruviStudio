@@ -12,6 +12,20 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Manual browser voice and suspended audio contexts
+
+Manual browser recording now resumes a suspended `AudioContext` before wiring
+the processor. If navigation or page hiding cancels while resume is pending,
+the capture stream is stopped and the context closed without transcribing or
+starting a late recording. If resume completes but the context remains
+suspended, the UI reports the failure and releases the microphone. A disposable native server and headless Chrome ran
+five voice cases, including a simulated suspended context that resumes and a
+second whose resume is interrupted by navigation, and one that remains
+suspended. The test checks track and context cleanup and a late resume; manual transcription and continuous-voice
+regressions also passed. The native server was built with reduced debug output
+and only the `rlib` crate type. Linux candidate and deployed-branch checks are
+pending. This simulated input does not prove real-device capture.
+
 ### macOS microphone bundle configuration
 
 The previously generated macOS application bundle lacked

@@ -30,6 +30,9 @@ sample and does not establish team-skill or general instruction-following behavi
 Manual browser recording now discards unfinished audio on navigation or page
 hide and closes a late microphone permission result; a disposable native-server
 browser fixture verified the navigation case. Hardware capture remains unverified.
+Manual recording also resumes a suspended audio context and closes it and the
+microphone when navigation interrupts that resume. Simulated browser coverage
+passed on a disposable native server; Linux deployment remains to be validated.
 Continuous voice now accepts a short detected buffer, including a simulated
 200 ms answer, and discards simulated silence. Its RMS threshold can also detect
 noise; physical capture and broader noise handling remain unverified.

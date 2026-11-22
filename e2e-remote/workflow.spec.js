@@ -2644,3 +2644,50 @@ test("browser navigation discards manual voice capture", async ({ page }) => {
   await page.getByRole("button", { name: "Voice", exact: true }).click();
   await expect(page.locator("#voiceMeta")).toHaveText("Recording discarded.");
 });
+
+test("manual voice resumes suspended audio and releases it when navigation interrupts resume", async ({ page }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable Studio server");
+  await page.addInitScript(() => {
+    window.manualResumes = 0; window.manualStops = 0; window.manualCloses = 0;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() { window.manualStops++; } }] }) } });
+    window.AudioContext = class {
+      constructor() { this.state = "suspended"; this.sampleRate = 16000; this.destination = {}; }
+      resume() {
+        window.manualResumes++;
+        if (window.manualResumes === 1) { this.state = "running"; return Promise.resolve(); }
+        if (window.manualResumes === 2) return new Promise((resolve) => { window.finishManualResume = resolve; });
+        return Promise.resolve(); // Simulate a browser that remains suspended.
+      }
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() { return { connect() {}, disconnect() {} }; }
+      async close() { window.manualCloses++; }
+    };
+  });
+  let transcriptions = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/api/mobile/speech/transcribe")) transcriptions++; });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.locator("#voiceRecordButton").click();
+  await expect(page.locator("#voiceRecordButton")).toHaveText("Stop");
+  expect(await page.evaluate(() => window.manualResumes)).toBe(1);
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.manualStops)).toBe(1);
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.locator("#voiceRecordButton").click();
+  await expect.poll(() => page.evaluate(() => window.manualResumes)).toBe(2);
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.manualStops)).toBe(2);
+  await expect.poll(() => page.evaluate(() => window.manualCloses)).toBe(2);
+  await page.evaluate(() => window.finishManualResume());
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await expect(page.locator("#voiceRecordButton")).toHaveText("Record");
+  await expect(page.locator("#voiceMeta")).toHaveText("Recording discarded.");
+  await page.locator("#voiceRecordButton").click();
+  await expect(page.locator("#voiceMeta")).toHaveText("Microphone audio could not start in this browser.");
+  await expect.poll(() => page.evaluate(() => window.manualStops)).toBe(3);
+  await expect.poll(() => page.evaluate(() => window.manualCloses)).toBe(3);
+  await expect(page.locator("#voiceRecordButton")).toHaveText("Record");
+  expect(transcriptions).toBe(0);
+});

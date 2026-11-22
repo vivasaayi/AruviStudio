@@ -34,7 +34,7 @@ try {
     try { if ((await fetch(base + "/health")).ok) break; } catch {}
     await new Promise((resolveWait) => setTimeout(resolveWait, 250));
   }
-  const browser = spawn(resolve("node_modules/.bin/playwright"), ["test", "-c", "playwright.remote.config.js", "workflow.spec.js", "-g", "voice records, reviews, and sends a transcribed message|browser continuous voice conversation uses Studio|continuous voice discards a silent capture|browser navigation discards manual voice capture", "--workers=1"], { stdio: "inherit", env });
+  const browser = spawn(resolve("node_modules/.bin/playwright"), ["test", "-c", "playwright.remote.config.js", "workflow.spec.js", "-g", "voice records, reviews, and sends a transcribed message|browser continuous voice conversation uses Studio|continuous voice discards a silent capture|browser navigation discards manual voice capture|manual voice resumes suspended audio", "--workers=1"], { stdio: "inherit", env });
   const status = await new Promise((resolveStatus, reject) => { browser.once("error", reject); browser.once("exit", (code, signal) => resolveStatus({ code, signal })); });
   if (status.code !== 0) throw new Error(`Voice browser test failed: ${status.code ?? status.signal}`);
 } finally {

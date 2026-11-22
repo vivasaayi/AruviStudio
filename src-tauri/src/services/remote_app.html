@@ -1898,6 +1898,13 @@
         // engines cannot create a context at this rate, so fall back to theirs.
         try { audioContext = new AudioContextCtor({ sampleRate: 16000 }); }
         catch { audioContext = new AudioContextCtor(); }
+        if (audioContext.state === "suspended") await Promise.race([audioContext.resume(), session.cancelledPromise]);
+        if (session.cancelled) {
+          stream.getTracks().forEach((track) => track.stop());
+          await audioContext.close().catch(() => undefined);
+          return;
+        }
+        if (audioContext.state === "suspended") throw new Error("Microphone audio could not start in this browser.");
         const source = audioContext.createMediaStreamSource(stream);
         const processor = audioContext.createScriptProcessor(4096, 1, 1);
         const chunks = [];
