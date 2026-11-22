@@ -13,16 +13,18 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from real_coding_review import build_multifile_review, build_multifile_syntax_check
 
 root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-model-host-studio-validation")
-parser.add_argument("--scenario", choices=("new-module", "extend-module"), default="new-module")
+parser.add_argument("--scenario", choices=("new-module", "extend-module", "multi-file"), default="new-module")
 parser.add_argument("--json-mode", action="store_true", help="Opt the disposable coding agent into JSON-object output")
 parser.add_argument("--browser-approvals", action="store_true", help="Approve the plan and test gates through a headless browser")
 parser.add_argument("--prompt-template", action="store_true", help="Assign and verify a managed coding prompt template in the disposable fixture")
 parser.add_argument("--expect-edit-guidance", action="store_true", help="Verify coding model request snapshots include the duplicate-definition guidance")
 parser.add_argument("--verify-gate-rejects-invalid", action="store_true", help="Prove an invalid JavaScript fixture fails the workflow test gate")
+parser.add_argument("--verify-gate-rejects-missing", action="store_true", help="Prove the multi-file syntax gate rejects a missing file")
 parser.add_argument("--verify-behavior-rejection", action="store_true", help="Prove the independent behavioral review blocks delivery of invalid exports")
 parser.add_argument("--verify-duplicate-rejection", action="store_true", help="Prove a behaviorally correct duplicate declaration is rejected before delivery")
 parser.add_argument("--other-stage-model", help="Use another installed model for non-coding agents in this disposable fixture")
@@ -31,6 +33,10 @@ parser.add_argument("--non-coding-max-tokens", type=int, help="Set the response 
 args = parser.parse_args()
 if args.verify_duplicate_rejection and (args.scenario != "extend-module" or args.verify_behavior_rejection or args.verify_gate_rejects_invalid):
     parser.error("--verify-duplicate-rejection requires extend-module without other rejection flags")
+if args.scenario == "multi-file" and (args.verify_behavior_rejection or args.verify_gate_rejects_invalid):
+    parser.error("multi-file does not support the single-file rejection controls")
+if args.verify_gate_rejects_missing and args.scenario != "multi-file":
+    parser.error("--verify-gate-rejects-missing requires multi-file")
 if args.non_coding_max_tokens is not None and not 256 <= args.non_coding_max_tokens <= 16384:
     parser.error("--non-coding-max-tokens must be between 256 and 16384")
 host = args.host.expanduser().resolve()
@@ -89,6 +95,8 @@ try:
     if node_check.returncode: raise ValueError(f"Syntax checker could not start (exit {node_check.returncode}): " + node_check.stderr[:500])
     if args.verify_gate_rejects_invalid:
         subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "cat > /tmp/aruvi-invalid-syntax.js"], input="function broken( {\n", text=True, check=True)
+    if args.scenario == "multi-file":
+        subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "cat > /tmp/aruvi-multifile-syntax.cjs"], input=build_multifile_syntax_check(args.verify_gate_rejects_missing), text=True, check=True)
     command(["docker", "exec", container, "sh", "-c", 'mkdir -p /repositories/coding-fixture && git init -q -b main /repositories/coding-fixture && git -C /repositories/coding-fixture config user.name "Fixture" && git -C /repositories/coding-fixture config user.email "fixture@example.invalid" && printf "# Fixture\\n" > /repositories/coding-fixture/README.md && git -C /repositories/coding-fixture add README.md && git -C /repositories/coding-fixture commit -q -m initial && git init -q --bare /repositories/coding-origin.git && git -C /repositories/coding-fixture remote add origin /repositories/coding-origin.git && git -C /repositories/coding-fixture push -q -u origin main'])
     if args.workspace_override:
         command(["docker", "exec", container, "sh", "-c", 'mkdir -p /repositories/coding-default && git init -q -b main /repositories/coding-default && printf "default fixture\\n" > /repositories/coding-default/README.md'])
@@ -140,7 +148,8 @@ try:
         template = call("aruvi_agents", "create_prompt_template", {"name": "Real coding fixture", "role": "coding", "template_text": template_instruction})
         call("aruvi_agents", "update_agent_definition", {"id": "coding-agent", "prompt_template_ref": "template:" + template["id"]})
     test_file = "/tmp/aruvi-invalid-syntax.js" if args.verify_gate_rejects_invalid else "src/math.js"
-    for key, value in [("workflow.auto_start_after_work_item_approval", "false"), ("workflow.auto_approve_plan", "false"), ("workflow.auto_approve_test_review", "false"), ("workflow.test_argv", json.dumps(["/tmp/aruvi-fixture-node", "--check", test_file]))]:
+    test_argv = ["/tmp/aruvi-fixture-node", "/tmp/aruvi-multifile-syntax.cjs"] if args.scenario == "multi-file" else ["/tmp/aruvi-fixture-node", "--check", test_file]
+    for key, value in [("workflow.auto_start_after_work_item_approval", "false"), ("workflow.auto_approve_plan", "false"), ("workflow.auto_approve_test_review", "false"), ("workflow.test_argv", json.dumps(test_argv))]:
         call("aruvi_settings", "set_setting", {"key": key, "value": value})
     product = call("aruvi_catalog", "create_product", {"name": "Disposable real coding evaluation"})
     repo = call("aruvi_repositories", "register_repository", {"name": "Coding fixture", "local_path": "/repositories/coding-fixture", "default_branch": "main"})
@@ -153,6 +162,11 @@ try:
         description = ("Edit the existing src/math.js. Preserve sumEven and add clamp(value, min, max). "
                        "Return min if value is below min, max if above max, otherwise return value. "
                        "Throw RangeError if min is greater than max. Export both functions through module.exports.")
+    elif args.scenario == "multi-file":
+        title = "Create linked math modules"
+        description = ("Create src/math.js exporting sumEven(numbers), the sum of even integers, returning 0 for an empty array. "
+                       "Create src/index.js that imports sumEven from ./math and exports both sumEven and squareEvenSum(numbers). "
+                       "squareEvenSum must call the imported sumEven and return the square of its result. Use CommonJS module.exports.")
     else:
         title = "Add sumEven"
         description = "Create src/math.js containing function sumEven(numbers) that returns the sum of even integers, and export it as module.exports = { sumEven }. Return 0 for an empty array."
@@ -165,6 +179,19 @@ try:
     run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
     print("Stage after planning:", run["current_stage"], flush=True)
     if run["current_stage"] != "pending_plan_approval": raise ValueError("Workflow did not reach plan approval")
+    def remote_unchanged():
+        paths = ["src/math.js", "src/index.js"] if args.scenario == "multi-file" else ["src/math.js"]
+        listing = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "ls-tree", "-r", "--name-only", "main", "--", *paths], text=True, capture_output=True)
+        if listing.returncode != 0: raise ValueError("Unable to inspect the disposable remote")
+        present = set(listing.stdout.splitlines())
+        for path in paths:
+            if args.scenario == "extend-module" and path == "src/math.js":
+                if path not in present: return False
+                remote = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:" + path], text=True, capture_output=True)
+                if remote.returncode != 0 or remote.stdout != original: return False
+            elif path in present:
+                return False
+        return True
     def approve_gate(stage):
         if not args.browser_approvals:
             return call("aruvi_workflows", "handle_workflow_user_action", {"workflow_run_id": run_id, "action": "approve"})
@@ -209,6 +236,16 @@ try:
         if args.prompt_template:
             try: verify_prompt_template()
             except ValueError as error: print("Prompt template could not be verified:", error, flush=True)
+        if args.verify_gate_rejects_missing:
+            artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
+            matches = [artifact for artifact in artifacts if artifact.get("artifact_type") == "workflow_test_result" and artifact.get("workflow_run_id") == run_id]
+            if len(matches) != 1: raise ValueError("Expected a failed workflow test artifact") from failure
+            report = json.loads(call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": matches[0]["id"]})["content"])
+            if report.get("status") != "failed" or "Missing required fixture file: src/intentionally-missing.js" not in report.get("stderr", ""):
+                raise ValueError("The test gate failed for a different reason") from failure
+            if not remote_unchanged(): raise ValueError("Failed test changed the disposable remote") from failure
+            print("Workflow test gate rejected the deliberately missing file; disposable remote unchanged", flush=True)
+            sys.exit(0)
         if args.verify_gate_rejects_invalid:
             artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
             matches = [artifact for artifact in artifacts if artifact.get("artifact_type") == "workflow_test_result" and artifact.get("workflow_run_id") == run_id]
@@ -216,9 +253,7 @@ try:
             report = json.loads(call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": matches[0]["id"]})["content"])
             if report.get("status") != "failed" or report.get("exit_code") in (None, 0): raise ValueError("Invalid syntax was not rejected by the workflow test gate") from failure
             if "aruvi-invalid-syntax.js" not in report.get("stderr", ""): raise ValueError("Workflow test failed for an unexpected reason") from failure
-            remote = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"], text=True, capture_output=True)
-            unchanged = (remote.returncode == 0 and remote.stdout == original) if args.scenario == "extend-module" else remote.returncode != 0
-            if not unchanged: raise ValueError("Failed test changed the disposable remote") from failure
+            if not remote_unchanged(): raise ValueError("Failed test changed the disposable remote") from failure
             print("Workflow test gate rejected invalid syntax and did not deliver", flush=True)
             sys.exit(0)
         try:
@@ -241,14 +276,15 @@ try:
                     print("Model call:", json.dumps({key: entry.get(key) for key in ("stage", "source_label", "status", "max_tokens", "token_count_input", "token_count_output")}), flush=True)
         except (OSError, ValueError, TypeError):
             print("Model call diagnostics unavailable", flush=True)
-        remote = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"], text=True, capture_output=True)
-        unchanged = (remote.returncode == 0 and remote.stdout == original) if args.scenario == "extend-module" else remote.returncode != 0
-        if not unchanged: raise ValueError("Failed coding workflow changed the disposable remote") from failure
+        if not remote_unchanged(): raise ValueError("Failed coding workflow changed the disposable remote") from failure
         print("Failed workflow did not change the disposable Git remote", flush=True)
         raise
     run = call("aruvi_workflows", "get_workflow_run", {"workflow_run_id": run_id})
     print("Stage after coding:", run["current_stage"], flush=True)
     if run["current_stage"] != "pending_test_review": raise ValueError("Workflow did not reach test review")
+    if args.verify_gate_rejects_missing: raise ValueError("Expected the missing-file test gate to fail")
+    if not remote_unchanged(): raise ValueError("The disposable remote changed before test review")
+    print("Disposable remote remained unchanged before test review", flush=True)
     print_coding_trace()
     verify_edit_guidance()
     artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
@@ -271,6 +307,14 @@ try:
     assertions += "console.log('generated code passed');\n"
     if not code or len(code.encode()) > 8192: raise ValueError("Generated file missing or oversized")
     review_code = "module.exports = {};\n" if args.verify_behavior_rejection else code
+    index_code = None
+    if args.scenario == "multi-file":
+        index_code = call("aruvi_repositories", "read_repository_file", {"repository_id": repo["id"], "relative_path": "src/index.js"})["content"]
+        if not index_code or len(index_code.encode()) > 8192: raise ValueError("Generated entry module missing or oversized")
+        # Evaluate both files in the network-isolated review container. The
+        # injected import also checks that index.js actually uses the export.
+        review_code = build_multifile_review(code, index_code)
+        assertions = ""
     if args.verify_duplicate_rejection:
         # This control passes the functional assertions while containing the
         # duplicate declaration observed in the real model output.
@@ -280,9 +324,7 @@ try:
                        "module.exports = {sumEven,clamp};\n")
     check = subprocess.run(["docker", "run", "--rm", "-i", "--network", "none", "--read-only", "--memory", "256m", "--cpus", "1", "--pids-limit", "32", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--user", "65534:65534", "node:22-bookworm-slim", "node"], input=review_code+assertions, text=True, capture_output=True, timeout=30)
     if check.returncode:
-        remote = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"], text=True, capture_output=True)
-        unchanged = (remote.returncode == 0 and remote.stdout == original) if args.scenario == "extend-module" else remote.returncode != 0
-        if not unchanged: raise ValueError("Behavioral review failed but the disposable remote changed")
+        if not remote_unchanged(): raise ValueError("Behavioral review failed but the disposable remote changed")
         if args.verify_behavior_rejection:
             print("Behavioral review rejected invalid exports before approval; disposable remote unchanged", flush=True)
             sys.exit(0)
@@ -291,11 +333,10 @@ try:
     # Task-specific quality check: duplicated named function declarations were
     # observed in this fixture even when syntax and behavior both passed. This
     # is deliberately not a general JavaScript parser or linting guarantee.
-    duplicate = any(len(re.findall(r"\bfunction\s+" + name + r"\s*\(", review_code)) > 1 for name in ("sumEven", "clamp"))
+    duplicate_sources = [code, index_code] if index_code is not None else [review_code]
+    duplicate = any(len(re.findall(r"\bfunction\s+" + name + r"\s*\(", source)) > 1 for source in duplicate_sources for name in ("sumEven", "clamp", "squareEvenSum"))
     if duplicate:
-        remote = subprocess.run(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"], text=True, capture_output=True)
-        unchanged = (remote.returncode == 0 and remote.stdout == original) if args.scenario == "extend-module" else remote.returncode != 0
-        if not unchanged: raise ValueError("Duplicate review failed but the disposable remote changed")
+        if not remote_unchanged(): raise ValueError("Duplicate review failed but the disposable remote changed")
         if args.verify_duplicate_rejection:
             print("Duplicate declaration rejected after functional checks; disposable remote unchanged", flush=True)
             sys.exit(0)
@@ -306,6 +347,9 @@ try:
     if run["current_stage"] != "done": raise ValueError("Workflow did not finish")
     delivered = command(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/math.js"])
     if delivered.strip() != code.strip(): raise ValueError("The disposable Git remote does not contain the verified file")
+    if index_code is not None:
+        delivered_index = command(["docker", "exec", container, "git", "--git-dir=/repositories/coding-origin.git", "show", "main:src/index.js"])
+        if delivered_index.strip() != index_code.strip(): raise ValueError("The disposable Git remote does not contain the verified entry module")
     print(f"Disposable real-model {args.scenario} workflow and generated-code assertions passed")
 except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
     print(f"Real coding workflow failed: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'fixture command failed'}", file=sys.stderr)

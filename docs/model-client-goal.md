@@ -12,7 +12,66 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Static GIF Product Book images (local validation)
+### Real-model two-file workflow and test-gate review
+
+Against the deployed branch runtime `643e9d6`, disposable workflows used the
+real `qwen25-coder-7b-q4` Model Host model, JSON-object coding mode, a
+work-item workspace override, 4,096-token non-coding budgets and headless
+browser plan/test approvals. A new-module task and an existing-module edit
+passed syntax and independent behavior checks and reached a local bare Git
+remote. The existing-module run also verified that its managed prompt template
+and duplicate-definition guidance reached the coding model. The product's
+default workspace remained untouched.
+
+An extended `--scenario multi-file` fixture asks the model to create two
+linked CommonJS modules. Its independent review runs in a network-isolated,
+read-only, resource-limited container, checks both modules' behavior and uses
+a substituted import to verify the entry module actually calls its dependency.
+Local controls verify that this review accepts correct modules and rejects bad
+math or an ignored import. In three real-model attempts before the stronger
+gate, two passed and one created only the entry module. The missing-module run
+passed the old single-file syntax check, but independent review stopped before
+test approval; the disposable remote was confirmed unchanged at the gate.
+
+The fixture now configures a syntax-only workflow test command that checks both
+required files without executing generated code. Local controls cover valid,
+missing and syntactically invalid files, including an execution sentinel. A
+subsequent real-model multi-file run passed the stronger gate, independent
+review, browser approval and delivery of both files; the remote was unchanged
+before test review. A separate real-model control deliberately required a
+nonexistent file, verified the workflow test artifact reported that specific
+failure, and confirmed the remote was unchanged. These are small samples, not
+a general model-reliability estimate. The fixture's gate is configured only
+for the disposable product; Studio's default test policy is unchanged, and
+syntax checks alone do not verify behavior. The generated-code review
+container is isolated but is not a proof of safe execution for arbitrary code.
+Fixture containers and volumes were removed; the branch remained healthy.
+The isolated checks can be repeated with `bash scripts/test real-coding-review`
+and `ARUVI_CODING_TEST_MODEL=qwen25-coder-7b-q4 bash scripts/test
+host-coding-workflow --scenario multi-file --json-mode --workspace-override
+--non-coding-max-tokens 4096 --browser-approvals`. The latter requires the
+configured native Model Host and is subject to model variability.
+
+A later single-file syntax-gate control failed before the gate: the real 7B
+model repeatedly listed a missing `src` directory and exhausted its tool-step
+budget despite receiving error guidance. No test artifact was produced, so
+that run is not counted as a successful gate control. An existing-module
+control with a seeded `src` directory subsequently verified that the original
+syntax gate rejected invalid JavaScript and left the disposable remote intact.
+
+The coding tool now reports an absent allowed subdirectory as a structured
+`exists: false` result, including a parent-creation hint only when the agent is
+permitted to write. It does not create a directory or file automatically, and
+invalid, blocked and non-directory paths still fail. An unavailable workspace
+root remains an error. Local agent tests cover these cases, the trace and the
+next model prompt. The full native Rust suite passed 341 tests with eight
+ignored using two test threads. An earlier parallel run hit disk exhaustion
+and failed while creating temporary databases; Cargo package build outputs were
+cleaned before the successful rerun. Whether this changes real-model behavior
+remains unverified until the new Linux candidate is tested; the running branch
+predates it.
+
+### Static GIF Product Book images
 
 The shared Product Book image pipeline accepts embedded static GIFs in EPUB
 and PDF alongside PNG and JPEG. It validates the actual format, applies the

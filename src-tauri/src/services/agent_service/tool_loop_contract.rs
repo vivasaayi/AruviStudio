@@ -120,6 +120,7 @@ pub(super) fn build_coding_tool_prompt(
     );
     prompt.push_str("\n- repo.search -> {\"query\":\"text\",\"max_results\":20}");
     prompt.push_str("\n- repo.list_tree -> {\"path\":\"optional/subdir\",\"max_depth\":3}");
+    prompt.push_str("\n  A result with exists=false means that directory is absent; do not repeatedly list it unless it changes.");
     prompt
         .push_str("\nIMPORTANT: prefer repo.read_file with line/chunk arguments for large files.");
     prompt.push_str(
@@ -486,6 +487,18 @@ mod configured_tool_tests {
         let restricted = failed_tool_observation(1, "repo.read_file", None, &error, &reader);
         assert!(restricted.contains("do not repeat this read"));
         assert!(!restricted.contains("repo.write_file"));
+    }
+
+    #[test]
+    fn missing_tree_result_reaches_the_next_coding_prompt() {
+        let tools = resolve_allowed_tools(&[]);
+        let args = serde_json::json!({"path":"src"});
+        let result = serde_json::json!({"path":"src","exists":false,"entries":[],"hint":"The directory is absent. If a new file is required, repo.write_file creates parent directories."});
+        let observation = crate::services::agent_execution_limits::compact_tool_observation(1, "repo.list_tree", None, "tool_result", &serde_json::to_string(&result).unwrap(), &args);
+        let prompt = build_coding_tool_prompt("Create src/new.js", "Create src/new.js", &tools, &[observation], 2, 8, false);
+        assert!(prompt.contains("\"exists\":false"));
+        assert!(prompt.contains("do not repeatedly list it"));
+        assert!(prompt.contains("repo.write_file creates parent directories"));
     }
 
     #[test]

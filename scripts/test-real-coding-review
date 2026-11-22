@@ -1,0 +1,31 @@
+#!/usr/bin/env python3
+"""Prove the synthetic multi-file review accepts good and rejects bad modules."""
+import subprocess
+import tempfile
+from pathlib import Path
+from real_coding_review import build_multifile_review, build_multifile_syntax_check
+
+math = "module.exports.sumEven = n => n.filter(x => x % 2 === 0).reduce((a,b) => a+b,0);"
+entry = "const {sumEven}=require('./math'); module.exports={sumEven,squareEvenSum:n=>sumEven(n)**2};"
+inline = "const {sumEven}=require('./math'); module.exports={sumEven,squareEvenSum:n=>n.filter(x=>x%2===0).reduce((a,b)=>a+b,0)**2};"
+wrong = "module.exports.sumEven = () => 0;"
+for label, left, right, expected in [("valid",math,entry,0), ("bad math",wrong,entry,1), ("ignored import",math,inline,1)]:
+    result = subprocess.run(["node", "-"], input=build_multifile_review(left,right), text=True, capture_output=True, timeout=10)
+    if (result.returncode == 0) != (expected == 0):
+        raise SystemExit(f"{label} review control did not produce the expected outcome")
+print("Multi-file review accepts valid modules and rejects bad math and ignored imports.")
+
+with tempfile.TemporaryDirectory(prefix="aruvi-coding-gate-") as directory:
+    root = Path(directory)
+    (root / "src").mkdir()
+    (root / "src/math.js").write_text("require('node:fs').writeFileSync('should-not-exist','x');\n" + math)
+    (root / "src/index.js").write_text(entry)
+    def gate(force_missing=False):
+        return subprocess.run(["node", "-"], input=build_multifile_syntax_check(force_missing), text=True, capture_output=True, cwd=root, timeout=10)
+    assert gate().returncode == 0
+    assert not (root / "should-not-exist").exists(), "Syntax checking executed generated code"
+    missing = gate(True)
+    assert missing.returncode != 0 and "src/intentionally-missing.js" in missing.stderr
+    (root / "src/index.js").write_text("function broken( {\n")
+    assert gate().returncode != 0
+print("Multi-file syntax gate rejects missing and invalid files without executing generated code.")

@@ -307,6 +307,12 @@ async fn coding_stage_creates_tool_trace_artifact() {
     assert!(trace_content.contains("Replacement repeats unchanged neighboring line"));
     assert_eq!(std::fs::read_to_string(repo_dir.join("adjacent.js")).unwrap(), format!("{adjacent_line}\n{adjacent_line}\nnew\n"));
     assert!(trace_content.contains("repo.write_file creates parent directories"));
+    let trace: Vec<serde_json::Value> = serde_json::from_str(&trace_content).unwrap();
+    let missing = trace.iter().find(|entry| entry["kind"] == "tool_result" && entry["payload"].as_str().is_some_and(|payload| payload.contains("missing-directory"))).expect("missing directory result");
+    let result: serde_json::Value = serde_json::from_str(missing["payload"].as_str().unwrap()).unwrap();
+    assert_eq!(result["exists"], false);
+    assert_eq!(result["entries"], json!([]));
+    assert!(!repo_dir.join("missing-directory").exists());
     assert!(
         trace_content.contains("tool_result"),
         "trace artifact did not include tool_result entry"
