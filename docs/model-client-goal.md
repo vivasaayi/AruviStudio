@@ -26,8 +26,10 @@ resolutions include the fix; consumers must still audit their own complete
 lockfiles and other dependency versions.
 
 The packaged shared client passed 67 tests, including a deeply nested blob
-origin regression. An audit of the updated Studio lockfile no longer reports
-the URL advisory, but still reports `RUSTSEC-2023-0071` for `rsa` 0.9.10,
+origin regression. The Studio MCP origin guard also rejected a 10,000-prefix
+blob origin in a focused native test. An audit of the updated Studio lockfile
+no longer reports the URL advisory, but still reports `RUSTSEC-2023-0071` for
+`rsa` 0.9.10,
 14 unmaintained warnings and two unsound warnings. The updated independent
 consumer lockfile scan reported no vulnerabilities or warnings. `npm audit`
 reported no vulnerabilities. The native Studio Rust suite passed 348 tests

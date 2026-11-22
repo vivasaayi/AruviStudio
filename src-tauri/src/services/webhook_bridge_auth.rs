@@ -170,6 +170,8 @@ mod origin_tests {
         assert!(!check("http://127.0.0.1:55002/path", "127.0.0.1:55002"));
         assert!(!check("http://127.0.0.1:55002", ""));
         assert!(!check("http://127.0.0.1:55002", "evil.example@127.0.0.1:55002"));
+        let nested_blob = format!("{}https://example.com/", "blob:".repeat(10_000));
+        assert!(!check(&nested_blob, "example.com"));
     }
 
     #[test]
