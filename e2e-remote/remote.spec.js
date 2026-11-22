@@ -2859,3 +2859,27 @@ test("provider quick starts preserve or explicitly replace the draft without sav
   await expect(page.locator("#providerName")).toHaveValue("DeepSeek (Hosted)");
   expect(providerWrites).toBe(0);
 });
+
+test("sticky tabs stay below a resized header while scrolling", async ({ page }) => {
+  if (process.env.ARUVI_TEST_REMOTE_HTML_SOURCE === "1") {
+    const html = await readFile("src-tauri/src/services/remote_app.html", "utf8");
+    await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
+  }
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto("/remote");
+    await page.getByRole("button", { name: "Planner", exact: true }).click();
+    await page.locator("#tokenInput").fill(token);
+    await page.locator("#saveButton").click();
+    await page.getByRole("button", { name: "Models", exact: true }).click();
+    await page.evaluate(() => {
+      document.querySelector(".topbar").style.paddingTop = "36px";
+      window.scrollTo(0, 500);
+    });
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+    const positions = await page.evaluate(() => ({ header: document.querySelector(".topbar").getBoundingClientRect().bottom, tabs: document.querySelector(".tabbar").getBoundingClientRect().top }));
+    expect(positions.tabs).toBeGreaterThanOrEqual(positions.header - 1);
+    await page.getByRole("button", { name: "Work", exact: true }).click();
+    await expect(page.locator("#tab-work")).toBeVisible();
+  }
+});

@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Sticky browser navigation
+
+A read-only mobile and desktop check found that after scrolling, the prior
+header bottom was about 70 pixels while the tab bar stuck at 62–63 pixels,
+causing overlap. A regression test also enlarged the header to exercise a
+variable-height case and failed on the prior branch image. Header and tabs now
+share one sticky container instead of a fixed offset. The focused test passed
+in Chrome and Chromium at both widths; all 13 sections passed the source-HTML
+layout scan, and the isolated remote suite passed 48 tests with one skipped
+and the PDF outage check. Those local tests used the updated HTML with the
+preceding server image; packaged-image and branch deployment remain pending.
+
 ### Browser provider card and checkbox layout
 
 A visual review of the running Models screen found provider settings crowded
