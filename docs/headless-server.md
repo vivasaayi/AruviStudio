@@ -133,6 +133,20 @@ configuration leaves any previously configured provider credential unchanged;
 it does not remove or revoke an existing management token.
 The independent-client probe also accepts `--credential-scope inference` after
 its model argument and performs the same check before launching the container.
+Its optional `--native` mode avoids a Docker build and runs the pinned consumer
+as the current user on loopback. It requires the Git revision and Cargo
+dependencies already cached; the default container mode remains non-root and
+read-only. For example:
+
+```sh
+bash scripts/test host-shared-client /path/to/aruvi-model-host --native --model YOUR_INSTALLED_CODING_MODEL_ID
+```
+
+Select `--environment integration` when appropriate. To check synthetic speech,
+provide both `--voice-model` and `--transcription-model`; all selected models
+must be advertised by that host. Both modes provide the credential on standard
+input and suppress provider output on failures. A native probe is not container
+isolation or evidence of physical microphone and speaker behavior.
 
 To exercise a candidate host binary with an installed local model without
 changing a running host, use the disposable real-model fixture (it copies the

@@ -12,6 +12,34 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Independent client native Model Host probe
+
+The independent consumer remains Git-pinned at
+`1d8df226a22e7c4e0ddd21c3e46a654c410ca21f`; its source, manifest and lockfile
+pin checks passed. An initial offline test could not check out that revision
+because it was absent from this Mac's Git cache. After an online locked fetch,
+all 32 independent consumer tests passed offline. The packaged client also
+passed 66 tests from its extracted package. These are not live cloud-provider
+tests or a published client release.
+
+The independent pinned client then passed discovery, completion, streaming and
+token-limit handling against the real `qwen25-coder-7b-q4` coding-validation
+host. Against the native integration host it passed the same checks with
+`qwen-05b-comparison` plus a synthetic `piper-ljspeech` / `whisper-tiny-metal`
+speech round trip. A 7B request against the integration host failed as expected
+because that host did not advertise the model. The main checkout's worktree
+profile had no available native configuration; the separately registered
+coding-validation worktree was used. Both real hosts used management-capable
+credentials. This does not establish physical audio, model quality, scoped
+production credentials or Mac Studio integration acceptance.
+
+`bash scripts/test host-shared-client ... --native` now builds the locked pinned
+consumer offline and runs it as the current user without a Docker build, with
+the token passed on stdin. A default Docker probe remains available with its
+read-only non-root restrictions. The native mode passed against both hosts,
+rejected an unadvertised model without printing provider output, and ignored
+inherited voice/JSON probe options when not requested. It is not a sandbox.
+
 ### Work-item findings in web review: branch validation
 
 Desktop review displays finding counts and severity, and MCP already returns
