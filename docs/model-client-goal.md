@@ -45,8 +45,12 @@ AMD64 is an early check of the VPS target, not a staging deployment. Hosted matr
 `7fbae74afea75157501481be1a0b64c60fdc6e50` passed on both architectures:
 each image passed 60 workflow tests, 46 remote tests (one skipped), PDF outage
 and isolation checks, and one simulated CI-service test. Both architecture-
-specific artifacts and checksums were uploaded with three-day retention; the
-archives have not been downloaded and independently checked at this checkpoint.
+specific artifacts and checksums were uploaded with three-day retention. The
+uploaded ZIPs were streamed and verified against GitHub's artifact SHA-256:
+`10b6222e9898709c23e63b2216201a774dbd7257b6c2588d00ffe25ec8210ce9`
+(ARM64) and `9cfd6dfce2cdd17801498d7214979f949f7dd0bb53d34282f10deda8a923a7d4`
+(AMD64). This checks transfer integrity of the ZIPs; the image archives inside
+were not independently extracted or compared with their bundled checksums.
 Staging still requires the merged default-branch revision that passes Mac
 integration and its target-compatible build.
 
