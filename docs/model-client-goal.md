@@ -12,6 +12,30 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Provider quick-start branch deployment
+
+Hosted matrix run `44993086025` passed on ARM64 and AMD64 at source revision
+`8618a95a2f2eb8878872d1f71e0478afb0f66ef4`; each clean image passed 60
+workflow tests, 47 remote tests (one skipped), PDF isolation/outage checks and
+the simulated CI-service test. The ARM64 image archive was streamed from its
+hosted artifact and matched its bundled SHA-256
+`513c7934e83e1c7cb2daa94e6eb509bebfdd55fe2a5bf8062a299db8b84fd200`.
+Its extracted Linux ARM64 server binary (SHA-256
+`375fb82983c3b9c874a78e9bd77c944d5f06862f8f0754af7841c2864befb3ca`)
+was placed on the unchanged preceding runtime, producing derived image
+`sha256:d38ff9b439582bba2defc09c6e2bce1dba05a70a6c10ce41cd520616cf6ec720`.
+The full clean image was not loaded on this space-constrained Mac.
+
+Before deployment, the derived candidate passed the same isolated suites and
+the packaged browser quick-start fixture against the real native Model Host,
+including browser provider/model setup, MCP listing and coding chat. There were
+no active jobs; a SQLite backup passed `quick_check`, and the previous image was
+retained. After deployment at `127.0.0.1:55288`, restart persistence, product,
+MCP/mobile authorization, PDF, MCP origin, real local coding and Piper/Whisper
+speech passed. Continuous browser voice used synthetic audio with the real
+speech and coding services. Physical devices, live third-party providers, Mac
+integration and staging remain unverified.
+
 ### Scoped Model Host authorization recheck
 
 The separate Model Host draft branch `1302b938bbc4edaf260d247ac64b4d607c82dd19`
@@ -48,10 +72,10 @@ embedded HTML instead. The host's scoped-credential draft is not deployed.
 Hosted clean-image run `44992754890` at `c24887cb0bcb78095c5abd3de3976bdeef736741`
 passed on ARM64 and AMD64, including the initial quick-start test, 60 workflow
 tests, 47 remote tests (one skipped), PDF isolation/outage checks and the
-simulated CI-service test on each architecture. Builds with the later mobile
-accessibility and extended browser/MCP test are still pending. The real-host
-quick-start check has not yet been run against packaged HTML; real third-party
-provider and staging validation remain pending.
+simulated CI-service test on each architecture. The later mobile accessibility and extended browser/MCP test passed in the
+matrix and on the derived candidate, which also passed the real-host quick-start
+check using its packaged HTML; see the deployment checkpoint above. Real
+third-party provider and staging validation remain pending.
 
 ### Selector fix: clean-image and branch validation
 
