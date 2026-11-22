@@ -1,4 +1,4 @@
-name: Branch ARM64 container
+name: Branch container
 
 on:
   push:
@@ -29,17 +29,26 @@ permissions:
 
 jobs:
   image:
-    runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - arch: amd64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
-      - name: Build clean ARM64 image
+      - name: Build clean ${{ matrix.arch }} image
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          docker build --no-cache --platform linux/arm64 \
+          docker build --no-cache --platform linux/${{ matrix.arch }} \
             --label "org.opencontainers.image.revision=$GITHUB_SHA" \
             --tag "aruvi-branch:$GITHUB_SHA" .
+          test "$(docker image inspect "aruvi-branch:$GITHUB_SHA" --format '{{.Os}}/{{.Architecture}}')" = "linux/${{ matrix.arch }}"
           docker image inspect "aruvi-branch:$GITHUB_SHA" --format '{{.Id}} {{.Os}}/{{.Architecture}}' > image-identity.txt
           printf '%s\n' "$GITHUB_SHA" > source-revision.txt
       - uses: actions/setup-node@v4
@@ -65,21 +74,21 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: browser-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          name: browser-failure-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
           path: test-results/
           retention-days: 3
           if-no-files-found: ignore
       - name: Export and checksum image
         run: |
           set -euo pipefail
-          docker save "aruvi-branch:$GITHUB_SHA" | gzip -1 > aruvi-branch-arm64.tar.gz
-          sha256sum aruvi-branch-arm64.tar.gz > SHA256SUMS
+          docker save "aruvi-branch:$GITHUB_SHA" | gzip -1 > aruvi-branch-${{ matrix.arch }}.tar.gz
+          sha256sum aruvi-branch-${{ matrix.arch }}.tar.gz > SHA256SUMS
       - name: Upload temporary branch image
         uses: actions/upload-artifact@v4
         with:
-          name: aruvi-branch-arm64-${{ github.sha }}
+          name: aruvi-branch-${{ matrix.arch }}-${{ github.sha }}
           path: |
-            aruvi-branch-arm64.tar.gz
+            aruvi-branch-${{ matrix.arch }}.tar.gz
             SHA256SUMS
             source-revision.txt
             image-identity.txt

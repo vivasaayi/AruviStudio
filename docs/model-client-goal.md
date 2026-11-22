@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Branch image architectures
+
+The branch container workflow now builds native ARM64 and AMD64 images on
+separate runners, verifies each image's reported platform, and runs the same
+isolated workflow, remote-browser and simulated CI-service suites before
+exporting separately named, checksummed artifacts. ARM64 is for Mac validation;
+AMD64 is an early check of the VPS target, not a staging deployment. The first
+matrix run must pass on both architectures before these artifacts can be relied
+on; staging still requires the merged default-branch revision that passes Mac
+integration and its target-compatible build.
+
 ### Clean-image CI-service fixture
 
 The hosted clean-image validation also runs the isolated CI-service browser and
