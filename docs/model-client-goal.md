@@ -12,6 +12,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Independent model-client revalidation
+
+The packaged client passed 67 tests, and its independent consumer passed 32
+offline tests. Pin checks confirmed that the consumer's Git revision still
+matches the client manifest, license and sources. Against the native integration
+Model Host, that pinned consumer passed discovery, completion, streaming,
+token-limit handling and synthetic Piper-to-Whisper speech. These checks do not
+establish live third-party provider compatibility or physical audio behavior.
+
 ### Child-work details: validation in progress
 
 The web parent-work list now displays each child's priority, complexity and
