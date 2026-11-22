@@ -12,16 +12,32 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Selected work-item metadata: validation in progress
+### Selected work-item metadata: branch validation
 
 The web work-item detail now shows the selected item's type, priority and
 complexity, which the desktop story detail displays. A native server build and
 three disposable browser tests passed, including creating a high-priority,
-very-high-complexity bug and checking its displayed metadata. Clean-image and
-deployment validation remain pending; this does not establish full work-item
-parity. A configured native browser run passed 48 tests and skipped five that
+very-high-complexity bug and checking its displayed metadata. This does not
+establish full work-item parity. A configured native browser run passed 48 tests and skipped five that
 require additional fixtures. The native Rust library suite passed 351 tests
 with eight ignored.
+
+Clean ARM64 and AMD64 image validation passed for `651cd5b`. The worktree
+candidate combines its checksum-verified ARM64 server with the prior runtime
+image; it is not the complete clean image. Candidate image ID is
+`sha256:e1287236fe708ef9c258a87552671a21dd4bbd12f1ad7b0ba33b50bcf4d3dbc0`
+and server SHA-256 is
+`d27f2ce43bc23d5d7e9995bf6a8e5fd372214276d874d80810110a8dde551093`.
+Isolated workflow, browser, PDF and simulated-CI suites and real Model Host
+quick-start, cancellation and scoped-credential checks passed. After an
+active-job check and verified database backup, the app and PDF containers were
+updated; restart acceptance verified product persistence, MCP, mobile
+authorization and PDF. The deployed work-item and child-action browser tests,
+all 13 sections at phone and desktop widths, MCP origin checks, real local
+coding and speech through MCP, and continuous browser voice with synthetic
+audio passed. The previous image remains tagged for rollback. Physical desktop
+and audio, live third-party providers, deployed Aruvici, Mac integration and
+VPS staging remain unverified.
 
 ### Rust advisory revalidation: 2026-11-22
 
