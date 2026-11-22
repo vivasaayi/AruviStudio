@@ -12,6 +12,20 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Selected-node action repair in progress
+
+Further disposable real-model samples passed twice, once with two format
+retries and once without retries; another failed safely because the model
+returned unsupported `create_feature` for a requested capability. Its draft
+was not confirmed. The fixture now has an opt-in `--trace` flag for diagnostic
+output, which can contain fixture content. Private synthetic logs were kept
+under `/private/tmp/aruvi-selected-node-trace*.log`. The planner system prompt
+and schema-repair message now explicitly distinguish capabilities from features
+and tell the model not to use `create_feature`; invalid actions are still
+rejected rather than silently reinterpreted. A simulated-provider regression
+case is included but has not yet run. Hosted build and tests, a rebuilt branch
+runtime and real-model revalidation of this change remain pending.
+
 ### Real-model selected-node planner revalidation
 
 The disposable real-model planner fixture now supports `--browser

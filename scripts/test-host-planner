@@ -16,6 +16,7 @@ parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-m
 parser.add_argument("--repository", action="store_true", help="Analyze a disposable workspace rather than submit a text turn")
 parser.add_argument("--browser", action="store_true", help="Drive the planner turn or repository analysis through a real browser")
 parser.add_argument("--selected-node", action="store_true", help="Add a capability beneath a browser-selected draft area")
+parser.add_argument("--trace", action="store_true", help="Print model and retry trace details (fixture content may appear in output)")
 args = parser.parse_args()
 if args.selected_node and (not args.browser or args.repository):
     parser.error("--selected-node requires --browser and cannot be combined with --repository")
@@ -117,6 +118,8 @@ try:
     retries = sum(event.get("stage") == "format_retry" for event in result.get("trace_events", []))
     draft_retries = sum(event.get("stage") == "draft_retry" for event in result.get("trace_events", []))
     print(f"Planner status: {result.get('status')}; model calls: {len(model_events)}; format retries: {retries}; draft retries: {draft_retries}", flush=True)
+    if args.trace:
+        print("Planner trace:", json.dumps([event for event in result.get("trace_events", []) if event.get("stage") in ("model", "format_retry", "draft_retry", "error")], ensure_ascii=False), flush=True)
     if result.get("status") == "error" or result.get("execution_errors"):
         print("Planner model trace:", json.dumps([event for event in result.get("trace_events", []) if event.get("stage") in ("model", "error")], ensure_ascii=False)[:6000], flush=True)
         raise ValueError("Planner returned an error: " + str(result.get("assistant_message"))[:700])

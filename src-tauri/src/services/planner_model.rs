@@ -59,6 +59,7 @@ Rules:
 - After receiving tool results, continue reasoning and either call another tool or return type=final.
 - The selected product is the root. Strategy hierarchy is not editable here.
 - Model the product hierarchy as Product > Product Area > Capability > Feature. Use create_product_area only as the legacy action name for product areas and create_capability for capabilities/features.
+- There is no create_feature action. For a capability under a product area use create_capability with details.nodeKind=capability; for a feature under a capability use create_capability with details.nodeKind=feature. Do not change a requested capability into a feature.
 - Set product area nodeKind to product_area. Set capability nodeKind to capability under a product area, and feature under a capability.
 - Features are leaves in the product management hierarchy. Delivery stories and tasks belong in work items attached to the feature.
 - For book-grade technical authoring, prefer long-form fields:

@@ -206,7 +206,7 @@ pub(crate) async fn run_tool_loop(
                 });
                 messages.push(ChatMessage {
                     role: "user".to_string(),
-                    content: format!("Validation error: {}. Your previous answer did not follow the required JSON envelope. Return one JSON object with type final, assistant_response (string), needs_confirmation (boolean), clarification_question (string or null), and actions (array). Put each requested design action inside actions, not at the top level. Do not use Markdown.", error),
+                    content: format!("Validation error: {}. Your previous answer did not follow the required JSON envelope or action schema. Return one JSON object with type final, assistant_response (string), needs_confirmation (boolean), clarification_question (string or null), and actions (array). Put each requested design action inside actions, not at the top level. Use only the action types in the system instructions. There is no create_feature action: use create_capability with details.nodeKind=capability for a capability under a product area, or details.nodeKind=feature for a feature under a capability. Preserve the user's requested hierarchy. Do not use Markdown.", error),
                 });
                 continue;
             }
@@ -497,6 +497,7 @@ mod tests {
         struct Fixture {
             count: Arc<AtomicUsize>,
             always_invalid: Arc<AtomicBool>,
+            unsupported_action: Arc<AtomicBool>,
         }
         async fn complete(
             State(fixture): State<Fixture>,
@@ -512,9 +513,21 @@ mod tests {
                         .as_str()
                         .unwrap_or("")
                         .contains("previous answer did not follow")));
+                if fixture.unsupported_action.load(Ordering::SeqCst) {
+                    let repair = request["messages"].as_array().unwrap().last().unwrap()["content"]
+                        .as_str()
+                        .unwrap();
+                    assert!(repair.contains("unsupported type create_feature"));
+                    assert!(repair.contains("no create_feature action"));
+                    assert!(repair.contains("details.nodeKind=capability"));
+                }
             }
-            let content = if count == 0 || fixture.always_invalid.load(Ordering::SeqCst) {
+            let content = if count == 0 && fixture.unsupported_action.load(Ordering::SeqCst) {
+                r#"{"type":"final","assistant_response":"Draft prepared","needs_confirmation":false,"clarification_question":null,"actions":[{"type":"create_feature","name":"Stock"}]}"#
+            } else if count == 0 || fixture.always_invalid.load(Ordering::SeqCst) {
                 r#"{"type":"create_product_area","actions":[]}"#
+            } else if fixture.unsupported_action.load(Ordering::SeqCst) {
+                r#"{"type":"final","assistant_response":"Draft prepared","needs_confirmation":false,"clarification_question":null,"actions":[{"type":"create_capability","name":"Stock","details":{"nodeKind":"capability"}}]}"#
             } else {
                 r#"{"type":"final","assistant_response":"Draft prepared","needs_confirmation":false,"clarification_question":null,"actions":[{"type":"create_product_area","name":"Inventory"}]}"#
             };
@@ -525,6 +538,7 @@ mod tests {
         let fixture = Fixture {
             count: Arc::new(AtomicUsize::new(0)),
             always_invalid: Arc::new(AtomicBool::new(false)),
+            unsupported_action: Arc::new(AtomicBool::new(false)),
         };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
@@ -571,6 +585,14 @@ mod tests {
         assert_eq!(plan.actions[0]["name"], "Inventory");
         assert_eq!(fixture.count.load(Ordering::SeqCst), 2);
         assert!(trace.iter().any(|event| event.stage == "format_retry"));
+        fixture.count.store(0, Ordering::SeqCst);
+        fixture.unsupported_action.store(true, Ordering::SeqCst);
+        let mut unsupported_trace = Vec::new();
+        let repaired = run_tool_loop(input(), &mut unsupported_trace).await.unwrap();
+        assert_eq!(repaired.actions[0]["type"], "create_capability");
+        assert_eq!(fixture.count.load(Ordering::SeqCst), 2);
+        assert!(unsupported_trace.iter().any(|event| event.stage == "format_retry"));
+        fixture.unsupported_action.store(false, Ordering::SeqCst);
         fixture.count.store(0, Ordering::SeqCst);
         fixture.always_invalid.store(true, Ordering::SeqCst);
         assert!(run_tool_loop(input(), &mut Vec::new()).await.is_err());
