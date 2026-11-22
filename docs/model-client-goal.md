@@ -12,6 +12,35 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Branch runtime revalidation at c48ee96
+
+GitHub Actions run `44996261243` built and tested clean ARM64 and AMD64
+images at `c48ee966ee6b9761d5c5e864c4674da1bd61ca72`. Each passed 60
+workflow tests, 49 browser tests (one skipped), PDF outage/isolation checks
+and the simulated CI-service test. The ARM64 archive SHA-256 was
+`11fcebb2311f44a5f42d277dcdae2ee24caf0d2b613fc65c1db5421a831e9f5c`;
+the extracted server binary SHA-256 was
+`b69ff017ae8aabbbb55cf63a086deddb1ff3c7496089d75cb734a7374c808af4`.
+
+Because local Docker storage was constrained, the verified server binary was
+overlaid on the preceding branch runtime after confirming that Dockerfile,
+package, resource and ignore inputs had not changed. This derived image is
+`sha256:54b2e80e13db83053fc99ba0295bd8fc88901427ad2aaa000b16e3e091e01d5a`;
+it is not a locally loaded copy of the complete clean image. The derived image
+passed the same workflow, browser, PDF and simulated CI suites, a packaged
+browser quick-start against the real Model Host, and the isolated scoped-token
+fixture. The real host still uses a management-capable credential.
+
+The worktree app and PDF sidecar now run that derived image. Before switching,
+active jobs were checked and a SQLite backup passed `quick_check`; the backup
+and previous image remain available. After restart, product persistence, MCP
+and mobile authorization, and PDF checks passed. The deployed UI passed the
+13-section layout scan at phone and desktop widths, and MCP origin rejection
+checks passed. Real local coding, Piper/Whisper speech, and continuous browser
+voice using synthetic audio also passed. Physical microphone/native-window
+acceptance, actual external provider credentials, real Aruvici integration,
+Mac integration and VPS staging remain unverified.
+
 ### Real-model multi-file branch revalidation
 
 A disposable workflow on the branch runtime derived from `8618a95` used the
@@ -40,7 +69,7 @@ error was visually inspected at mobile width. The 13-section source-HTML
 layout scan and isolated remote suite passed (49 passed, one skipped), with the
 PDF outage check. The two provider-setting workflow cases and simulated CI
 fixture also passed with the updated HTML; other workflow cases used the
-preceding server image. Packaged-image and branch deployment remain pending.
+preceding server image. The later branch runtime revalidation above covers the packaged image and deployment.
 
 ### Sticky browser navigation
 
@@ -52,7 +81,7 @@ share one sticky container instead of a fixed offset. The focused test passed
 in Chrome and Chromium at both widths; all 13 sections passed the source-HTML
 layout scan, and the isolated remote suite passed 48 tests with one skipped
 and the PDF outage check. Those local tests used the updated HTML with the
-preceding server image; packaged-image and branch deployment remain pending.
+preceding server image; the later branch runtime revalidation above covers the packaged image and deployment.
 
 ### Browser provider card and checkbox layout
 
@@ -67,7 +96,7 @@ provider-setting and CI cases used the updated source HTML. The read-only
 13-section layout check passed at both widths with no oversized visible
 checkboxes, overflow or page errors. As a regression control, the prior running
 image failed the new checkbox-size check in six sections at both widths.
-Packaged-image and deployment validation of this layout change remain pending.
+The later branch runtime revalidation above covers the packaged image and deployment.
 
 ### Scoped quick-start fixture
 
