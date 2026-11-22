@@ -86,8 +86,10 @@ its result and root cause remain to be established. The workflow fixture now
 removes its temporary coding policy in a `finally` block. All 60 workflow tests
 passed locally, and a separate deliberate failure immediately after policy
 creation left the later routing test passing (59 passed, one deliberately
-failed). The fixture uses simulated providers and does not establish staging,
-physical audio or real-provider behavior.
+failed). A subsequent hosted run using the cleanup also passed the routing test;
+it had 59 passes and the same workspace-label failure. The selector-name fix
+was not in that image. The fixture uses simulated providers and does not
+establish staging, physical audio or real-provider behavior.
 
 ### Planner voice submission lifecycle
 
