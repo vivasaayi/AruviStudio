@@ -23,6 +23,12 @@ doing nothing. Parser and draft tests cover the nested shape. Repeating the same
 real Model Host and MCP scenario with a rebuilt native server updated the
 original story after confirmation, with no duplicate. This is one successful
 sample; packaged-image and broader real-model reliability validation remain.
+At source `a8cc6bd`, the native server repeated the real-model child update
+successfully; two focused native browser/MCP checks and the frontend build,
+139 frontend tests, terminology guard and production npm audit also passed.
+The full native Rust suite passed 363 tests with eight ignored immediately
+before the final target-mismatch guard; that guard passed its focused test.
+The clean ARM64 and AMD64 image build for this source is still pending.
 A deeper parent/child test then exposed selection inference walking past the
 selected child to its parent. The inference now keeps the closest work item and
 capability; the database regression confirms the selected child, active-run
