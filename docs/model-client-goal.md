@@ -12,6 +12,32 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Desktop IDE workspace snapshots
+
+The desktop IDE now opens a file with a backend-captured workspace root and
+content snapshot. Saving checks both under the same SQLite workspace write lock
+used by MCP and rejects a changed root or changed file. The editor retains newer
+edits made during an earlier save and ignores a completion for a closed and
+reopened tab. For Copilot patch mode, the desktop captures the root before model
+generation, requires it during each preview, alias check and patch application,
+and verifies open buffers' roots before refreshing them. A changed workspace
+rejects review or application even when files have the same hash. Multi-file
+application still writes files one at a time and now warns if a later failure
+may have left earlier writes applied. Older Tauri commands and payloads remain
+available for compatibility and do not gain a required root guard.
+
+The SQLite reservation coordinates cooperating Studio processes, including
+workspace updates; it cannot stop external filesystem writers or make a
+filesystem write transactional with the database. Content is checked immediately
+before writing but a non-cooperating writer can still race that check. Root and
+content conflict tests, a concurrent database-lock test, Tauri mock-IPC checks
+and mocked desktop UI checks passed. The frontend build and 136 frontend tests
+passed, as did 69 browser tests and 338 Rust library tests (seven ignored). The
+first full Rust run exposed a fixture using a noncanonical macOS temporary path;
+the fixture was corrected to use registered paths and the full suite passed.
+Physical native-window interaction remains unverified. The deployed branch
+image predates this checkpoint until a clean image is built, validated and deployed.
+
 ### Shared workflow topology
 
 Desktop and web now consume one repository-owned workflow topology resource.
@@ -422,9 +448,10 @@ branch changes. Registration and workspace creation use the same SQLite write
 lock to coordinate duplicate path checks. This protection requires cooperating
 versions sharing a database; legacy/direct writers and external filesystem
 changes are outside it. MCP write protection requires clients to supply the
-opened root, and desktop buffers do not yet have this guard.
+opened root. The later desktop IDE workspace snapshots checkpoint supersedes
+the original desktop-buffer limitation below.
 
-Desktop IDE follow-up: the current Tauri file-read command returns content but
+Historical desktop IDE finding: the original Tauri file-read command returns content but
 not the opened workspace root, and its save command fetches the repository's
 current path and writes without comparing the buffer's original content. A
 workspace-path change or external edit can therefore redirect or overwrite a
@@ -433,7 +460,8 @@ also resolve the current workspace path without an opened-root check. A complete
 fix needs an atomic server-side snapshot of root and content at open, guarded
 save and patch operations coordinated with workspace updates, and tests for path
 changes, external content edits, concurrent updates and older IPC clients. This
-is an outstanding desktop data-integrity gap, not a completed parity claim.
+was the desktop data-integrity gap addressed by the later checkpoint. The older
+commands remain available for compatibility and retain their original behavior.
 
 A disposable native browser/MCP fixture tested stale snapshots and preserved
 drafts, duplicate and concurrent registrations, active/paused workflow and CLI

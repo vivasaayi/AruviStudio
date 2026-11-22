@@ -3,9 +3,10 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 import {
   applyReviewedRepositoryPatch,
-  previewRepositoryPatch,
+  previewRepositoryPatchSnapshot,
   matchingRepositoryFiles,
-  readRepositoryFile,
+  readRepositoryFileSnapshot,
+  getRepositoryRootSnapshot,
   startDesktopCopilotStream,
 } from "../../../lib/tauri";
 import type { ModelDefinition, ModelProvider } from "../../../lib/types";
@@ -22,6 +23,7 @@ type IDEOpenFile = {
   path: string;
   content: string;
   language: string;
+  workspaceRoot?: string;
 };
 
 type UseIDECopilotInput = {
@@ -56,6 +58,7 @@ export function useIDECopilot({
   const [patchProposal, setPatchProposal] = useState<ReviewedCopilotPatchProposal | null>(null);
   const [isApplyingProposal, setIsApplyingProposal] = useState(false);
   const copilotSessionIdRef = useRef(crypto.randomUUID());
+  const patchRootPendingRef = useRef(false);
 
   useEffect(() => {
     if (!copilotProviderId && providers.length > 0) {
@@ -82,6 +85,7 @@ export function useIDECopilot({
   };
 
   const sendCopilot = async () => {
+    if (isCopilotSending || patchRootPendingRef.current) return;
     setCopilotError(null);
     const draft = copilotDraft.trim();
     if (!draft) {
@@ -90,6 +94,18 @@ export function useIDECopilot({
     if (!copilotProviderId || !copilotModelName) {
       setCopilotError("Select provider and model for Aruvi Copilot.");
       return;
+    }
+
+    let requestRoot: string | undefined;
+    if (copilotMode === "patch" && selectedRepoId) {
+      patchRootPendingRef.current = true;
+      setIsCopilotSending(true);
+      try {
+        requestRoot = await getRepositoryRootSnapshot(selectedRepoId);
+        if (!requestRoot) throw new Error("Unable to verify the selected workspace. Reopen it before generating a patch.");
+        if (includeActiveFileContext && activeFile && activeFile.workspaceRoot !== requestRoot) throw new Error("The open file's workspace changed. Reopen the file before generating a patch.");
+      } catch (error) { setCopilotError(String(error)); setIsCopilotSending(false); return; }
+      finally { patchRootPendingRef.current = false; }
     }
 
     const userMessage: LocalChatMessage = { id: crypto.randomUUID(), role: "user", content: draft };
@@ -158,7 +174,7 @@ export function useIDECopilot({
             setIsCopilotSending(false);
             return;
           }
-          void reviewCopilotPatches(selectedRepoId, parsed, previewRepositoryPatch)
+          void reviewCopilotPatches(selectedRepoId, parsed, previewRepositoryPatchSnapshot, requestRoot)
             .then(setPatchProposal)
             .catch((error) => setCopilotError(String(error)))
             .finally(() => setIsCopilotSending(false));
@@ -218,7 +234,7 @@ export function useIDECopilot({
     setCopilotError(null);
     setIsApplyingProposal(true);
     try {
-      await applyCopilotPatches(selectedRepoId, proposal.patches, { apply: applyReviewedRepositoryPatch, read: readRepositoryFile, match: matchingRepositoryFiles });
+      await applyCopilotPatches(selectedRepoId, proposal.patches, { apply: applyReviewedRepositoryPatch, read: async (data) => (await readRepositoryFileSnapshot(data)).content, match: matchingRepositoryFiles }, proposal.workspaceRoot);
       await refetchTree();
     } catch (error) {
       setCopilotError(String(error));

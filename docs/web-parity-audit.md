@@ -17,6 +17,14 @@ a disposable native-server browser fixture checked its connections, selection,
 focus and mobile containment. Its explanatory topology is shared with desktop
 through one repository resource; full native-window comparison remains open.
 
+Desktop IDE buffers now capture their workspace root and file content through
+Rust. Guarded saves reject a changed root or content; reviewed patches carry the
+captured root through preview, open-file alias checks and application. SQLite
+locking coordinates workspace changes between cooperating Studio processes.
+Older IPC commands remain compatible and do not require the new guards. External
+filesystem writers can still race the content check, and physical native-window
+acceptance remains open.
+
 **Earlier revalidation:** Docker capacity was increased and the worktree database
 passed a read-only SQLite `quick_check`. The current worktree image built and started
 successfully. The Rust library suite passed 145 tests with one live-provider test

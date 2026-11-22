@@ -51,13 +51,25 @@ it("refreshes a clean open file after a successful patch", async () => {
 
 
 it("records preview hashes and existence for guarded application", async () => {
-  const preview = vi.fn(async ({ relativePath }: { relativePath: string }) => ({ exists: relativePath === "a.txt", base_sha256: `hash-${relativePath}` }));
+  const preview = vi.fn(async ({ relativePath }: { relativePath: string }) => ({ exists: relativePath === "a.txt", base_sha256: `hash-${relativePath}`, workspace_root: "/workspace" }));
   const proposal = { raw: "", summary: "Change files", patches: [{ path: "a.txt", patch: "a" }, { path: "new.txt", patch: "b" }] };
   const reviewed = await reviewCopilotPatches("repo", proposal, preview);
   expect(reviewed.patches).toMatchObject([{ base_sha256: "hash-a.txt", expected_exists: true }, { base_sha256: "hash-new.txt", expected_exists: false }]);
   const apply = vi.fn(async () => {});
-  await applyCopilotPatches("repo", reviewed.patches, { apply, read: async () => "", match });
-  expect(apply).toHaveBeenNthCalledWith(2, { repositoryId: "repo", relativePath: "new.txt", patch: "b", baseSha256: "hash-new.txt", expectedExists: false });
+  expect(preview).toHaveBeenNthCalledWith(2, expect.objectContaining({ expectedRoot: "/workspace" }));
+  await applyCopilotPatches("repo", reviewed.patches, { apply, read: async () => "", match }, reviewed.workspaceRoot);
+  expect(apply).toHaveBeenNthCalledWith(2, { repositoryId: "repo", relativePath: "new.txt", patch: "b", baseSha256: "hash-new.txt", expectedExists: false, expectedRoot: "/workspace" });
+});
+
+it("rejects workspace changes during multi-file preview", async () => {
+  const preview = vi.fn().mockResolvedValueOnce({ exists: true, base_sha256: "a", workspace_root: "/first" }).mockResolvedValueOnce({ exists: true, base_sha256: "b", workspace_root: "/second" });
+  await expect(reviewCopilotPatches("repo", { raw: "", summary: "", patches: [{ path: "a", patch: "a" }, { path: "b", patch: "b" }] }, preview)).rejects.toThrow("Workspace path changed");
+});
+
+it("rejects a workspace change between model generation and the first preview", async () => {
+  const preview = vi.fn().mockResolvedValue({ exists: true, base_sha256: "a", workspace_root: "/new" });
+  await expect(reviewCopilotPatches("repo", { raw: "", summary: "", patches: [{ path: "a", patch: "a" }] }, preview, "/old")).rejects.toThrow("Workspace path changed");
+  expect(preview).toHaveBeenCalledWith(expect.objectContaining({ expectedRoot: "/old" }));
 });
 
 it("rejects duplicate targets before preview", async () => {
@@ -113,4 +125,41 @@ it("protects and refreshes aliases open through another repository", async () =>
   await applyCopilotPatches("repo", patches, { apply, read, match: compare });
   expect(read).toHaveBeenCalledWith({ repositoryId: "other", relativePath: "alias.txt" });
   expect(useEditorStore.getState().openFiles[0]).toMatchObject({ content: "patched disk", isDirty: false });
+});
+
+it("does not overwrite a file reopened while patch refresh is in flight", async () => {
+  open("a.txt");
+  const read = async () => {
+    const state = useEditorStore.getState();
+    state.closeFile("repo:a.txt");
+    state.openFile({ id: "repo:a.txt", path: "a.txt", name: "a.txt", content: "reopened", language: "text" });
+    return "patched disk";
+  };
+  await expect(applyCopilotPatches("repo", [{ path: "a.txt", patch: "a", base_sha256: "hash", expected_exists: true }], { apply: async () => {}, read, match })).rejects.toThrow("reopened during application");
+  expect(useEditorStore.getState().openFiles[0].content).toBe("reopened");
+});
+
+it("passes captured target and open-buffer roots to patch checks", async () => {
+  useEditorStore.getState().openFile({ id: "other:a.txt", path: "a.txt", name: "a.txt", content: "original", workspaceRoot: "/other", language: "text" });
+  const matchRoots = vi.fn(async ({ openPaths }: { openPaths: string[] }) => openPaths);
+  const apply = vi.fn(async () => {});
+  const read = vi.fn(async () => "patched");
+  await applyCopilotPatches("repo", [{ path: "a.txt", patch: "a", base_sha256: "hash", expected_exists: true }], { apply, match: matchRoots, read }, "/target");
+  expect(matchRoots).toHaveBeenCalledWith(expect.objectContaining({ expectedRoot: "/target", openRepositoryId: "other", openExpectedRoot: "/other" }));
+  expect(apply).toHaveBeenCalledWith(expect.objectContaining({ expectedRoot: "/target" }));
+  expect(read).toHaveBeenCalledWith(expect.objectContaining({ expectedRoot: "/other" }));
+});
+
+it("refuses patch application while an old buffer has no captured root", async () => {
+  open("a.txt");
+  const apply = vi.fn();
+  await expect(applyCopilotPatches("repo", [{ path: "a.txt", patch: "a", base_sha256: "hash", expected_exists: true }], { apply, match, read: async () => "" }, "/target")).rejects.toThrow("Reopen existing editor files");
+  expect(apply).not.toHaveBeenCalled();
+});
+
+it("reports partial application if the workspace changes between patches", async () => {
+  const apply = vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(new Error("Workspace path changed"));
+  const patches = [{ path: "a.txt", patch: "a", base_sha256: "a", expected_exists: true }, { path: "b.txt", patch: "b", base_sha256: "b", expected_exists: true }];
+  await expect(applyCopilotPatches("repo", patches, { apply, match, read: async () => "" }, "/root")).rejects.toThrow("Earlier patches may already be applied");
+  expect(apply).toHaveBeenCalledTimes(2);
 });

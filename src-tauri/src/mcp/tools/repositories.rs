@@ -1,4 +1,4 @@
-use crate::commands::repository_commands::{create_local_workspace_for_scope, register_repository_for_state, update_repository_for_state};
+use crate::commands::repository_commands::{create_local_workspace_for_scope, lock_repository_root, register_repository_for_state, update_repository_for_state};
 use crate::error::AppError;
 use crate::persistence::repository_repo;
 use crate::services::repo_service;
@@ -10,23 +10,6 @@ use super::repository_helpers::{
     normalize_repository_scope_type, repository_git_diff, repository_git_status,
 };
 use super::{action_ok, action_result};
-
-// Keep the registered root stable through a filesystem mutation, including
-// when another Studio process updates the same SQLite database.
-async fn lock_repository_root<'a>(
-    state: &'a AppState,
-    repository_id: &str,
-    expected_root: Option<&str>,
-) -> Result<(sqlx::Transaction<'a, sqlx::Sqlite>, String), AppError> {
-    let mut transaction = state.db.begin_with("BEGIN IMMEDIATE").await?;
-    let root: Option<String> = sqlx::query_scalar("SELECT local_path FROM repositories WHERE id=?")
-        .bind(repository_id).fetch_optional(&mut *transaction).await?;
-    let root = root.ok_or_else(|| AppError::NotFound("Workspace not found".into()))?;
-    if expected_root.is_some_and(|expected| expected != root) {
-        return Err(AppError::Validation("Workspace path changed. Reopen the workspace before writing".into()));
-    }
-    Ok((transaction, root))
-}
 
 pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, AppError> {
     let tool_action = ToolAction::parse(payload)?;

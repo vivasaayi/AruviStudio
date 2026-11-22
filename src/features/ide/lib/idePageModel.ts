@@ -17,7 +17,7 @@ export interface CopilotPatchProposal {
 }
 
 export type ReviewedPatch = PatchProposalItem & { base_sha256: string; expected_exists: boolean };
-export type ReviewedCopilotPatchProposal = Omit<CopilotPatchProposal, "patches"> & { repositoryId: string; patches: ReviewedPatch[] };
+export type ReviewedCopilotPatchProposal = Omit<CopilotPatchProposal, "patches"> & { repositoryId: string; workspaceRoot: string; patches: ReviewedPatch[] };
 
 export function filterTreeNodes(nodes: RepositoryTreeNode[], rawFilter: string): RepositoryTreeNode[] {
   const filter = rawFilter.trim().toLowerCase();

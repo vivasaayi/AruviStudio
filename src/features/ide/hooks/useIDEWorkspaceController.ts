@@ -12,11 +12,11 @@ import {
   listRepositories,
   listRepositoryAttachments,
   listRepositoryTree,
-  readRepositoryFile,
+  readRepositoryFileSnapshot,
   registerRepository,
   resolveRepositoryForScope,
   resolveRepositoryForWorkItem,
-  writeRepositoryFile,
+  writeRepositoryFileGuarded,
 } from "../../../lib/tauri";
 import { useEditorStore } from "../../../state/editorStore";
 import { useWorkspaceStore } from "../../../state/workspaceStore";
@@ -229,12 +229,13 @@ export function useIDEWorkspaceController() {
     }
     setFileError(null);
     try {
-      const content = await readRepositoryFile({ repositoryId: selectedRepoId, relativePath });
+      const snapshot = await readRepositoryFileSnapshot({ repositoryId: selectedRepoId, relativePath });
       openFileInEditor({
         id: fileId,
         path: relativePath,
         name: relativePath.split("/").pop() ?? relativePath,
-        content,
+        content: snapshot.content,
+        workspaceRoot: snapshot.workspace_root,
         language: detectLanguage(relativePath),
       });
     } catch (error) {
@@ -246,15 +247,22 @@ export function useIDEWorkspaceController() {
     if (!activeFile || !activeFileRepositoryId) {
       return;
     }
+    if (!activeFile.workspaceRoot) {
+      setFileError("Reopen this file before saving so its workspace can be verified.");
+      return;
+    }
     setFileError(null);
     setIsSaving(true);
     try {
-      await writeRepositoryFile({
+      const savedContent = activeFile.content;
+      await writeRepositoryFileGuarded({
         repositoryId: activeFileRepositoryId,
         relativePath: activeFile.path,
-        content: activeFile.content,
+        expectedRoot: activeFile.workspaceRoot,
+        expectedContent: activeFile.savedContent,
+        content: savedContent,
       });
-      markFileSaved(activeFile.id);
+      markFileSaved(activeFile.id, savedContent, activeFile.instanceId);
       if (activeFileRepositoryId === selectedRepoId) {
         await refetchTree();
       }
