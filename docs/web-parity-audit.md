@@ -35,6 +35,12 @@ microphone when navigation interrupts that resume. Simulated browser coverage
 passed on disposable native and Linux servers, and the deployed branch recorded
 synthetic audio and transcribed it through the real local Model Host. Physical
 microphone behavior remains unverified.
+Desktop Planner, Direct Chat and Voice Chat now cancel pending microphone
+startup when stopped or unmounted; delayed permission and audio-resume cases
+were checked in mocked-Tauri browser tests. Continuous browser voice also
+reports a context that remains suspended and releases an interrupted capture;
+its simulated-device checks passed against a native server. These results do
+not establish physical-device or native-window behavior.
 Continuous voice now accepts a short detected buffer, including a simulated
 200 ms answer, and discards simulated silence. Its RMS threshold can also detect
 noise; physical capture and broader noise handling remain unverified.

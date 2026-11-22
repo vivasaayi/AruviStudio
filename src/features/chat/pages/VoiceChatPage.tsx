@@ -44,6 +44,7 @@ export function VoiceChatPage() {
   const [lastTranscript, setLastTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
   const audioCaptureRef = useRef<SilenceAwareAudioCapture | null>(null);
+  const pendingCaptureRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<LocalChatMessage[]>([]);
   const sessionActiveRef = useRef(false);
   const isLoopingRef = useRef<number | null>(null);
@@ -60,6 +61,8 @@ export function VoiceChatPage() {
   }, [sessionActive]);
 
   const stopCurrentCapture = async () => {
+    pendingCaptureRef.current?.abort();
+    pendingCaptureRef.current = null;
     const capture = audioCaptureRef.current;
     if (!capture) {
       return;
@@ -232,12 +235,15 @@ export function VoiceChatPage() {
     setError(null);
     setStatus("Listening... Speak naturally and pause when you're done.");
     let capture: SilenceAwareAudioCapture | null = null;
+    const controller = new AbortController();
+    pendingCaptureRef.current = controller;
     try {
       capture = await startSilenceAwareWavCapture({
         silenceDurationMs: 1100,
         minSpeechDurationMs: 500,
         maxDurationMs: 18000,
-      });
+      }, controller.signal);
+      if (pendingCaptureRef.current === controller) pendingCaptureRef.current = null;
       if (!sessionActiveRef.current || generation !== preflightSequenceRef.current) { await capture.stop(); return; }
       audioCaptureRef.current = capture;
       setIsListening(true);
@@ -269,6 +275,7 @@ export function VoiceChatPage() {
         setSessionActive(false);
       }
     } finally {
+      if (pendingCaptureRef.current === controller) pendingCaptureRef.current = null;
       if (audioCaptureRef.current === capture) audioCaptureRef.current = null;
       if (isLoopingRef.current === generation) isLoopingRef.current = null;
     }

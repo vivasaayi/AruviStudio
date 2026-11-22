@@ -2618,6 +2618,57 @@ test("continuous voice discards a silent capture", async ({ page }) => {
   expect(await page.evaluate(() => window.fixtureSilentStops)).toBe(2);
 });
 
+test("continuous voice reports a context that remains suspended", async ({ page }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable Studio server");
+  await page.addInitScript(() => {
+    window.suspendedStops = 0; window.suspendedCloses = 0;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() { window.suspendedStops++; } }] }) } });
+    window.AudioContext = class {
+      constructor() { this.state = "suspended"; this.sampleRate = 16000; this.destination = {}; }
+      async resume() {}
+      async close() { window.suspendedCloses++; }
+    };
+  });
+  let transcriptions = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/api/mobile/speech/transcribe")) transcriptions++; });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.getByRole("button", { name: "Start voice conversation" }).click();
+  await expect(page.locator("#voiceMeta")).toHaveText("Microphone audio could not start in this browser.");
+  await expect(page.getByRole("button", { name: "Start voice conversation" })).toBeEnabled();
+  expect(await page.evaluate(() => [window.suspendedStops, window.suspendedCloses])).toEqual([1, 1]);
+  expect(transcriptions).toBe(0);
+});
+
+test("continuous voice releases a microphone while audio resume is pending", async ({ page }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable Studio server");
+  await page.addInitScript(() => {
+    window.pendingVoiceStops = 0; window.pendingVoiceCloses = 0; window.pendingVoiceResumes = 0;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() { window.pendingVoiceStops++; } }] }) } });
+    window.AudioContext = class {
+      constructor() { this.state = "suspended"; this.sampleRate = 16000; this.destination = {}; }
+      resume() { window.pendingVoiceResumes++; return new Promise((resolve) => { window.finishVoiceResume = resolve; }); }
+      async close() { window.pendingVoiceCloses++; }
+    };
+  });
+  let transcriptions = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/api/mobile/speech/transcribe")) transcriptions++; });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.getByRole("button", { name: "Start voice conversation" }).click();
+  await expect.poll(() => page.evaluate(() => window.pendingVoiceResumes)).toBe(1);
+  await page.getByRole("button", { name: "End voice conversation" }).click();
+  await expect(page.getByRole("button", { name: "Start voice conversation" })).toBeEnabled();
+  expect(await page.evaluate(() => [window.pendingVoiceStops, window.pendingVoiceCloses])).toEqual([1, 1]);
+  await page.evaluate(() => window.finishVoiceResume());
+  await expect(page.locator("#voiceMeta")).toHaveText("Voice conversation stopped.");
+  expect(transcriptions).toBe(0);
+});
+
 test("browser navigation discards manual voice capture", async ({ page }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable Studio server");
   await page.addInitScript(() => {

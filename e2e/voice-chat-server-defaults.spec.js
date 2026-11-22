@@ -6,7 +6,7 @@ async function setup(page, failure) {
     if (mode === "pending-transcription") window.__ARUVI_E2E__.invoke("set_setting", { key: "e2e.voice_transcription_delay", value: "true" });
     const originalTimeout = window.setTimeout.bind(window);
     window.setTimeout = (callback, delay, ...args) => originalTimeout(callback, delay === 18000 ? 400 : delay, ...args);
-    window.fixtureMicCalls = 0; window.fixtureMicStops = 0;
+    window.fixtureMicCalls = 0; window.fixtureMicStops = 0; window.fixtureContextCloses = 0;
     Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: {
       getUserMedia: async () => {
         window.fixtureMicCalls += 1;
@@ -17,7 +17,11 @@ async function setup(page, failure) {
     } });
     window.AudioContext = class {
       constructor() { this.sampleRate = 16000; this.destination = {}; }
-      async resume() {} async close() {}
+      resume() {
+        if (mode === "pending-resume") return new Promise((resolve) => { window.fixtureResolveResume = resolve; });
+        return Promise.resolve();
+      }
+      async close() { window.fixtureContextCloses += 1; }
       createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
       createGain() { return { gain: { value: 1 }, connect() {}, disconnect() {} }; }
       createScriptProcessor() { return { connect() { originalTimeout(() => this.onaudioprocess({ inputBuffer: { getChannelData: () => new Float32Array([0.5, -0.5]) } }), 20); }, disconnect() {} }; }
@@ -76,6 +80,18 @@ test("a delayed microphone permission from a stopped session cannot join a resta
   await expect.poll(() => page.evaluate(() => window.fixtureMicStops)).toBeGreaterThanOrEqual(1);
   await expect.poll(() => page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("transcribe_audio_command").length)).toBe(1);
   await page.getByTestId("voice-chat-stop").click();
+});
+
+test("stopping voice chat releases the microphone while audio resume is pending", async ({ page }) => {
+  await setup(page, "pending-resume");
+  await page.getByTestId("voice-chat-start").click();
+  await expect.poll(() => page.evaluate(() => typeof window.fixtureResolveResume)).toBe("function");
+  await page.getByTestId("voice-chat-stop").click();
+  await expect.poll(() => page.evaluate(() => window.fixtureMicStops)).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.fixtureContextCloses)).toBe(1);
+  await page.evaluate(() => window.fixtureResolveResume());
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("transcribe_audio_command").length)).toBe(0);
 });
 
 test("stopping during transcription does not send a late transcript to the chat model", async ({ page }) => {

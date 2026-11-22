@@ -2019,7 +2019,11 @@
       const stream = await Promise.race([pendingStream, session.cancelledPromise.then(() => null)]);
       if (!stream) return null;
       if (session.cancelled) { stream.getTracks().forEach((track) => track.stop()); return null; }
-      session.stopCapture = () => stream.getTracks().forEach((track) => track.stop());
+      let streamStopped = false;
+      const stopStream = () => {
+        if (!streamStopped) { streamStopped = true; stream.getTracks().forEach((track) => track.stop()); }
+      };
+      session.stopCapture = stopStream;
       let context, source, processor;
       try {
         const AudioContextCtor = window.AudioContext || window.webkitAudioContext;
@@ -2027,7 +2031,8 @@
         try { context = new AudioContextCtor({ sampleRate: 16000 }); }
         catch { context = new AudioContextCtor(); }
         if (context.state === "suspended") await Promise.race([context.resume(), session.cancelledPromise]);
-        if (session.cancelled) { session.stopCapture = null; stream.getTracks().forEach((track) => track.stop()); await context.close().catch(() => undefined); return null; }
+        if (session.cancelled) { session.stopCapture = null; stopStream(); await context.close().catch(() => undefined); return null; }
+        if (context.state === "suspended") throw new Error("Microphone audio could not start in this browser.");
         source = context.createMediaStreamSource(stream);
         processor = context.createScriptProcessor(4096, 1, 1);
         const chunks = [];
@@ -2042,7 +2047,7 @@
             clearTimeout(timer);
             session.stopCapture = null;
             processor.disconnect(); source.disconnect();
-            stream.getTracks().forEach((track) => track.stop());
+            stopStream();
             await context.close().catch(() => undefined);
             resolve(discard || session.cancelled || !heardSpeech ? null : encodeWav(flattenFloat32(chunks), context.sampleRate));
           };
@@ -2072,7 +2077,7 @@
         session.stopCapture = null;
         if (processor) processor.disconnect();
         if (source) source.disconnect();
-        stream.getTracks().forEach((track) => track.stop());
+        stopStream();
         if (context) await context.close().catch(() => undefined);
         throw error;
       }

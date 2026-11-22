@@ -12,6 +12,25 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Desktop and browser voice startup cancellation
+
+Desktop Planner, Direct Chat and Voice Chat now cancel microphone startup when
+their session ends or the view unmounts. A late permission result has its
+tracks stopped, and cancellation during `AudioContext.resume()` closes the
+stream and context; an audio context that remains suspended reports an error.
+Direct Chat exposes a cancel action while access is pending, and Planner's
+recording control can stop a pending request. These guards do not cancel an
+already-submitted remote transcription request.
+
+Continuous browser voice now reports a context that remains suspended and
+stops the track once when a pending resume is cancelled. The shared frontend
+suite passed 139 tests and the production frontend build passed. Twenty-six
+mocked-Tauri browser tests covered Planner, Direct Chat, Voice Chat and stream
+regressions; seven browser voice tests passed against an isolated native server,
+including suspended and interrupted resume. Input devices were simulated, not
+physical. The native server used a debug-reduced `rlib` build; Linux candidate
+and deployed-branch checks remain pending.
+
 ### Manual browser voice and suspended audio contexts
 
 Manual browser recording now resumes a suspended `AudioContext` before wiring
