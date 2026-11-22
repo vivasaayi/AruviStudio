@@ -12,6 +12,26 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Child-work navigation parity in progress
+
+The desktop story view lists its child tasks, while the web Work view previously
+required the user to find children in the product-wide backlog. The web Work
+detail now loads direct children in pages of 50, opens a selected child, opens
+its parent after checking product agreement, and can set the selected item as
+the parent for a new work draft without clearing the draft title. The new
+authenticated endpoint shares the existing child-work query. Pagination uses
+offsets, not a stable snapshot: concurrent inserts, deletions or reordering can
+shift later pages. Legacy cross-product relationships are displayed but cannot
+be opened through this control. A child outside the loaded backlog can be
+opened, though a later backlog refresh may reset that selection.
+
+A native Rust test checked authentication, invalid offsets, missing parents
+and 51 items across two pages. A disposable native server and headless browser
+checked child and parent navigation, shortcut creation with inherited scope,
+preserved draft title, and two-page rendering of 51 real children, including at
+a 390×844 viewport without document overflow. Full Rust, hosted clean-image
+checks, branch deployment and physical desktop comparison remain pending.
+
 ### Hierarchy creation transaction: branch validation
 
 Browser hierarchy creation previously checked product and area scope before

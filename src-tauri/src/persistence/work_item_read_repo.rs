@@ -264,7 +264,7 @@ pub async fn get_sub_work_items_page(
         "SELECT {WORK_ITEM_SELECT_COLUMNS}
          FROM work_items
          WHERE parent_work_item_id=?
-         ORDER BY sort_order
+         ORDER BY sort_order, id
          LIMIT ? OFFSET ?"
     ))
     .bind(parent_work_item_id)

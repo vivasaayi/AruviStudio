@@ -3893,6 +3893,59 @@
       card.append(start, previous, next, status);
     }
 
+    function appendChildWorkCard(workItem) {
+      const card = document.createElement("div"); card.className = "tool-card";
+      const title = document.createElement("strong"); title.textContent = "Child work";
+      const status = document.createElement("p"); status.className = "empty"; status.textContent = "Load direct child work items.";
+      const list = document.createElement("div"); list.className = "tool-list";
+      const load = document.createElement("button"); load.type = "button"; load.className = "secondary"; load.textContent = "Load child work";
+      const create = document.createElement("button"); create.type = "button"; create.className = "secondary"; create.textContent = "Use as parent for new work";
+      card.appendChild(title);
+      if (workItem.parent_work_item_id) {
+        const parent = document.createElement("button"); parent.type = "button"; parent.className = "secondary"; parent.textContent = "Open parent work";
+        parent.addEventListener("click", async () => {
+          parent.disabled = true;
+          try {
+            const item = await request("/api/mobile/work-items/" + encodeURIComponent(workItem.parent_work_item_id));
+            if (!card.isConnected || state.selectedWorkItemId !== workItem.id) return;
+            if (item.product_id !== workItem.product_id) throw new Error("Parent belongs to another product");
+            await selectWorkItem(item.id);
+          } catch (error) { if (card.isConnected && state.selectedWorkItemId === workItem.id) status.textContent = "Unable to open parent: " + (error.message || String(error)); }
+          finally { parent.disabled = false; }
+        });
+        card.appendChild(parent);
+      }
+      create.disabled = !workItem.product_id || el.workProductSelect.value !== workItem.product_id;
+      create.addEventListener("click", () => {
+        if (state.selectedWorkItemId !== workItem.id || !workItem.product_id || el.workProductSelect.value !== workItem.product_id) return;
+        resetWorkScope();
+        el.workParentInput.add(new Option(workItem.title + " · " + workItem.work_item_type, workItem.id));
+        el.workParentInput.value = workItem.id; el.workScopeInput.disabled = true;
+        el.workScopeStatus.textContent = "New work will inherit placement from " + workItem.title + ".";
+        setStatus("Parent selected for new work", "ok"); el.workTitleInput.focus(); el.workTitleInput.scrollIntoView({block:"center"});
+      });
+      let offset = 0, loading = false;
+      load.addEventListener("click", async () => {
+        if (loading || state.selectedWorkItemId !== workItem.id) return;
+        loading = true; load.disabled = true; status.textContent = "Loading child work…";
+        try {
+          const page = await request("/api/mobile/work-items/" + encodeURIComponent(workItem.id) + "/children?offset=" + offset);
+          if (!card.isConnected || state.selectedWorkItemId !== workItem.id) return;
+          for (const child of page.items || []) {
+            const button = document.createElement("button"); button.type = "button"; button.className = "secondary";
+            button.textContent = child.title + " · " + String(child.work_item_type || "task").replaceAll("_", " ") + " · " + String(child.status || "draft").replaceAll("_", " ");
+            button.disabled = child.product_id !== workItem.product_id;
+            if (button.disabled) button.title = "Child belongs to another product";
+            button.addEventListener("click", () => void selectWorkItem(child.id)); list.appendChild(button);
+          }
+          offset += page.items.length; load.hidden = !page.has_more; load.textContent = "Load more child work";
+          status.textContent = offset ? offset + " child work item(s) loaded." : "No child work items.";
+        } catch (error) { if (card.isConnected && state.selectedWorkItemId === workItem.id) status.textContent = "Unable to load child work: " + (error.message || String(error)); }
+        finally { loading = false; load.disabled = false; }
+      });
+      card.append(status, list, load, create); el.deliveryDetails.appendChild(card);
+    }
+
     function renderDelivery() {
       el.deliveryDetails.innerHTML = "";
       const delivery = state.delivery;
@@ -3912,6 +3965,7 @@
       if (workItem.problem_statement) appendDetailCard("Problem statement", workItem.problem_statement);
       if (workItem.acceptance_criteria) appendDetailCard("Acceptance criteria", workItem.acceptance_criteria);
       if (workItem.constraints) appendDetailCard("Constraints", workItem.constraints);
+      appendChildWorkCard(workItem);
       appendDetailCard(
         "Task status",
         String(workItem.status || "draft").replaceAll("_", " "),

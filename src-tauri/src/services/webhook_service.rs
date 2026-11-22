@@ -32,7 +32,7 @@ use crate::services::webhook_mobile_planner_chat::{
     mobile_create_planner_chat_session, mobile_submit_planner_chat_turn,
 };
 use crate::services::webhook_mobile_work::{
-    mobile_approve_work_item, mobile_create_work_item, mobile_get_work_item, mobile_update_work_item,
+    mobile_approve_work_item, mobile_create_work_item, mobile_get_work_item, mobile_update_work_item, mobile_list_child_work_items,
     mobile_get_work_item_delivery, mobile_handle_workflow_action, mobile_mark_workflow_failed, mobile_retry_git_delivery, mobile_list_work_items,
     mobile_start_workflow, mobile_get_workflow_test_result, mobile_get_work_item_artifact, mobile_get_work_item_artifact_page, mobile_assign_work_item_workspace, mobile_delete_work_item,
     mobile_external_cli_runs, mobile_run_external_cli, mobile_external_cli_events,
@@ -460,6 +460,7 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
             "/api/mobile/work-items/:work_item_id",
             get(mobile_get_work_item).post(mobile_update_work_item),
         )
+        .route("/api/mobile/work-items/:work_item_id/children", get(mobile_list_child_work_items))
         .route(
             "/api/mobile/work-items/:work_item_id/approve",
             post(mobile_approve_work_item),

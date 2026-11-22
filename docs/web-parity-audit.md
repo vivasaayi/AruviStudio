@@ -151,6 +151,12 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+Work detail now lists direct child work on demand in pages of 50, navigates to
+children or their parent, and can select a work item as the parent for a new
+draft. This supplies a browser equivalent to the desktop story's task list;
+it does not yet establish complete story-screen parity. The goal checkpoint
+records validation and pagination limits.
+
 Browser hierarchy creation now supports the desktop's product-area description
 and capability/feature description, acceptance criteria and technical notes.
 The server forwards them to the catalog service; older clients can omit them.

@@ -337,6 +337,26 @@ pub(crate) async fn mobile_get_work_item(
     }
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct MobileChildWorkQuery { offset: Option<i64> }
+
+pub(crate) async fn mobile_list_child_work_items(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(work_item_id): Path<String>, Query(query): Query<MobileChildWorkQuery>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    let offset = query.offset.unwrap_or(0);
+    if !(0..=100_000).contains(&offset) { return bad_request("Invalid child work offset"); }
+    if work_item_repo::get_work_item(&state.app_state.db, &work_item_id).await.is_err() { return bad_request("Parent work item not found"); }
+    match work_item_repo::get_sub_work_items_page(&state.app_state.db, &work_item_id, Some(51), Some(offset)).await {
+        Ok(mut items) => {
+            let has_more = items.len() > 50;
+            items.truncate(50);
+            Json(json!({"items":items,"offset":offset,"limit":50,"has_more":has_more})).into_response()
+        },
+        Err(error) => bad_request(error),
+    }
+}
+
 pub(crate) async fn mobile_update_work_item(
     State(state): State<WebhookState>, headers: HeaderMap, Path(work_item_id): Path<String>, Json(body): Json<MobileUpdateWorkItemRequest>,
 ) -> impl IntoResponse {

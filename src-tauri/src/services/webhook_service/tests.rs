@@ -160,6 +160,32 @@ async fn hierarchy_creation_validates_scope_within_the_write_transaction() {
     assert_eq!(orders.len(),2); assert_ne!(orders[0],orders[1]);
 }
 
+#[tokio::test]
+async fn child_work_endpoint_is_authenticated_and_pages_direct_children() {
+    let app: tauri::App<MockRuntime> = make_test_app("child_work_pages").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db,"mobile.api_token","children-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let product = crate::mcp::dispatch_tool(&state,"aruvi_catalog",json!({"action":"create_product","arguments":{"name":"Child pages"}})).await.unwrap();
+    let product_id = product["result"]["id"].as_str().unwrap();
+    let parent = crate::mcp::dispatch_tool(&state,"aruvi_work_items",json!({"action":"create_story","arguments":{"product_id":product_id,"title":"Parent"}})).await.unwrap();
+    let parent_id = parent["result"]["id"].as_str().unwrap();
+    for index in 0..51 {
+        crate::mcp::dispatch_tool(&state,"aruvi_work_items",json!({"action":"create_task","arguments":{"story_id":parent_id,"title":format!("Child {index}")}})).await.unwrap();
+    }
+    let uri = format!("/api/mobile/work-items/{parent_id}/children");
+    assert_eq!(send_json(&router,Method::GET,&uri,None,None).await.0,StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router,Method::GET,&format!("{uri}?offset=-1"),Some("children-token"),None).await.0,StatusCode::BAD_REQUEST);
+    assert_eq!(send_json(&router,Method::GET,"/api/mobile/work-items/missing/children",Some("children-token"),None).await.0,StatusCode::BAD_REQUEST);
+    let (status,first) = send_json(&router,Method::GET,&uri,Some("children-token"),None).await;
+    assert_eq!(status,StatusCode::OK); let first = parse_json(&first);
+    assert_eq!(first["items"].as_array().unwrap().len(),50); assert_eq!(first["has_more"],true);
+    let (status,last) = send_json(&router,Method::GET,&format!("{uri}?offset=50"),Some("children-token"),None).await;
+    assert_eq!(status,StatusCode::OK); let last = parse_json(&last);
+    assert_eq!(last["items"].as_array().unwrap().len(),1); assert_eq!(last["has_more"],false);
+    assert!(!first["items"].as_array().unwrap().iter().any(|item| item["id"] == last["items"][0]["id"]));
+}
+
 fn parse_json(body: &str) -> Value {
     serde_json::from_str(body).expect("response body should be JSON")
 }

@@ -253,6 +253,7 @@ test("browser approves and rejects work with stale decision protection", async (
     const item = await post("/api/mobile/work-items",{product_id:product.id,title:"Decision task"});
     await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
     await page.getByRole("button",{name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
+    await page.setViewportSize({width:390,height:844});
     await page.locator("#workList .work-card").filter({hasText:"Decision task"}).click();
     page.once("dialog",dialog => dialog.accept()); await page.getByRole("button",{name:"Approve",exact:true}).click();
     await expect(page.locator("#status")).toHaveText("Work item approved");
@@ -2105,7 +2106,7 @@ test("browser places work in hierarchy and under a parent", async ({ page, reque
   }
   const product = await mcp("aruvi_catalog", "create_product", { name: `Placement ${Date.now()}` });
   const other = await mcp("aruvi_catalog", "create_product", { name: `Other placement ${Date.now()}` });
-  let parent, child, grandchild, scoped;
+  let parent, child, grandchild, shortcutChild, scoped;
   try {
     const area = await mcp("aruvi_catalog", "create_product_area", { product_id: product.id, name: "Placement area" });
     const feature = await mcp("aruvi_catalog", "create_capability", { product_area_id: area.id, name: "Placement capability" });
@@ -2141,13 +2142,63 @@ test("browser places work in hierarchy and under a parent", async ({ page, reque
     created = page.waitForResponse((r) => r.url().endsWith("/api/mobile/work-items") && r.request().method() === "POST");
     await page.locator("#createWorkButton").click(); grandchild = await (await created).json();
     expect(grandchild).toMatchObject({ parent_work_item_id: child.id, source_node_id: feature.id, source_node_type: "capability" });
+    expect((await request.get(`/api/mobile/work-items/${parent.id}/children`)).status()).toBe(401);
+    expect((await request.get(`/api/mobile/work-items/${parent.id}/children?offset=-1`, {headers})).status()).toBe(400);
+    const children = await (await request.get(`/api/mobile/work-items/${parent.id}/children`, {headers})).json();
+    expect(children.items.map((item) => item.id)).toEqual([child.id]);
+    expect(children.has_more).toBe(false);
+    await page.locator("#workList .work-card").filter({hasText:"Parent story"}).click();
+    await page.getByRole("button",{name:"Load child work",exact:true}).click();
+    await page.getByRole("button",{name:/^Child item · task · draft$/}).click();
+    await expect(page.locator("#deliveryDetails")).toContainText("Child item");
+    await page.getByRole("button",{name:"Open parent work"}).click();
+    await expect(page.locator("#deliveryDetails")).toContainText("Parent story");
+    await page.getByRole("button",{name:"Load child work",exact:true}).click();
+    await page.getByRole("button",{name:/^Child item · task · draft$/}).click();
+    await page.locator("#workTitleInput").fill("Shortcut child item");
+    await page.getByRole("button",{name:"Use as parent for new work"}).click();
+    await expect(page.locator("#workParentInput")).toHaveValue(child.id);
+    await expect(page.locator("#workTitleInput")).toHaveValue("Shortcut child item");
+    created = page.waitForResponse((r) => r.url().endsWith("/api/mobile/work-items") && r.request().method() === "POST");
+    await page.locator("#createWorkButton").click(); shortcutChild = await (await created).json();
+    expect(shortcutChild).toMatchObject({parent_work_item_id:child.id,source_node_id:feature.id,source_node_type:"capability"});
     const exportItems = await mcp("aruvi_work_items", "list_product_export_work_items", { product_id: product.id });
-    expect(exportItems.map((item) => item.id).sort()).toEqual([parent.id, scoped.id, child.id, grandchild.id].sort());
+    expect(exportItems.map((item) => item.id).sort()).toEqual([parent.id, scoped.id, child.id, grandchild.id, shortcutChild.id].sort());
     expect(exportItems.find((item) => item.id === child.id).parent_work_item_id).toBe(parent.id);
   } finally {
-    for (const item of [grandchild, child, scoped, parent]) if (item?.id) await mcp("aruvi_work_items", "delete_work_item", { id: item.id });
+    for (const item of [shortcutChild, grandchild, child, scoped, parent]) if (item?.id) await mcp("aruvi_work_items", "delete_work_item", { id: item.id });
     await mcp("aruvi_catalog", "archive_product", { id: other.id });
     await mcp("aruvi_catalog", "archive_product", { id: product.id });
+  }
+});
+
+test("browser pages a story's child work", async ({ page, request }) => {
+  test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
+  async function mcp(name, action, arguments_) {
+    const response = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:{action,arguments:arguments_}}}});
+    const result = (await response.json()).result;
+    expect(result.isError, JSON.stringify(result)).not.toBeTruthy(); return result.structuredContent.result;
+  }
+  const product = await mcp("aruvi_catalog","create_product",{name:`Child pages ${Date.now()}`});
+  let parent; const children = [];
+  try {
+    parent = await mcp("aruvi_work_items","create_story",{product_id:product.id,title:"Paged story"});
+    for (let index=0; index<51; index++) children.push(await mcp("aruvi_work_items","create_task",{story_id:parent.id,title:`Paged child ${String(index).padStart(2,"0")}`}));
+    await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+    await page.getByRole("button",{name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
+    await page.locator("#workList .work-card").filter({hasText:"Paged story"}).click();
+    await page.getByRole("button",{name:"Load child work",exact:true}).click();
+    await expect(page.locator("#deliveryDetails")).toContainText("50 child work item(s) loaded.");
+    await expect(page.getByRole("button",{name:/^Paged child 50 ·/})).toHaveCount(0);
+    await page.getByRole("button",{name:"Load more child work"}).click();
+    await expect(page.locator("#deliveryDetails")).toContainText("51 child work item(s) loaded.");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    await expect(page.getByRole("button",{name:/^Paged child 50 ·/})).toHaveCount(1);
+    await expect(page.getByRole("button",{name:"Load more child work"})).toHaveCount(0);
+  } finally {
+    for (const child of children) await mcp("aruvi_work_items","delete_work_item",{id:child.id});
+    if (parent) await mcp("aruvi_work_items","delete_work_item",{id:parent.id});
+    await mcp("aruvi_catalog","archive_product",{id:product.id});
   }
 });
 
