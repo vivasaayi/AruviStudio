@@ -95,7 +95,8 @@ horizontal overflow.
 The broader disposable native-server browser suite passed 43 tests
 and skipped 22 requiring additional fixtures. The frontend suite passed 140
 tests, the terminology check passed, and the native Rust library suite passed
-366 tests with eight ignored. This covers a desktop portfolio action but is not
+366 tests with eight ignored. The locked Rust `--tests` target also passed 366
+tests with eight ignored; the binary targets contained no tests. This covers a desktop portfolio action but is not
 a complete portfolio audit. Clean images and worktree deployment remain pending.
 
 ### Workflow-stage artifact paging
