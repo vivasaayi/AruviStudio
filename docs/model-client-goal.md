@@ -34,8 +34,13 @@ Focused tests cover in-place MCP updates, concurrent conflicts, browser draft
 preservation and navigation races; the desktop confirmation UI retains a draft
 after a conflict. An isolated simulated model also proposed an update to a
 staged capability, which was applied to the same ID only after confirmation.
-A real Model Host browser fixture for an existing area is prepared but not yet
-run against the new image. A full native browser run passed 56 tests with five fixture
+A disposable native Studio server connected to the real local Model Host and
+used the browser to stage an existing area, ask `qwen25-coder-7b-q4` for one
+capability, and confirm it through MCP. Three model calls produced the requested
+proposal; the catalog remained unchanged before confirmation and retained the
+original area ID with one new child afterward. This is one successful sample,
+not a reliability guarantee, and the image-based fixture remains pending. A full
+native browser run passed 56 tests with five fixture
 skips; the frontend build and 139 unit tests passed. The Rust suite passed 359
 tests with eight ignored, including bounded ancestry, cross-product and
 unbound-draft handling. Worktree validation is pending.
