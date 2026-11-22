@@ -20,6 +20,8 @@ the desktop story task list. Descriptions are rendered as text. A native server
 build and two disposable browser tests passed, including 101-child pagination,
 phone-width overflow and an HTML-like description. Clean-image and deployment
 validation are pending; this does not establish complete story-screen parity.
+The frontend production build, all 139 frontend tests, terminology check and
+production npm dependency audit (zero vulnerabilities) also passed.
 
 ### Off-page work selection: branch validation
 
