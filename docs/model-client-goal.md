@@ -49,8 +49,25 @@ without escaping, although MCP accepts a caller-supplied validation object. It
 is now HTML-escaped. Focused frontend and native Rust tests pass for an HTML
 injection payload; an authenticated native MCP/browser test verifies that the
 payload is displayed as text and creates no image element. The frontend build
-passed. Clean-image and deployed validation remain pending; the deployed
-`4576218` worktree still has the earlier renderer until replaced.
+passed. Both ARM64 and AMD64 clean-image jobs and hosted tests passed for
+`2c4c79f32906f7312255cd9c849ad5d1f8519895`. The ARM64 archive checksum,
+source revision, configuration and layers were verified; Docker imported it as
+`sha256:2275039f20c15e84759eb5284e1e1f0b2871efec58d5db26eb447c0de920fdc2`
+(hosted ID `sha256:62c4d5db45b6c9f01a91b9b01055e72569f32380ad34c85765a6cfdea010c17a`).
+Local packaged browser passed 65 tests with one skipped, workflow passed 62,
+CI passed one, and PDF isolation and outage checks passed. After a checked
+SQLite backup at `/private/tmp/aruvi-deploy-2c4c79f`, the worktree was updated;
+`aruvi-studio-worktree-backup:pre-2c4c79f` retains the previous image. Exact
+image identity, persistence, authenticated MCP/mobile and PDF passed across
+restart. The deployed MCP/browser injection test passed, as did origin, 13-section
+phone/desktop layout, real local coding and synthetic speech through MCP.
+This is not a staging deployment.
+
+Importing the candidate reduced Docker free space to 4.4 GB. Two tags for the
+unused `227fde4` image were removed after verifying its retained archive at
+`/private/tmp/aruvi-verified-227fde4` against the local configuration and layers;
+no container used it. Free space increased to 6.7 GB. The immediate rollback
+image remains available.
 
 ### Worktree deployment at `4576218`
 
