@@ -12,6 +12,29 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Selector fix: clean-image and branch validation
+
+Hosted ARM64 run `44990630486` passed the exact clean image's 60 workflow tests
+and 46 remote browser tests (one skipped), including the workspace-selector
+case that failed on earlier images. Its archive checksum, source revision
+`1c55fcbb40d78649fcc5369eda0f58da526cb6ec` and Linux ARM64 identity were
+verified. The branch worktree at `127.0.0.1:55288` now runs derived image
+`sha256:2d20fdcdbc1e06173e2446cd269eaba845508c2e3b9ce06eb359a8f108689e9d`,
+using that archive's server binary (SHA-256
+`2ff5c0c1226edfef400e3e4e455fa4d0b058b37fb3564818618c975657833635`)
+over the preceding runtime; non-Rust runtime inputs were unchanged. Docker
+storage did not safely accommodate loading the complete clean image. A checked
+SQLite backup and the prior image were retained before the branch update.
+
+The derived candidate passed 60 workflow tests, 46 remote tests (one skipped),
+PDF isolation/outage checks and the simulated CI-service browser/MCP fixture.
+After deployment, restart persistence, product, MCP/mobile authorization, PDF
+and published-port MCP-origin checks passed. Real Model Host coding and
+Piper/Whisper round trips also passed, including manual and continuous browser
+voice with synthetic audio. These checks do not establish physical-device,
+external-provider, Mac integration or VPS staging acceptance. The newer
+multi-architecture clean-image matrix remains in progress.
+
 ### Branch image architectures
 
 The branch container workflow now builds native ARM64 and AMD64 images on
