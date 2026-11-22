@@ -35,6 +35,17 @@ try {
   await page.locator('#status').getByText(/Workspace path changed/).waitFor();
   assert.equal(await page.getByLabel('Selected file contents').inputValue(),'browser edit\n');
   assert.equal(await readFile(join(first,'fixture.txt'),'utf8'),'same content\n'); assert.equal(await readFile(join(second,'fixture.txt'),'utf8'),'same content\n');
+  await page.evaluate(() => { document.querySelector('#providerInput').value='missing-provider'; document.querySelector('#modelInput').value='fixture'; });
+  await page.locator('#repositoryCopilotQuestion').fill('Explain this file');
+  for (const streaming of [false,true]) {
+    await page.locator('#repositoryCopilotStream').setChecked(streaming);
+    const pendingCopilot=page.waitForResponse(response => response.url().endsWith(streaming ? '/api/mobile/repository-file/copilot/stream' : '/api/mobile/repository-file/copilot'));
+    await page.locator('#repositoryCopilotButton').click();
+    const rejected=await pendingCopilot;
+    assert.equal(rejected.status(),409);
+    assert.equal(rejected.request().postDataJSON().expected_root,firstRoot);
+    await page.locator('#status').getByText(/Workspace path changed/).waitFor();
+  }
   async function call(action,args) {
     const response=await fetch(base+'/api/mcp',{method:'POST',headers:{...headers,Accept:'application/json, text/event-stream'},body:JSON.stringify({jsonrpc:'2.0',id:2,method:'tools/call',params:{name:'aruvi_repositories',arguments:{action,arguments:args}}})});
     return (await response.json()).result;
@@ -61,5 +72,5 @@ try {
   await new Promise((done,reject) => { writer.stdout.once('data',done); writer.once('error',reject); writer.once('exit',code => { if (code) reject(new Error('Workspace writer failed')); }); });
   const waitingWrite=await call('write_repository_file',{repository_id:repo.id,relative_path:'fixture.txt',expected_root:secondRoot,content:'raced MCP edit\n'});
   assert.equal(waitingWrite.isError,true); assert.equal(await readFile(join(first,'fixture.txt'),'utf8'),'same content\n'); assert.equal(await readFile(join(second,'fixture.txt'),'utf8'),'valid MCP edit\n');
-  console.log('Cross-process workspace changes rejected stale browser and MCP writes and patches; matching path writes passed.');
+  console.log('Cross-process workspace changes rejected stale browser Copilot, writes and MCP patches; matching path writes passed.');
 } finally { if (writer && writer.exitCode===null && writer.signalCode===null) writer.kill(); await browser?.close(); if (server && server.exitCode===null && server.signalCode===null) { server.kill(); await new Promise(r=>server.once('exit',r)); } await rm(root,{recursive:true,force:true}); }

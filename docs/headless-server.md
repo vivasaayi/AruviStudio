@@ -69,19 +69,25 @@ failed and cancelled calls in the existing model-call ledger. If the browser
 cannot consume the bounded event queue fast enough, the stream fails rather than
 silently dropping text. Ordinary non-streaming chat remains available.
 
-In **Workspaces**, open a saved text file and use **Ask Copilot about this file**
-for a non-streaming conversation. Select the provider and model in Connection
-first. Studio sends the question, relative path, up to 12,000 characters of the
-saved file, and bounded recent conversation to that provider; request/response
-snapshots are recorded in Activity. The browser retains at most ten recent
-user/assistant pairs within 24,000 characters and resets them on a new file,
-saved edit, provider/model change, or **New file conversation**. Unsaved edits
-must be saved or discarded, and a changed file is rejected before the model call.
-Repository content is untrusted input and model guidance needs review. Patch
-proposals and file-chat streaming are not yet available here.
+In **Workspaces**, open a text file and ask Copilot about its saved or unsaved
+contents. Choose a Copilot model or use the Connection model. Streaming and
+buffered responses are available, and streaming can be stopped. Studio sends
+the question, relative path, selected file context (up to 12,000 characters),
+and bounded conversation to the provider; snapshots are recorded in Activity.
+The browser retains at most ten recent user/assistant pairs within 24,000
+characters and resets the conversation when its context changes. It rejects a
+file whose saved content or registered workspace path has changed since opening.
+Patch proposals require saved file content, explicit review, and guarded
+application; applying multiple files is not atomic. Repository content is
+untrusted input and model guidance needs review.
 MCP clients can call `aruvi_repositories` action `get_repository_file_sha256`,
 then call `aruvi_models` action `run_file_copilot` with `repository_id`,
 `relative_path`, `expected_sha256`, `provider_id`, `model_name`, and `question`.
+Supply `expected_root` from the `workspace_root` returned by
+`read_repository_file` to reject a changed registered workspace path. Older
+callers may omit it, but then do not have that guard.
+Optional `working_content` lets MCP callers discuss unsaved text; patch mode
+requires saved content. MCP responses are buffered.
 An optional `history` array contains alternating user/assistant pairs, up to ten
 pairs and 24,000 characters total. MCP clients own that history and should only
 reuse it for the intended file and provider.

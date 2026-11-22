@@ -361,6 +361,16 @@ async fn workspace_write_guards_reject_a_changed_repository_root() {
     let save = json!({"repository_id":"root-guard", "relative_path":"file.txt", "expected_root":first_root, "expected_content":"same content\n", "content":"wrong destination\n"});
     assert_eq!(send_json(&router, Method::POST, "/api/mobile/repository-file/save", Some("workspace-root-token"), Some(save)).await.0, StatusCode::CONFLICT);
     let sha = format!("{:x}", Sha256::digest(b"same content\n"));
+    let copilot = json!({"repository_id":"root-guard", "relative_path":"file.txt", "expected_root":first_root, "expected_sha256":sha, "provider_id":"missing-provider", "model_name":"fixture", "question":"Explain this file"});
+    for path in ["/api/mobile/repository-file/copilot", "/api/mobile/repository-file/copilot/stream"] {
+        assert_eq!(send_json(&router, Method::POST, path, Some("workspace-root-token"), Some(copilot.clone())).await.0, StatusCode::CONFLICT);
+    }
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_models", json!({"action":"run_file_copilot", "arguments":copilot})).await.unwrap_err().to_string().contains("Workspace path changed"));
+    let mut current_copilot = copilot.clone();
+    current_copilot["expected_root"] = json!(second_root);
+    let (status, body) = send_json(&router, Method::POST, "/api/mobile/repository-file/copilot", Some("workspace-root-token"), Some(current_copilot)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(!body.contains("Workspace path changed"));
     let patch = "@@ -1,1 +1,1 @@\n-same content\n+patched content";
     let stale_write = json!({"action":"write_repository_file", "arguments":{"repository_id":"root-guard", "relative_path":"file.txt", "expected_root":first_root, "content":"wrong MCP destination\n"}});
     assert!(crate::mcp::dispatch_tool(&state, "aruvi_repositories", stale_write).await.is_err());

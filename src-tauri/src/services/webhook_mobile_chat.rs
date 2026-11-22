@@ -200,6 +200,7 @@ pub(crate) async fn mobile_ide_chat_completion(
 pub(crate) struct MobileFileCopilotRequest {
     pub(crate) repository_id: String,
     pub(crate) relative_path: String,
+    pub(crate) expected_root: Option<String>,
     pub(crate) expected_sha256: String,
     pub(crate) working_content: Option<String>,
     pub(crate) include_file_context: Option<bool>,
@@ -305,13 +306,18 @@ async fn build_file_copilot_request(state: &crate::state::AppState, body: Mobile
         || body.max_tokens.is_some_and(|n| !(1..=32768).contains(&n)) {
         return Err((StatusCode::BAD_REQUEST, "Invalid Copilot generation settings.".into()));
     }
-    let repository = crate::persistence::repository_repo::get_repository(&state.db, &body.repository_id).await.map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
-    let content = match crate::services::repo_service::read_repository_file(&repository.local_path, &body.relative_path) {
+    let (transaction, root) = crate::commands::repository_commands::lock_repository_root(state, &body.repository_id, body.expected_root.as_deref()).await.map_err(|error| match error {
+        crate::error::AppError::Validation(_) => (StatusCode::CONFLICT, "Workspace path changed. Reopen the workspace before asking Copilot.".into()),
+        crate::error::AppError::NotFound(_) => (StatusCode::NOT_FOUND, "Workspace not found".into()),
+        _ => (StatusCode::INTERNAL_SERVER_ERROR, "Unable to lock workspace".into()),
+    })?;
+    let content = match crate::services::repo_service::read_repository_file(&root, &body.relative_path) {
         Ok(content) => content, Err(error) => return Err((StatusCode::BAD_REQUEST, error.to_string())),
     };
     if format!("{:x}", Sha256::digest(content.as_bytes())) != body.expected_sha256.to_ascii_lowercase() {
         return Err((StatusCode::CONFLICT, "File changed since it was opened. Reopen it before asking Copilot.".into()));
     }
+    transaction.commit().await.map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Unable to release workspace lock".into()))?;
     let unsaved = body.working_content.is_some();
     let excerpt = crate::services::agent_execution_limits::truncate_for_model_context(body.working_content.as_deref().unwrap_or(&content), body.context_budget.unwrap_or(12_000));
     let file_data = serde_json::json!({"path":body.relative_path,"excerpt":excerpt}).to_string();

@@ -12,6 +12,29 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### File Copilot workspace-root guard in progress
+
+File Copilot previously checked the opened file's SHA-256 but did not bind
+the request to the opened repository root. If a repository was redirected to
+another root containing identical file bytes, browser or MCP Copilot could use
+that other workspace without detecting the change. Browser file Copilot now
+sends its captured root. Buffered and streaming requests compare the optional
+expected root and read the file while holding the same SQLite write reservation
+used by other guarded workspace operations; they release it before calling the
+provider. MCP `run_file_copilot` accepts `expected_root` (or `expectedRoot`),
+while older clients without it retain their previous path behavior. The lock
+coordinates cooperating Studio processes, not older binaries, direct database
+writes, or external filesystem writers; the guard does not prevent changes after
+the file snapshot is read.
+
+A focused Rust test used two roots with identical contents to reject stale
+buffered, streaming and MCP requests, and checked a matching root passed the
+guard. A disposable native server and headless Chrome repeated the browser
+buffered and streaming checks after another process changed the path; an
+existing editor test also passed. The server guide now describes current
+unsaved-file, streaming and patch behavior. The full native suite, hosted
+checks and updated branch deployment remain pending at this checkpoint.
+
 ### Real-model delivery revalidation after URL update
 
 Using the branch image

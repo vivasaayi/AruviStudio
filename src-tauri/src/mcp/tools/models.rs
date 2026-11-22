@@ -50,6 +50,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let body = crate::services::webhook_mobile_chat::MobileFileCopilotRequest {
                 repository_id: args.required_string(&["repository_id", "repositoryId"], "repository_id")?,
                 relative_path: args.required_string(&["relative_path", "relativePath"], "relative_path")?,
+                expected_root: args.optional_string(&["expected_root", "expectedRoot"])?,
                 expected_sha256: args.required_string(&["expected_sha256", "expectedSha256"], "expected_sha256")?,
                 working_content: args.optional_string(&["working_content", "workingContent"])?,
                 include_file_context: args.optional_bool(&["include_file_context", "includeFileContext"])?,
