@@ -49,8 +49,14 @@ specific artifacts and checksums were uploaded with three-day retention. The
 uploaded ZIPs were streamed and verified against GitHub's artifact SHA-256:
 `10b6222e9898709c23e63b2216201a774dbd7257b6c2588d00ffe25ec8210ce9`
 (ARM64) and `9cfd6dfce2cdd17801498d7214979f949f7dd0bb53d34282f10deda8a923a7d4`
-(AMD64). This checks transfer integrity of the ZIPs; the image archives inside
-were not independently extracted or compared with their bundled checksums.
+(AMD64). The inner archives were also streamed and independently matched to
+their bundled SHA-256 files: `c5d637e00c1d38b3a35aa8f921452d1056e300a90d23c9e8a3e52ddec5825b4e`
+(ARM64) and `326298ccf454ded4519543d6b0b6ba353bf08055529bedd169b4552a1fe1db48`
+(AMD64). The accompanying identity files report Linux ARM64 image
+`sha256:aada1d050021267e9b383ab91d23b00c8881d473d3ac704e41a0128156ed66b4`
+and Linux AMD64 image
+`sha256:b8ff2513d141bb87e2e4e6bf251e7884af92ff1b78b90bd9456347a1765e778b`,
+both at the recorded source revision. The images were not loaded on this Mac.
 Staging still requires the merged default-branch revision that passes Mac
 integration and its target-compatible build.
 
