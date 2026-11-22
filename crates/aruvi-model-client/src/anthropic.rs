@@ -24,7 +24,7 @@ impl AnthropicClient {
         let mut api_key = HeaderValue::from_str(&api_key)
             .map_err(|_| ClientError::InvalidInput("Invalid Anthropic API key".into()))?;
         api_key.set_sensitive(true);
-        let url = reqwest::Url::parse(&base_url).map_err(|_| ClientError::InvalidInput("Invalid Anthropic base URL".into()))?;
+        let url = url::Url::parse(&base_url).map_err(|_| ClientError::InvalidInput("Invalid Anthropic base URL".into()))?;
         if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
             return Err(ClientError::InvalidInput("Invalid Anthropic base URL".into()));
         }

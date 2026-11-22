@@ -4,6 +4,11 @@ This provisional Rust crate contains reusable model transports without depending
 Studio or Tauri. Applications own provider settings, credentials, telemetry and
 workflow policy. The repository's PolyForm Noncommercial license applies.
 
+The client requires `url` 2.5.9 or later within the 2.x series to include the
+fix for [RUSTSEC-2026-0592](https://rustsec.org/advisories/RUSTSEC-2026-0592.html).
+Existing consumers should update and audit their lockfiles, including other
+dependencies that might resolve a separate vulnerable version.
+
 `Debug` formatting for chat messages, speech requests, transcription audio and
 completion responses omits their content and reports sizes instead. Completion
 metadata debug output reports only whether usage is present, not its arbitrary

@@ -6,7 +6,7 @@ use reqwest::Client;
 
 /// True only for OpenAI's HTTPS API origin, without embedded URL credentials.
 pub fn is_official_openai_base_url(base_url: &str) -> bool {
-    reqwest::Url::parse(base_url).is_ok_and(|url| url.scheme() == "https"
+    url::Url::parse(base_url).is_ok_and(|url| url.scheme() == "https"
         && url.host_str() == Some("api.openai.com") && url.port_or_known_default() == Some(443)
         && url.username().is_empty() && url.password().is_none() && url.query().is_none() && url.fragment().is_none())
 }
@@ -162,7 +162,7 @@ impl OpenAiCompatibleClient {
     }
 
     fn endpoint_url(&self, path: &str) -> Result<String, ClientError> {
-        let url = reqwest::Url::parse(&self.base_url).map_err(|_| ClientError::InvalidInput("Invalid model provider base URL".into()))?;
+        let url = url::Url::parse(&self.base_url).map_err(|_| ClientError::InvalidInput("Invalid model provider base URL".into()))?;
         if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
             return Err(ClientError::InvalidInput("Invalid model provider base URL".into()));
         }

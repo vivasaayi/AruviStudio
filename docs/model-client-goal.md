@@ -12,6 +12,28 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### URL dependency security update in progress
+
+The refreshed RustSec database at `d1fe6ac3eba823a3515e849045f36dc34543885d`
+reports [RUSTSEC-2026-0592](https://rustsec.org/advisories/RUSTSEC-2026-0592.html)
+for `url` 2.5.8: deeply nested `blob:` origins can overflow the stack. Studio's
+MCP origin check rejects non-HTTP(S) schemes before calling `origin()`, but `url`
+is also selected by other dependencies; this source observation is not a
+complete reachability audit. The Studio and independent-consumer lockfiles now
+select `url` 2.5.9 and `form_urlencoded` 1.2.3. The shared client directly
+requires and uses `url` 2.5.9 or later in the 2.x series, so normal new
+resolutions include the fix; consumers must still audit their own complete
+lockfiles and other dependency versions.
+
+The packaged shared client passed 67 tests, including a deeply nested blob
+origin regression. An audit of the updated Studio lockfile no longer reports
+the URL advisory, but still reports `RUSTSEC-2023-0071` for `rsa` 0.9.10,
+14 unmaintained warnings and two unsound warnings. The updated independent
+consumer lockfile scan reported no vulnerabilities or warnings. `npm audit`
+reported no vulnerabilities. The native Studio Rust suite passed 348 tests
+(eight ignored); the independent consumer's updated Git pin, clean images and
+branch deployment remain pending.
+
 ### Native Model Host watcher and Studio outages
 
 The opt-in native-host watcher previously checked only the host's endpoint and

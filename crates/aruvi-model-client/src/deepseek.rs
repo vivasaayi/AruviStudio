@@ -4,7 +4,8 @@
 //! accept a model or language parameter. Applications select this client explicitly.
 use crate::{ClientError, ClientOptions, CompletionRequest, CompletionResponse, ModelGateway, ModelPage, SpeechRequest, TranscriptionRequest, TransportCapabilities};
 use async_trait::async_trait;
-use reqwest::{header::HeaderValue, Client, Url};
+use reqwest::{header::HeaderValue, Client};
+use url::Url;
 use serde::Serialize;
 
 const MAX_UPLOAD: usize = 8 * 1024 * 1024;

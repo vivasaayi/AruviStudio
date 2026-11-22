@@ -340,4 +340,12 @@ mod response_compatibility_tests {
         assert!(response.metadata.is_none());
         assert_eq!(serde_json::to_value(response).unwrap(), old);
     }
+
+    #[test]
+    fn nested_blob_origin_is_opaque_without_recursive_overflow() {
+        // RUSTSEC-2026-0592: older url releases overflowed the stack here.
+        let value = format!("{}https://example.com/", "blob:".repeat(10_000));
+        let parsed = url::Url::parse(&value).unwrap();
+        assert!(matches!(parsed.origin(), url::Origin::Opaque(_)));
+    }
 }
