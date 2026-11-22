@@ -30,9 +30,11 @@ browser explicitly warns the operator to check the executor first.
 The native HTTP fixture rejects unauthenticated and stale requests, verifies
 rollback when history insertion fails, and checks the result and history. The
 full native Rust library suite passed 348 tests (eight ignored), and the
-frontend build passed. A browser fixture was added for cancelling and confirming
-recovery but has not yet run against the new code. Clean images and deployment
-of this change remain pending.
+frontend build passed. `bash scripts/test native-workflow-recovery` passed
+against a disposable native server and a synthetic running workflow: it checked
+browser cancellation and confirmation and the resulting MCP history. The
+separate clean-image workflow test also exercises this control; its results and
+deployment of this change remain pending.
 
 ### Agent workspace write confinement: branch validation
 
