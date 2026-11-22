@@ -21,8 +21,10 @@ Docker Desktop host-address conversion. Replacing a nonempty draft requires
 confirmation and clears the typed API key; choosing a preset does not save or
 contact a provider. A focused browser test and the isolated remote suite passed
 (47 passed, one skipped) with the updated HTML and the preceding server image;
-PDF outage checks passed. Packaged-image, real third-party provider and staging
-validation remain pending.
+PDF outage checks passed. The existing browser/provider/MCP workflow was also
+extended to start from the Model Host draft, supply a simulated endpoint, save
+the provider and select its model; the full isolated remote suite passed again.
+Packaged-image, real third-party provider and staging validation remain pending.
 
 ### Selector fix: clean-image and branch validation
 

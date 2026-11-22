@@ -1614,6 +1614,10 @@ test("Docker Desktop host address is an explicit provider draft", async ({ page,
 
 test("browser configures and selects a model", async ({ page, request }) => {
   test.skip(!token || !mcpToken, "Set mobile and MCP tokens for a running remote server");
+  if (process.env.ARUVI_TEST_REMOTE_HTML_SOURCE === "1") {
+    const html = await readFile("src-tauri/src/services/remote_app.html", "utf8");
+    await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
+  }
   const name = `Provider test ${Date.now()}`;
   let providerId, modelId, agentId;
   async function call(namespace, action, arguments_) {
@@ -1632,6 +1636,9 @@ test("browser configures and selects a model", async ({ page, request }) => {
     await page.locator("#tokenInput").fill(token);
     await page.locator("#saveButton").click();
     await page.getByRole("button", { name: "Models", exact: true }).click();
+    await page.getByRole("button", { name: "Use Aruvi Model Host" }).click();
+    await expect(page.getByLabel("Provider name", { exact: true })).toHaveValue("Aruvi Model Host");
+    await expect(page.getByLabel("API base URL")).toHaveValue("");
     await page.getByLabel("Provider name", { exact: true }).fill(name);
     await page.getByLabel("API base URL").fill(process.env.ARUVI_TEST_MODEL_URL || "https://example.com/v1");
     const providerResponse = page.waitForResponse((r) => r.url().endsWith("/api/mobile/providers") && r.request().method() === "POST");
