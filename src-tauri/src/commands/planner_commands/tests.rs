@@ -14,7 +14,7 @@ async fn planner_commands_validate_required_session_ids() {
     let clear = clear_planner_pending_command(state.clone(), None)
         .await
         .expect_err("clear should require session id");
-    let confirm = confirm_planner_plan_command(state.clone(), None)
+    let confirm = confirm_planner_plan_command(state.clone(), None, None)
         .await
         .expect_err("confirm should require session id");
     let rename = rename_planner_draft_node_command(

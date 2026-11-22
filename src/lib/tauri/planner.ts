@@ -69,10 +69,12 @@ export const submitPlannerVoiceTurn = (data: { sessionId: string; transcript: st
     product_id: data.productId ?? null,
   });
 
-export const confirmPlannerPlan = (sessionId: string) =>
+export const confirmPlannerPlan = (sessionId: string, productId: string | null = null) =>
   invoke<PlannerTurnResponse>("confirm_planner_plan_command", {
     sessionId,
     session_id: sessionId,
+    productId,
+    product_id: productId,
   });
 
 export const renamePlannerDraftNode = (data: {

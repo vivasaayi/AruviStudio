@@ -12,6 +12,25 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Planner product-scope draft protection (in validation)
+
+Planner text, voice and repository-analysis turns now reject a selected product
+that conflicts with a staged draft before changing the draft or its selection.
+Web, desktop and MCP confirmation pass an optional product scope through the
+same guard. The browser retains a failed text request for correction. An
+explicit voice clear remains available to discard a staged draft deliberately.
+Mobile confirmation accepts legacy empty bodies; a nonempty malformed request
+must be rejected rather than interpreted as an unscoped confirmation. Existing
+clients that omit product scope remain unscoped. For older drafts with a root ID
+that no longer identifies a persisted product, matching falls back to the root
+name, which cannot disambiguate deleted or historical same-name products.
+
+An isolated Rust test covers same-name persisted products, unchanged stored
+draft and selection, text, voice, repository analysis, confirmation, legacy root
+matching and explicit clear. Browser/MCP fixtures cover scoped rejection and
+unscoped confirmation compatibility. Final regression and worktree deployment
+remain pending.
+
 ### Contextual Planner actions (in validation)
 
 Browser Products, hierarchy nodes and selected work now prepare the desktop's

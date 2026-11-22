@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::services::planner_service::{
     add_planner_draft_child, analyze_repository_for_planner, clear_planner_pending,
-    confirm_planner_plan, create_planner_session, delete_planner_draft_node,
+    create_planner_session, delete_planner_draft_node,
     rename_planner_draft_node, submit_planner_turn, submit_planner_voice_turn,
     update_planner_session, PlannerSessionInfo, PlannerTurnResponse,
 };
@@ -129,10 +129,11 @@ pub async fn submit_planner_voice_turn_command(
 pub async fn confirm_planner_plan_command(
     state: State<'_, AppState>,
     session_id: Option<String>,
+    product_id: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
     let session_id =
         session_id.ok_or_else(|| AppError::Validation("missing planner session id".to_string()))?;
-    confirm_planner_plan(state.planner_service.clone(), &state, session_id).await
+    submit_planner_turn(state.planner_service.clone(), &state, session_id, "confirm".to_string(), None, product_id).await
 }
 
 #[tauri::command]

@@ -575,6 +575,26 @@ test("planner requires an explicit scope when its selected product disappears", 
   await expect(page.locator("#composer")).toHaveValue("Must stay scoped");
 });
 
+test("planner keeps a rejected request available for correction", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("aruvi.remote.token", "synthetic-token"));
+  await page.route("**/api/mobile/products", route => route.fulfill({json:[{id:"product-a",name:"Product A"}]}));
+  await page.route("**/api/mobile/planner/sessions", route => route.fulfill({json:{session_id:"fixture-session"}}));
+  const turns=[];
+  await page.route("**/api/mobile/planner/sessions/*/turn", route => { turns.push(route.request().postDataJSON()); return route.fulfill({status:400,body:"The Planner session has a draft for another product."}); });
+  await page.route("**/api/mobile/planner/sessions/*/confirm", route => { turns.push(route.request().postDataJSON()); return route.fulfill({status:400,body:"The Planner session has a draft for another product."}); });
+  await page.goto("/remote");
+  await expect(page.locator("#plannerProductSelect")).toBeEnabled();
+  await page.locator("#plannerProductSelect").selectOption("product-a");
+  await page.locator("#composer").fill("Keep this request");
+  await page.locator("#sendButton").click();
+  await expect(page.locator("#status")).toContainText("draft for another product");
+  await expect(page.locator("#composer")).toHaveValue("Keep this request");
+  await page.locator("#confirmButton").click();
+  await expect.poll(() => turns.length).toBe(2);
+  expect(turns[1]).toMatchObject({product_id:"product-a"});
+  await expect(page.locator("#composer")).toHaveValue("Keep this request");
+});
+
 test("product and work actions prepare scoped planner requests without losing drafts", async ({ page, request }) => {
   test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
   async function mcp(name, action, arguments_) {
@@ -737,6 +757,46 @@ test("planner shows selected node evidence and honors server-cleared selection",
   await send("Continue");
   await expect.poll(() => requests.length).toBe(3);
   expect(requests[2].selected_draft_node_id).toBeNull();
+});
+
+test("browser and MCP reject switching a staged planner draft to another product", async ({ page, request }) => {
+  test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
+  const headers={Authorization:`Bearer ${token}`};
+  async function create(name) { const response=await request.post("/api/mobile/products",{headers,data:{name}}); expect(response.status()).toBe(201); return response.json(); }
+  const first=await create(`Draft first ${Date.now()}`), second=await create(`Draft second ${Date.now()}`);
+  try {
+    await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+    await page.locator("#plannerProductSelect").selectOption(first.id);
+    await page.locator("#composer").fill("Show the current plan"); await page.locator("#sendButton").click();
+    await expect(page.locator("#draftTree")).toContainText(first.name);
+    await page.locator("#draftTree .tree-node").first().click();
+    await page.getByLabel("Draft node name").fill("Preserved design area"); await page.getByRole("button",{name:"Add child"}).click();
+    await expect(page.locator("#draftTree")).toContainText("Preserved design area");
+    await page.locator("#plannerProductSelect").selectOption(second.id);
+    await page.locator("#composer").fill("Plan the second product"); await page.locator("#sendButton").click();
+    await expect(page.locator("#status")).toContainText("draft for another product");
+    await expect(page.locator("#composer")).toHaveValue("Plan the second product");
+    await expect(page.locator("#draftTree")).toContainText("Preserved design area");
+    await page.locator("#confirmButton").click();
+    await expect(page.locator("#status")).toContainText("draft for another product");
+    const sessionId=await page.evaluate(() => localStorage.getItem("aruvi.remote.session"));
+    expect(sessionId).toBeTruthy();
+    for (const action of ["submit_planner_turn","submit_planner_voice_turn","confirm_planner_plan"]) {
+      const args={session_id:sessionId,product_id:second.id,user_input:"confirm",transcript:"confirm"};
+      const response=await request.post("/api/mcp",{headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"aruvi_planner",arguments:{action,arguments:args}}}});
+      const result=(await response.json()).result; expect(result.isError,JSON.stringify(result)).toBeTruthy();
+      expect(JSON.stringify(result)).toContain("draft for another product");
+    }
+    await expect(page.locator("#draftTree")).toContainText("Preserved design area");
+    const malformed=await request.post(`/api/mobile/planner/sessions/${sessionId}/confirm`,{headers,data:{product_id:7}});
+    expect(malformed.status()).toBe(422);
+    const legacyConfirm=await request.post(`/api/mobile/planner/sessions/${sessionId}/confirm`,{headers});
+    expect(legacyConfirm.status(),await legacyConfirm.text()).toBe(200);
+    const tree=await (await request.get(`/api/mobile/products/${first.id}/tree`,{headers})).json();
+    expect(JSON.stringify(tree)).toContain("Preserved design area");
+  } finally {
+    for (const product of [first,second]) await request.post("/api/mcp",{headers:{Authorization:`Bearer ${mcpToken}`},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"aruvi_catalog",arguments:{action:"archive_product",arguments:{id:product.id}}}}});
+  }
 });
 
 test("browser edits a real planner draft through the authenticated API", async ({ page, request }) => {

@@ -45,7 +45,7 @@ export function usePlannerPendingPlanActions({
       return;
     }
     void (async () => {
-      const response = await confirmPlannerPlan(sessionId);
+      const response = await confirmPlannerPlan(sessionId, selectedProductId);
       const execution: ExecutionResult = {
         lines: response.execution_lines,
         errors: response.execution_errors,

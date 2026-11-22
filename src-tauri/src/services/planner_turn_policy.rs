@@ -1,9 +1,35 @@
 use crate::domain::product::Product;
+use crate::error::AppError;
+use crate::persistence::product_repo;
 use crate::services::planner_types::{PlannerDraftNode, PlannerDraftPlan, PlannerPlan};
 use serde_json::{json, Value};
+use sqlx::SqlitePool;
 
 pub(crate) fn normalize(value: Option<&str>) -> String {
     value.unwrap_or_default().trim().to_lowercase()
+}
+
+// A product switch must never silently replace the session's staged design.
+// Older drafts may have generated root IDs, so only use a name match when the
+// draft root does not identify a persisted product.
+pub(crate) async fn ensure_draft_product_scope(
+    db: &SqlitePool,
+    draft: Option<&PlannerDraftPlan>,
+    product: &Product,
+) -> Result<(), AppError> {
+    for root in draft.into_iter().flat_map(|draft| &draft.nodes)
+        .filter(|node| node.node_type == "product" && node.parent_id.is_none()) {
+        if root.id == product.id { continue; }
+        let same_legacy_product = match product_repo::get_product(db, &root.id).await {
+            Ok(_) => false,
+            Err(AppError::NotFound(_)) => normalize(Some(&root.name)) == normalize(Some(&product.name)),
+            Err(error) => return Err(error),
+        };
+        if !same_legacy_product {
+            return Err(AppError::Validation("The Planner session has a draft for another product. Review and clear it or start a new session before switching products.".to_string()));
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn seed_draft_with_product(

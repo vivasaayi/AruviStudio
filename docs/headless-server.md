@@ -859,6 +859,11 @@ Product, hierarchy and selected work views can also prepare a contextual
 Planner request. Review it before sending; replacing an unsent Planner draft
 requires confirmation. If the chosen product is no longer available, Planner
 requires a new explicit scope instead of silently sending an unscoped request.
+If a Planner session contains another product's staged design, a scoped turn or
+confirmation is rejected. Review and clear that design or start a new session
+before switching. MCP `confirm_planner_plan` and the mobile confirmation endpoint
+accept `product_id` (or `productId`) for the same check; omitting it preserves
+legacy unscoped behavior.
 The hierarchy filter shows top-level work directly attached to the selected
 area or capability; it does not include descendants from nested nodes. A child
 opened from a matching parent can remain selected outside the filtered list.

@@ -2810,6 +2810,7 @@
         }
         setStatus("Connected", "ok");
       } catch (error) {
+        if (mode === "planner" && !config.box.value) config.box.value = prompt;
         appendMessage(config.target, "assistant", "Error: " + (error.message || String(error)));
         setStatus(error.message || String(error), "error");
       } finally {
@@ -2821,11 +2822,15 @@
       if (!state.sessionId) {
         return;
       }
+      if (el.plannerProductSelect.disabled || el.plannerProductSelect.value === "__choose__") {
+        setStatus("Choose a planner product scope before confirming", "warn");
+        return;
+      }
       try {
         setBusy(true);
         setStatus("Confirming...", "warn");
         const response = await request("/api/mobile/planner/sessions/" + encodeURIComponent(state.sessionId) + "/confirm", {
-          method: "POST"
+          method: "POST", body: { product_id: el.plannerProductSelect.value || null }
         });
         applyPlannerResponse(response, el.conversation);
         if (!response.draft_tree_nodes) {

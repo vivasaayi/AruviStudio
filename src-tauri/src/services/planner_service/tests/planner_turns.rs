@@ -3,6 +3,51 @@ use crate::persistence::{product_repo, work_item_repo};
 use serde_json::json;
 
 #[tokio::test]
+async fn product_switch_does_not_discard_or_confirm_another_products_draft() {
+    use crate::services::planner_session::load_session_from_db;
+    use crate::services::planner_text_turn::submit_planner_turn;
+    use crate::services::planner_turn_policy::{ensure_draft_product_scope, seed_draft_with_product};
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("planner_product_scope_guard").await;
+    let make_product = |id, name| product_repo::CreateProductInput {
+        id, name, description: "", vision: "", goals: "[]", tags: "[]",
+        lifecycle: None, health: None, owner_label: None, investment_status: None,
+        roadmap: None, evidence: None,
+    };
+    let first = product_repo::create_product(&state.db, make_product("scope-first", "Same name")).await.unwrap();
+    let second = product_repo::create_product(&state.db, make_product("scope-second", "Same name")).await.unwrap();
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let draft = seed_draft_with_product(None, &first);
+    let mut legacy = draft.clone(); legacy.nodes[0].id = "legacy-generated-root".into();
+    ensure_draft_product_scope(&state.db, Some(&legacy), &first).await.unwrap();
+    legacy.nodes[0].name = "Different historical product".into();
+    assert!(ensure_draft_product_scope(&state.db, Some(&legacy), &first).await.is_err());
+    persist_draft_state(&state.db, &session.session_id, Some(&draft), Some(&first.id)).await.unwrap();
+    {
+        let mut service = state.planner_service.lock().await;
+        let mut loaded = service.get_session(&session.session_id).unwrap();
+        loaded.draft_plan = Some(draft.clone()); loaded.selected_draft_node_id = Some(first.id.clone());
+        service.save_session(&session.session_id, loaded);
+    }
+    for input in ["Create a new plan", "confirm"] {
+        let error = submit_planner_turn(state.planner_service.clone(), &state, session.session_id.clone(), input.into(), None, Some(second.id.clone())).await.unwrap_err();
+        assert!(error.to_string().contains("draft for another product"));
+    }
+    let error = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "confirm".into(), None, Some(second.id.clone())).await.unwrap_err();
+    assert!(error.to_string().contains("draft for another product"));
+    let error = crate::services::planner_repository_turn::analyze_repository_for_planner(
+        state.planner_service.clone(), &state.db, &state.artifact_base_path, session.session_id.clone(), "missing-repository".into(), None, Some(second.id.clone())
+    ).await.unwrap_err();
+    assert!(error.to_string().contains("draft for another product"));
+    let reloaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(reloaded.selected_draft_node_id.as_deref(), Some(first.id.as_str()));
+    assert_eq!(serde_json::to_value(reloaded.draft_plan).unwrap(), serde_json::to_value(Some(draft)).unwrap());
+    submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "clear draft".into(), None, Some(second.id.clone())).await.unwrap();
+    let cleared = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert!(cleared.draft_plan.is_none());
+}
+
+#[tokio::test]
 async fn submit_planner_voice_turn_selects_draft_nodes() {
     let _guard = acquire_planner_test_lock().await;
     let state = make_test_state("voice_selects_draft_node").await;

@@ -1,6 +1,6 @@
 use crate::persistence::{agent_repo, model_call_repo, model_repo, product_repo, repository_repo, settings_repo, workflow_repo};
 use crate::services::planner_service::{
-    analyze_repository_for_planner, clear_planner_pending, confirm_planner_plan, create_planner_session, submit_planner_turn,
+    analyze_repository_for_planner, clear_planner_pending, create_planner_session, submit_planner_turn,
     submit_planner_voice_turn, update_planner_session,
 };
 use crate::services::product_service::HIDE_EXAMPLE_PRODUCTS_KEY;
@@ -9,6 +9,7 @@ use crate::services::speech_service::{
 };
 use crate::services::webhook_bridge::ensure_mobile_api_authorized;
 use crate::services::webhook_service::WebhookState;
+use axum::body::Bytes;
 use axum::extract::{Json, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
@@ -1883,6 +1884,12 @@ pub(crate) struct MobilePlannerTurnRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct MobilePlannerConfirmRequest {
+    #[serde(alias = "productId")]
+    product_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub(crate) struct MobileSpeechTranscriptionRequest {
     provider_id: Option<String>,
     model_name: Option<String>,
@@ -2467,14 +2474,26 @@ pub(crate) async fn mobile_confirm_planner_turn(
     State(state): State<WebhookState>,
     headers: HeaderMap,
     Path(session_id): Path<String>,
+    body: Bytes,
 ) -> impl IntoResponse {
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
         return response;
     }
-    match confirm_planner_plan(
+    let product_id = if body.is_empty() {
+        None
+    } else {
+        match serde_json::from_slice::<MobilePlannerConfirmRequest>(&body) {
+            Ok(body) => body.product_id,
+            Err(_) => return (StatusCode::UNPROCESSABLE_ENTITY, "Invalid planner confirmation request").into_response(),
+        }
+    };
+    match submit_planner_turn(
         state.app_state.planner_service.clone(),
         &state.app_state,
         session_id,
+        "confirm".to_string(),
+        None,
+        product_id,
     )
     .await
     {

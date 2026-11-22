@@ -15,7 +15,7 @@ use crate::services::planner_session::{
     PlannerConversationEntry, PlannerService,
 };
 use crate::services::planner_turn_policy::{
-    scope_plan_to_selected_product, seed_draft_with_product,
+    ensure_draft_product_scope, scope_plan_to_selected_product, seed_draft_with_product,
 };
 use crate::services::planner_types::PlannerTurnResponse;
 use sqlx::SqlitePool;
@@ -35,6 +35,11 @@ pub async fn analyze_repository_for_planner(
     let _session_guard = lock_planner_session(&planner_service, db, &session_id).await?;
     let mut trace = vec![];
     let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
+    let selected_product_id = selected_product_id.ok_or_else(|| {
+        AppError::Validation("Select a product before analyzing a repository.".to_string())
+    })?;
+    let selected_product = product_repo::get_product(db, &selected_product_id).await?;
+    ensure_draft_product_scope(db, session.draft_plan.as_ref(), &selected_product).await?;
     push_trace(
         &mut trace,
         "session",
@@ -71,10 +76,6 @@ pub async fn analyze_repository_for_planner(
     let model_name = session.model_name.clone().ok_or_else(|| {
         AppError::Validation("Configure a planner model before analyzing a repository.".to_string())
     })?;
-    let selected_product_id = selected_product_id.ok_or_else(|| {
-        AppError::Validation("Select a product before analyzing a repository.".to_string())
-    })?;
-    let selected_product = product_repo::get_product(db, &selected_product_id).await?;
     let seeded_draft = seed_draft_with_product(session.draft_plan.clone(), &selected_product);
     session.draft_plan = Some(seeded_draft);
     if session.selected_draft_node_id.is_none() {

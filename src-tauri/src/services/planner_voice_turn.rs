@@ -9,7 +9,7 @@ use crate::services::planner_session::{
     PlannerConversationEntry, PlannerService,
 };
 use crate::services::planner_text_turn::submit_planner_turn_locked;
-use crate::services::planner_turn_policy::normalize;
+use crate::services::planner_turn_policy::{ensure_draft_product_scope, normalize};
 
 fn exact_voice_command_text(normalized: &str) -> &str {
     normalized
@@ -52,6 +52,17 @@ pub async fn submit_planner_voice_turn(
     let _session_guard = lock_planner_session(&planner_service, &state.db, &session_id).await?;
     let mut trace = vec![];
     let mut session = get_or_load_session(&planner_service, &state.db, &session_id).await?;
+    let normalized_transcript = normalize(Some(&spoken));
+    let normalized_command = exact_voice_command_text(&normalized_transcript);
+    let clear_requested = matches!(normalized_command,
+        "clear draft" | "clear the draft" | "clear proposal" | "dismiss proposal" |
+        "dismiss draft" | "cancel draft");
+    if !clear_requested {
+        if let Some(product_id) = selected_product_id.as_deref() {
+            let product = crate::persistence::product_repo::get_product(&state.db, product_id).await?;
+            ensure_draft_product_scope(&state.db, session.draft_plan.as_ref(), &product).await?;
+        }
+    }
     push_trace(
         &mut trace,
         "session",
@@ -89,10 +100,8 @@ pub async fn submit_planner_voice_turn(
         service.save_session(&session_id, session.clone());
     }
 
-    let normalized_transcript = normalize(Some(&spoken));
     // Speech recognition commonly adds a terminal period. Strip one only for
     // exact commands; questions and named-node references retain their text.
-    let normalized_command = exact_voice_command_text(&normalized_transcript);
     push_trace(
         &mut trace,
         "voice",
@@ -138,15 +147,7 @@ pub async fn submit_planner_voice_turn(
         .await;
     }
 
-    if matches!(
-        normalized_command,
-        "clear draft"
-            | "clear the draft"
-            | "clear proposal"
-            | "dismiss proposal"
-            | "dismiss draft"
-            | "cancel draft"
-    ) {
+    if clear_requested {
         push_trace(
             &mut trace,
             "voice",

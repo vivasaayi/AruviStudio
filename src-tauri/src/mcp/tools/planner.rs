@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::services::planner_service::{
     add_planner_draft_child, analyze_repository_for_planner, clear_planner_pending,
-    confirm_planner_plan, create_planner_session, delete_planner_draft_node,
+    create_planner_session, delete_planner_draft_node,
     rename_planner_draft_node, submit_planner_turn, submit_planner_voice_turn,
     update_planner_session,
 };
@@ -91,10 +91,13 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         ),
         "confirm_planner_plan" => action_result(
             "confirm_planner_plan",
-            confirm_planner_plan(
+            submit_planner_turn(
                 state.planner_service.clone(),
                 state,
                 args.required_string(&["session_id", "sessionId"], "session_id")?,
+                "confirm".to_string(),
+                None,
+                args.optional_string(&["product_id", "productId"])?,
             )
             .await?,
         ),
