@@ -4008,6 +4008,7 @@
         ? String(workflow.current_stage || workflow.status).replaceAll("_", " ")
         : String(workItem.status || "draft").replaceAll("_", " ");
       appendDetailCard(workItem.title, workItem.description || workItem.problem_statement || "No description");
+      appendDetailCard("Work item details", String(workItem.work_item_type || "task").replaceAll("_", " ") + " · " + String(workItem.priority || "medium").replaceAll("_", " ") + " priority · " + String(workItem.complexity || "medium").replaceAll("_", " ") + " complexity");
       if (workItem.problem_statement) appendDetailCard("Problem statement", workItem.problem_statement);
       if (workItem.acceptance_criteria) appendDetailCard("Acceptance criteria", workItem.acceptance_criteria);
       if (workItem.constraints) appendDetailCard("Constraints", workItem.constraints);

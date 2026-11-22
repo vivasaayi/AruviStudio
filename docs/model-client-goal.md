@@ -12,6 +12,15 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Selected work-item metadata: validation in progress
+
+The web work-item detail now shows the selected item's type, priority and
+complexity, which the desktop story detail displays. A native server build and
+three disposable browser tests passed, including creating a high-priority,
+very-high-complexity bug and checking its displayed metadata. Clean-image and
+deployment validation remain pending; this does not establish full work-item
+parity.
+
 ### Rust advisory revalidation: 2026-11-22
 
 Using the locally available advisory database at revision `d1fe6ac3e`,

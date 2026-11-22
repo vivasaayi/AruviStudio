@@ -160,6 +160,9 @@ browser equivalent to the desktop story's task list;
 it does not yet establish complete story-screen parity. The goal checkpoint
 records validation and pagination limits.
 
+Selected work-item details also show type, priority and complexity; the goal
+checkpoint records the current validation status.
+
 Refreshing the backlog retains an off-page selection after checking its product
 and status against the server. The goal checkpoint records the current test and
 deployment status for this behavior.

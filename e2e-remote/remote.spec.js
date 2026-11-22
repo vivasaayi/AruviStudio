@@ -2058,6 +2058,7 @@ test("browser creates work with its full draft details", async ({ page, request 
     item = await response.json();
     const saved = await (await request.get(`/api/mobile/work-items/${item.id}`, { headers })).json();
     expect(saved).toMatchObject({ title: "Fix an issue", problem_statement: "The result is wrong", description: "Produce the expected result", acceptance_criteria: "The check passes", constraints: "Keep the API stable", work_item_type: "bug", priority: "high", complexity: "very_high", status: "draft" });
+    await expect(page.locator("#deliveryDetails")).toContainText("bug · high priority · very high complexity");
     await expect(page.getByLabel("Work type")).toHaveValue("task");
   } finally {
     if (item) await mcp("aruvi_work_items", "delete_work_item", { id: item.id });
