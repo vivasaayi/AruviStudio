@@ -111,6 +111,9 @@ fn discovery_requires_workspace_root_for_reviewed_patch_tools() {
         let tool = definitions.iter().find(|tool| tool.name == name).unwrap();
         assert!(tool.input_schema["required"].as_array().unwrap().contains(&json!("expectedRoot")));
     }
+    let digest = definitions.iter().find(|tool| tool.name == "repositories.files.get_sha256").unwrap();
+    assert!(digest.input_schema["properties"]["expectedRoot"].is_object());
+    assert!(!digest.input_schema["required"].as_array().unwrap().contains(&json!("expectedRoot")));
 }
 
 #[test]

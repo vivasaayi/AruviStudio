@@ -55,6 +55,10 @@ try {
   const staleWrite=await call('write_repository_file',{repository_id:repo.id,relative_path:'fixture.txt',expected_root:firstRoot,content:'wrong MCP destination\n'});
   assert.equal(staleWrite.isError,true); assert.equal(await readFile(join(second,'fixture.txt'),'utf8'),'same content\n');
   const sha=createHash('sha256').update('same content\n').digest('hex');
+  const digest=await call('get_repository_file_sha256',{repository_id:repo.id,relative_path:'fixture.txt'});
+  assert.equal(digest.structuredContent.result.sha256,sha); assert.equal(digest.structuredContent.result.workspace_root,secondRoot);
+  const staleDigest=await call('get_repository_file_sha256',{repository_id:repo.id,relative_path:'fixture.txt',expected_root:firstRoot});
+  assert.equal(staleDigest.isError,true);
   const patch='@@ -1,1 +1,1 @@\n-same content\n+patched content';
   const stalePatch=await call('apply_reviewed_repository_patch',{repository_id:repo.id,relative_path:'fixture.txt',expected_root:firstRoot,patch,base_sha256:sha,expected_exists:true});
   assert.equal(stalePatch.isError,true); assert.equal(await readFile(join(second,'fixture.txt'),'utf8'),'same content\n');
@@ -71,8 +75,10 @@ try {
   writer=spawn('python3',['-u','-c','import sqlite3,sys,time\nc=sqlite3.connect(sys.argv[1]); c.execute("BEGIN IMMEDIATE"); c.execute("UPDATE repositories SET local_path=? WHERE id=?",(sys.argv[2],sys.argv[3])); print("locked",flush=True); time.sleep(1); c.commit()',db,firstRoot,repo.id],{stdio:['ignore','pipe','pipe']});
   await new Promise((done,reject) => { writer.stdout.once('data',done); writer.once('error',reject); writer.once('exit',code => { if (code) reject(new Error('Workspace writer failed')); }); });
   const waitingCopilot=fetch(base+'/api/mobile/repository-file/copilot',{method:'POST',headers,body:JSON.stringify({repository_id:repo.id,relative_path:'fixture.txt',expected_root:secondRoot,expected_sha256:createHash('sha256').update('valid MCP edit\n').digest('hex'),provider_id:'missing-provider',model_name:'fixture',question:'Explain this file'})});
+  const waitingDigest=call('get_repository_file_sha256',{repository_id:repo.id,relative_path:'fixture.txt',expected_root:secondRoot});
   const waitingWrite=await call('write_repository_file',{repository_id:repo.id,relative_path:'fixture.txt',expected_root:secondRoot,content:'raced MCP edit\n'});
   const racedCopilot=await waitingCopilot; assert.equal(racedCopilot.status,409); assert.match(await racedCopilot.text(),/Workspace path changed/);
+  assert.equal((await waitingDigest).isError,true);
   assert.equal(waitingWrite.isError,true); assert.equal(await readFile(join(first,'fixture.txt'),'utf8'),'same content\n'); assert.equal(await readFile(join(second,'fixture.txt'),'utf8'),'valid MCP edit\n');
   console.log('Cross-process workspace changes rejected stale browser Copilot, writes and MCP patches; matching path writes passed.');
 } finally { if (writer && writer.exitCode===null && writer.signalCode===null) writer.kill(); await browser?.close(); if (server && server.exitCode===null && server.signalCode===null) { server.kill(); await new Promise(r=>server.once('exit',r)); } await rm(root,{recursive:true,force:true}); }

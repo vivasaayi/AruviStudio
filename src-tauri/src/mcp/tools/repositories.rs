@@ -171,12 +171,14 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         "get_repository_file_sha256" => {
             let repository_id =
                 args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
-            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
             let sha = repo_service::get_repository_file_sha256(
-                &repository.local_path,
+                &root,
                 &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
             )?;
-            action_result("get_repository_file_sha256", json!({ "sha256": sha }))
+            transaction.commit().await?;
+            action_result("get_repository_file_sha256", json!({ "sha256": sha, "workspace_root": root }))
         }
         "apply_reviewed_repository_patch" => {
             let repository_id = args.required_string(&["repository_id", "repositoryId"], "repository_id")?;

@@ -83,9 +83,12 @@ untrusted input and model guidance needs review.
 MCP clients can call `aruvi_repositories` action `get_repository_file_sha256`,
 then call `aruvi_models` action `run_file_copilot` with `repository_id`,
 `relative_path`, `expected_sha256`, `provider_id`, `model_name`, and `question`.
-Supply `expected_root` from the `workspace_root` returned by
-`read_repository_file` to reject a changed registered workspace path. Older
-callers may omit it, but then do not have that guard.
+Supply the `sha256` and `workspace_root` returned together by
+`get_repository_file_sha256` as `expected_sha256` and `expected_root` to reject
+a changed file or registered workspace path. The equivalent first-class tool is
+`repositories.files.get_sha256`; it also accepts an optional `expectedRoot`
+when an earlier workspace snapshot needs to be checked. Older Copilot callers
+may omit `expected_root`, but then do not have the workspace-path guard.
 Optional `working_content` lets MCP callers discuss unsaved text; patch mode
 requires saved content. MCP responses are buffered.
 An optional `history` array contains alternating user/assistant pairs, up to ten

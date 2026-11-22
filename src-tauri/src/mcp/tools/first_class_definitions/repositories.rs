@@ -157,7 +157,7 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "repositories.files.get_sha256",
             "Get Repository File SHA256",
-            "Get the SHA256 of a repository file.",
+            "Get a repository file's SHA256 and workspace root from the same guarded snapshot.",
             object_schema(
                 vec![
                     ("repositoryId", string_property("The repository id.")),
@@ -165,6 +165,7 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
                         "relativePath",
                         string_property("Repository-relative file path."),
                     ),
+                    ("expectedRoot", string_property("Optional workspace root captured earlier; reject if it changed.")),
                 ],
                 &["repositoryId", "relativePath"],
             ),

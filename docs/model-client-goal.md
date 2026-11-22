@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### MCP file digest workspace snapshot in progress
+
+`aruvi_repositories.get_repository_file_sha256` and
+`repositories.files.get_sha256` now return `workspace_root` alongside the
+existing `sha256`, captured while holding the SQLite workspace reservation.
+Either name accepts an optional expected root and rejects a changed path. This
+lets a client pass the paired digest and root to file Copilot without an
+independent root lookup. It coordinates cooperating Studio processes only;
+external filesystem changes can still race the file read, and older callers
+that omit the expected root do not detect an earlier path change. Existing hash
+response consumers can continue to use `sha256`.
+
+Focused Rust tests covered both MCP names, discovery, unchanged hashes and
+stale-root rejection. A disposable native server and browser fixture verified
+the returned pair and rejection while another process held a workspace change.
+The headless guide documents the paired values. Full Rust, hosted clean-image
+checks and branch deployment remain pending at this checkpoint.
+
 ### File Copilot workspace-root guard: branch validation
 
 File Copilot previously checked the opened file's SHA-256 but did not bind
