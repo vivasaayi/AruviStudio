@@ -19,9 +19,9 @@ A real local model placed an update to the selected product description in
 it. Product, area and capability update actions now normalize supported fields
 from `fields`, `details`, or the top level and reject empty, conflicting,
 malformed or unsupported update fields. After the fix, separate native real Model Host proposals updated the original
-selected product, area and capability only after confirmation. Parser and
-product-root conflict tests pass; broader regression and packaged-image
-validation remain. Each real-model result is a single sample. The desktop suite
+selected product, area, capability and child work item only after confirmation.
+The full native Rust suite passed 365 tests with eight ignored; packaged-image
+validation remains. Each real-model result is a single sample. The desktop suite
 reported all 81 tests passing, but its runner was interrupted after lingering
 in teardown; a clean hosted result remains necessary.
 
