@@ -20,11 +20,30 @@ unsubmitted work title. Returning to Products after Work now loads the selected
 product's summary, including when the product changed in Work. A disposable
 browser fixture covers both hierarchy levels, draft preservation, the filter,
 pagination, and product switching. The configured native browser suite passed
-49 tests with five fixture-dependent skips. This is a native validation checkpoint;
-the change is not yet deployed to the worktree or staging.
-The native Rust library suite passed 351 tests with eight ignored. A further
+49 tests with five fixture-dependent skips. The native Rust library suite passed
+351 tests with eight ignored; frontend build, terminology check and all 139
+frontend unit tests passed. The mocked desktop browser suite passed 74 tests
+with installed Chrome and one worker. A two-worker attempt reported all cases
+passing but did not exit, so it was stopped. A further
 source comparison found desktop product-overview planner shortcuts that are
 not yet represented by equivalent contextual web actions; see the parity audit.
+
+Clean ARM64 and AMD64 image builds passed for `a09e82d`. The worktree uses a
+derived candidate containing its checksum-verified ARM64 server on the prior
+runtime, not the full clean image. Candidate image ID is
+`sha256:3ecd411b73c677b002ecd0d7468fe8a5cab9e122512bd9e68328ac9d3ad214f0`;
+server SHA-256 is
+`c68963b465b3740c573332cac1e0678732cc871c626848d5d4d9bc4e957b9162`.
+Isolated candidate validation passed 62 workflow tests, 53 browser tests with
+one skip, PDF isolation and outage checks, simulated CI access, and real Model
+Host discovery, coding, stream cancellation and scoped-credential checks.
+After an active-job check and verified database backup, the worktree app and PDF
+containers were updated. Restart acceptance passed for product persistence,
+MCP, mobile authorization and PDF; deployed navigation, all 13 sections at
+phone and desktop widths, origin checks, real MCP coding and speech, and browser
+continuous voice with synthetic audio also passed. The prior image is retained
+as `aruvi-studio-worktree-backup:pre-a09e82d`. This is not staging acceptance,
+physical audio validation, or complete desktop parity.
 
 ### Hierarchy-scoped work browsing: branch validation
 
