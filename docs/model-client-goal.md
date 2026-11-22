@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Planner voice submission lifecycle
+
+Desktop Planner previously treated its own pending transcription as a busy
+planner action, so automatic submission could stop after speech recognition.
+Voice submission now distinguishes other active planner work from its own
+transcription and submission state; other planner controls still use the full
+busy state. A generation guard discards a transcription that returns after the
+view unmounts or voice is disabled, before creating or submitting a planner
+turn. It cannot cancel a transcription already sent to the provider or a
+planner turn already submitted.
+
+In mocked-Tauri browser coverage, an active transcription reached a planner
+turn; a second delayed transcription returned after navigation and made no new
+planner request. With the submission fix but without the generation guard, the
+negative control sent that late turn. The production frontend build, 139
+frontend unit tests and 27 mocked-Tauri Planner, Chat and Voice Chat browser
+tests passed. Physical microphone and native-window acceptance remain open.
+
 ### Desktop and browser voice startup cancellation
 
 Desktop Planner, Direct Chat and Voice Chat now cancel microphone startup when

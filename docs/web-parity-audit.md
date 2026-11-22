@@ -43,6 +43,11 @@ its simulated-device checks passed against native and Linux servers. The updated
 branch also passed manual and continuous browser voice with synthetic audio and
 the real local Model Host. These results do not establish physical-device or
 native-window behavior.
+Desktop Planner now allows its own completed transcription to proceed while
+blocking competing planner actions. A mocked-Tauri test verified normal
+automatic submission and that a late transcription after navigation does not
+create a planner turn; the prior lifecycle sent the late turn when automatic
+submission was enabled. Actual hardware remains unverified.
 Continuous voice now accepts a short detected buffer, including a simulated
 200 ms answer, and discards simulated silence. Its RMS threshold can also detect
 noise; physical capture and broader noise handling remain unverified.

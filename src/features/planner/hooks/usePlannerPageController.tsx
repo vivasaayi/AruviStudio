@@ -277,6 +277,7 @@ export function usePlannerPageController() {
     registerRepositoryForPlanner,
     analyzeSelectedRepository,
     isPlannerBusy,
+    isPlannerActionBusy,
   } = usePlannerRepositoryAnalysis({
     draftEditMutation,
     handlePlannerMutationSuccess,
@@ -351,7 +352,7 @@ export function usePlannerPageController() {
     composerRef,
     draftTreeNodes,
     expandAllDraftNodes,
-    isPlannerBusy,
+    isPlannerBusy: isPlannerActionBusy,
     latestTraceEvents,
     modelName,
     onPlannerMutationSuccess: handlePlannerMutationSuccess,

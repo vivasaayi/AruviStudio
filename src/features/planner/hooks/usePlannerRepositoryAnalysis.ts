@@ -43,11 +43,13 @@ export function usePlannerRepositoryAnalysis({
     isPlannerBusy: basePlannerBusy,
     onAnalysisSuccess: handlePlannerMutationSuccess,
   });
-  const isPlannerBusy = basePlannerBusy || repositoryModalState.isRepositoryAnalysisPending;
+  const isPlannerActionBusy = processMutation.isPending || draftEditMutation.isPending || repositoryModalState.isRepositoryAnalysisPending;
+  const isPlannerBusy = isPlannerActionBusy || isVoiceCaptureBusy;
   plannerBusyRef.current = isPlannerBusy;
 
   return {
     ...repositoryModalState,
     isPlannerBusy,
+    isPlannerActionBusy,
   };
 }

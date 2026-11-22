@@ -36,6 +36,7 @@ export function usePlannerVoiceCapture({
   const audioCaptureRef = useRef<ActiveAudioCapture | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const pendingCaptureRef = useRef<AbortController | null>(null);
+  const captureGenerationRef = useRef(0);
 
   const transcribeAudioMutation = useMutation<string, Error, { audioBytesBase64: string; mimeType: string }>({
     mutationFn: async ({ audioBytesBase64, mimeType }) => {
@@ -49,9 +50,6 @@ export function usePlannerVoiceCapture({
       });
       return response.transcript;
     },
-    onError: (error) => {
-      setSpeechError(error instanceof Error ? error.message : String(error));
-    },
   });
 
   const clearPendingVoiceReview = () => {
@@ -62,6 +60,11 @@ export function usePlannerVoiceCapture({
   };
 
   const stopVoiceCapture = async (shouldTranscribe: boolean) => {
+    if (!shouldTranscribe) {
+      captureGenerationRef.current += 1;
+      setIsTranscribing(false);
+    }
+    const generation = captureGenerationRef.current;
     const pending = pendingCaptureRef.current;
     pendingCaptureRef.current = null;
     pending?.abort();
@@ -82,6 +85,7 @@ export function usePlannerVoiceCapture({
 
     try {
       const blob = await capture.stop();
+      if (generation !== captureGenerationRef.current) return;
       if (!shouldTranscribe || blob.size === 0) {
         setVoiceActivity(null);
         return;
@@ -90,10 +94,12 @@ export function usePlannerVoiceCapture({
       setVoiceActivity("Transcribing audio...");
       setIsTranscribing(true);
       const audioBytesBase64 = await blobToBase64(blob);
+      if (generation !== captureGenerationRef.current) return;
       const transcript = await transcribeAudioMutation.mutateAsync({
         audioBytesBase64,
         mimeType: blob.type || "audio/wav",
       });
+      if (generation !== captureGenerationRef.current) return;
       const trimmedTranscript = transcript.trim();
       setIsTranscribing(false);
       if (!trimmedTranscript) {
@@ -110,6 +116,7 @@ export function usePlannerVoiceCapture({
       setVoiceActivity("Speech recognized. Sending it to the planner...");
       await onSubmitVoiceTranscript(trimmedTranscript);
     } catch (error) {
+      if (generation !== captureGenerationRef.current) return;
       if (shouldTranscribe) {
         setSpeechError(error instanceof Error ? error.message : String(error));
       }
@@ -119,7 +126,7 @@ export function usePlannerVoiceCapture({
       setPendingVoiceTranscript(null);
       setEditableVoiceTranscript("");
     } finally {
-      setIsTranscribing(false);
+      if (generation === captureGenerationRef.current) setIsTranscribing(false);
     }
   };
 
@@ -186,6 +193,7 @@ export function usePlannerVoiceCapture({
     }
 
     const controller = new AbortController();
+    captureGenerationRef.current += 1;
     pendingCaptureRef.current = controller;
     try {
       setSpeechError(null);
