@@ -12,6 +12,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Rust advisory revalidation: 2026-11-22
+
+Using the locally available advisory database at revision `d1fe6ac3e`,
+`cargo-audit` reported no vulnerabilities or warnings for the independent
+consumer lockfile. The Studio lockfile reported one vulnerability,
+`RUSTSEC-2023-0071` for RSA, and 14 unmaintained and two unsound warnings.
+`cargo tree -i rsa` found no selected path for the current Studio configuration;
+that does not resolve the lockfile advisory or cover other feature selections.
+Release review of the warnings and locally patched SQLx remains open.
+
 ### Child task actions: validation in progress
 
 The browser parent-work list now offers direct edit and delete actions for each
