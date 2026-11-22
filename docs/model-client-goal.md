@@ -28,16 +28,33 @@ AMD64 real-host coverage for the updated pin. Hosted AMD64 CI run `45038751154`
 passed its new independent-consumer test step; the rest of that workflow was
 still running when recorded.
 
-### Child-work details: validation in progress
+### Child-work details: branch validation
 
 The web parent-work list now displays each child's priority, complexity and
 description alongside its title and status, matching information available in
 the desktop story task list. Descriptions are rendered as text. A native server
 build and two disposable browser tests passed, including 101-child pagination,
-phone-width overflow and an HTML-like description. Clean-image and deployment
-validation are pending; this does not establish complete story-screen parity.
+phone-width overflow and an HTML-like description. This does not establish
+complete story-screen parity.
 The frontend production build, all 139 frontend tests, terminology check and
 production npm dependency audit (zero vulnerabilities) also passed.
+
+Both clean ARM64 and AMD64 image validations passed for `d86eb04`. The worktree
+candidate combines the checksum-verified ARM64 server with the prior runtime
+image; it is not the complete clean image. Candidate image ID is
+`sha256:c24825a4620db9e216ff68038a01ad655466edd851a359deca36066cfb69f5a6`
+and server SHA-256 is
+`2ad1fef25d91f443761a44b7c72a9799bfe6a2d327ed1ca34ef741be62905031`.
+Isolated workflow, browser, PDF and simulated-CI checks passed, as did real
+Model Host quick-start, stream cancellation and scoped-credential checks.
+After a checked database backup and active-job check, the app and PDF services
+were updated. Restart acceptance verified product persistence, MCP, mobile
+authorization and PDF. Deployed browser hierarchy and 101-child tests, all
+13 sections at phone and desktop sizes, MCP origin, real local coding and
+speech through MCP, and continuous browser voice with synthetic audio passed.
+The previous image remains tagged for rollback. Physical desktop and audio,
+live third-party providers, deployed Aruvici, Mac integration and VPS staging
+remain unverified.
 
 ### Off-page work selection: branch validation
 
