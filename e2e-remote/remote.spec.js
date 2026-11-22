@@ -2148,6 +2148,16 @@ test("browser places work in hierarchy and under a parent", async ({ page, reque
     expect(children.items.map((item) => item.id)).toEqual([child.id]);
     expect(children.has_more).toBe(false);
     await page.locator("#workList .work-card").filter({hasText:"Parent story"}).click();
+    const childRoute = `**/api/mobile/work-items/${parent.id}/children?offset=0`;
+    await page.route(childRoute, async (route) => { await new Promise((resolve) => setTimeout(resolve,500)); await route.continue(); });
+    const delayed = page.waitForResponse((response) => response.url().includes(`/api/mobile/work-items/${parent.id}/children?`));
+    await page.getByRole("button",{name:"Load child work",exact:true}).click();
+    await page.locator("#workList .work-card").filter({hasText:"Scoped item"}).click();
+    await delayed;
+    await expect(page.locator("#deliveryDetails")).toContainText("Scoped item");
+    await expect(page.getByRole("button",{name:/^Child item · task · draft$/})).toHaveCount(0);
+    await page.unroute(childRoute);
+    await page.locator("#workList .work-card").filter({hasText:"Parent story"}).click();
     await page.getByRole("button",{name:"Load child work",exact:true}).click();
     await page.getByRole("button",{name:/^Child item · task · draft$/}).click();
     await expect(page.locator("#deliveryDetails")).toContainText("Child item");
