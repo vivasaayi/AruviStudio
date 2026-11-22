@@ -30,6 +30,26 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Planner proposal packet identity
+
+Desktop proposal messages now retain independent copies of the plan and staged
+tree returned with each message. Exporting from a proposal passes that message's
+snapshot to the bounded backend renderer; if no draft was recorded, it uses an
+empty draft rather than substituting the current one. The packet distinguishes
+the selected proposal from catalog context collected at export time. These
+snapshots exist only in the current UI session and are not a persisted audit
+record. Proposal-card apply/clear labels now explicitly refer to current Planner
+state. A desktop browser fixture exported the first of two proposals and
+verified its earlier draft and actions; a second fixture covered a proposal
+without a draft. The full mocked desktop browser suite passed 84 tests; the
+disposable native-server browser suite passed 44 with 22 fixture-dependent
+skips. Frontend tests passed 144 tests, the production frontend build and
+terminology guard passed, and focused Rust packet/IPC tests passed. The first
+type-check failed on an incorrect test fixture type; it was corrected and the
+build rerun. The full native Rust library suite passed 368 tests with eight
+ignored. Current-draft session export remains on the persisted backend path.
+Native-window, clean-image and deployed validation remain open.
+
 ### Planner no-session snapshot rendering
 
 Desktop no-session packet export now sends its explicit in-memory snapshot to a
@@ -40,8 +60,7 @@ capped at 8 MiB, execution at 10 seconds, JavaScript memory at 128 MiB and
 concurrency at two; transport limits can be lower. The legacy TypeScript
 renderer is bundled in the backend and its HTML retains an external Mermaid
 script reference, so deleting the source and fully native Rust rendering remain
-open. Proposal buttons still use current state instead of the clicked historic
-proposal. Direct desktop IPC, a no-session desktop browser harness, authenticated
+open. Proposal identity handling is recorded above. Direct desktop IPC, a no-session desktop browser harness, authenticated
 and unauthorized MCP, invalid and oversized snapshots, and nonempty draft/action
 content passed. The full mocked desktop browser suite passed 82 tests, including
 14 Planner tests; a disposable native-server browser suite passed 44 tests and
@@ -55,14 +74,13 @@ remain pending.
 
 ### Planner packet fallback audit
 
-The desktop no-session export still builds a packet from in-memory product,
+The desktop no-session export previously built a packet from in-memory product,
 tree, work, draft, plan, validation and assistant-message snapshots. The shared
 Rust session renderer requires a persisted staged draft, so it cannot replace
 that fallback without losing the no-session behavior. Proposal-message buttons
-also invoke one shared exporter using the current state, rather than passing the
-clicked message's plan. A backend migration needs explicit snapshot identity,
-bounded inputs and scope/staleness rules, and tests for no-session and older
-proposal exports; do not remove the fallback merely to eliminate the source file.
+also previously invoked one shared exporter using current state instead of the
+clicked message's plan. The snapshot-rendering and proposal-identity changes
+recorded above address those paths; fully native rendering remains open.
 
 ### Current worktree deployment at `38d0acb`
 

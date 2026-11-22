@@ -27,7 +27,7 @@ type Props = {
   onSubmitPendingVoiceTranscript: () => void;
   onRetryVoiceCapture: () => void;
   onClearPendingVoiceReview: () => void;
-  onExportDesignReviewPacket: () => void;
+  onExportDesignReviewPacket: (message: PlannerMessage) => void;
   onConfirmPendingPlan: () => void;
   onDismissPendingPlan: () => void;
 };

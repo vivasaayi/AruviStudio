@@ -395,7 +395,10 @@ snapshot without a Planner session. Supply `snapshot` with string `title` and
 `validation` containing `score` and `issues`; `plan`, `selectedNode`,
 `activeProductName` and `latestAssistantText` may be null. The result contains
 `filename` and `html`. The renderer does not read or verify catalog data, and the
-packet labels the supplied snapshot as potentially stale. It caps serialized
+packet labels the supplied snapshot as potentially stale. Set `snapshotKind` to
+`proposal` to identify a clicked proposal: the packet states that the caller's
+proposal and any recorded draft belong to that message, while catalog context
+was supplied at export time. This label does not authenticate those claims. It caps serialized
 input at 8 MiB, uses a 128 MiB JavaScript runtime limit, a 10-second execution
 limit and two concurrent render slots; transport limits may be lower. The legacy
 snapshot HTML retains its external Mermaid script reference. For a persisted

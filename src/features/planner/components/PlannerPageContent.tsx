@@ -54,7 +54,7 @@ type PlannerPageContentProps = {
   onSubmitPendingVoiceTranscript: () => void;
   onRetryVoiceCapture: () => void;
   onClearPendingVoiceReview: () => void;
-  onExportDesignReviewPacket: () => void;
+  onExportDesignReviewPacket: (message?: PlannerMessage) => void;
   onConfirmPendingPlan: () => void;
   onDismissPendingPlan: () => void;
   onSelectDraftNode: (nodeId: string | null) => void;
@@ -168,7 +168,7 @@ export function PlannerPageContent({
           selectedNodeRecentActions={selectedNodeRecentActions}
           draftValidation={draftValidation}
           isExportingDesignPacket={isExportingDesignPacket}
-          onExportDesignReviewPacket={onExportDesignReviewPacket}
+          onExportDesignReviewPacket={() => onExportDesignReviewPacket()}
           designPacketPath={designPacketPath}
           onRevealDesignPacket={onRevealDesignPacket}
           designPacketError={designPacketError}

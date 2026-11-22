@@ -21,6 +21,14 @@ test("MCP renders a caller-supplied Planner packet without a session", async ({ 
   expect(packet.html).toContain("&lt;Inventory&gt;");
   expect(packet.html).not.toContain("<Inventory>");
   expect(packet.html).toContain("caller-supplied snapshot");
+  snapshot.snapshotKind = "proposal";
+  snapshot.draftTreeNodes = [{id:"root",label:"Earlier design",node_type:"product",children:[]}];
+  snapshot.plan = {actions:[{type:"create_work_item",title:"Earlier task"}]};
+  const proposal = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`}, data:payload});
+  const proposalPacket = (await proposal.json()).result.structuredContent.result;
+  expect(proposalPacket.html).toContain("selected message");
+  expect(proposalPacket.html).toContain("Earlier design");
+  expect(proposalPacket.html).toContain("Earlier task");
   payload.params.arguments.arguments.snapshot = {};
   const invalid = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`}, data:payload});
   expect((await invalid.json()).result.isError).toBeTruthy();

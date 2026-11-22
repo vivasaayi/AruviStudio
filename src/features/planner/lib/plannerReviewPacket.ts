@@ -4,6 +4,7 @@ import type { DraftValidationSummary } from "./plannerDraftTree";
 import type { PlannerPlan, PlannerTreeNode } from "./plannerPageTypes";
 
 export type DesignReviewPacketInput = {
+  snapshotKind?: "proposal";
   title: string;
   generatedAt: string;
   activeProductName?: string | null;

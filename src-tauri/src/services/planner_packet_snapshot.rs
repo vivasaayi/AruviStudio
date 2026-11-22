@@ -25,6 +25,9 @@ impl Write for BoundedWriter {
 
 fn render(snapshot: &Value) -> Result<DesignReviewPacket, AppError> {
     let object = snapshot.as_object().ok_or_else(|| AppError::Validation("Planner packet snapshot must be an object".into()))?;
+    if object.get("snapshotKind").is_some_and(|value| !value.is_null() && value.as_str() != Some("proposal")) {
+        return Err(AppError::Validation("Unsupported Planner packet snapshot kind".into()));
+    }
     for field in ["title", "generatedAt"] {
         if !object.get(field).is_some_and(Value::is_string) { return Err(AppError::Validation(format!("Planner packet {field} must be a string"))); }
     }
@@ -82,6 +85,8 @@ mod tests {
         let html = render_snapshot(detailed).await.unwrap().html;
         for text in ["Stock &lt;&amp;&gt;", "Count stock", "Review risk", "Missing owner"] { assert!(html.contains(text), "missing {text}"); }
         assert!(matches!(render_snapshot(json!({})).await, Err(AppError::Validation(_))));
+        let mut invalid_kind = snapshot(); invalid_kind["snapshotKind"] = json!("unknown");
+        assert!(matches!(render_snapshot(invalid_kind).await, Err(AppError::Validation(_))));
         let mut large = snapshot(); large["title"] = Value::String("x".repeat(MAX_INPUT + 1));
         assert!(matches!(render_snapshot(large).await, Err(AppError::Validation(_))));
     }

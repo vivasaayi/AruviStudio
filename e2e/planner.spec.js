@@ -318,3 +318,48 @@ test("desktop no-session packet delegates its snapshot to the backend", async ({
   expect(calls.save[0].args.html).toContain("caller-supplied snapshot");
   expect(calls.save[0].args.html).toContain("&lt;Inventory&gt;");
 });
+
+test("proposal packet uses the clicked proposal and its recorded draft", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Planner product").selectOption("example-product-calculator");
+  await page.getByTestId("planner-input").fill("Design input, history, reporting, and expression product areas for this product");
+  await page.getByTestId("planner-send").click();
+  await page.getByTestId("planner-view-draft").click();
+  await expect(page.getByTestId("draft-node-draft-product_area-input-experience")).toBeVisible();
+  await page.getByTestId("draft-node-draft-product-calculator").click();
+  await page.getByTestId("planner-input").fill("Add email and WhatsApp notifications to this product");
+  await page.getByTestId("planner-send").click();
+  await expect(page.getByTestId("draft-node-draft-product_area-notifications-messaging")).toBeVisible();
+  await page.getByTestId("planner-view-conversation").click();
+  const exports = page.getByRole("button", {name:"Generate Review Packet", exact:true});
+  await expect(exports).toHaveCount(2);
+  await expect(page.getByText("Apply and clear act on the current Planner state, which may differ from this proposal.")).toHaveCount(2);
+  await expect(page.getByRole("button", {name:"Apply Current Design", exact:true})).toHaveCount(2);
+  await page.evaluate(() => window.__ARUVI_E2E__.clearInvokeCalls());
+  await exports.first().click();
+  await expect.poll(() => page.evaluate(() => window.__ARUVI_E2E__.getInvokeCallCount("render_planner_packet_snapshot_command"))).toBe(1);
+  await expect.poll(() => page.evaluate(() => window.__ARUVI_E2E__.getInvokeCallCount("export_product_overview_html"))).toBe(1);
+  const calls = await page.evaluate(() => ({render:window.__ARUVI_E2E__.getInvokeCalls("render_planner_packet_snapshot_command"), save:window.__ARUVI_E2E__.getInvokeCalls("export_product_overview_html")}));
+  const snapshot = calls.render[0].args.snapshot;
+  expect(snapshot.snapshotKind).toBe("proposal");
+  expect(JSON.stringify(snapshot.draftTreeNodes)).toContain("Input Experience");
+  expect(JSON.stringify(snapshot.draftTreeNodes)).not.toContain("Notifications & Messaging");
+  expect(JSON.stringify(snapshot.plan.actions)).toContain("Input Experience");
+  expect(JSON.stringify(snapshot.plan.actions)).not.toContain("Notifications & Messaging");
+  expect(calls.save[0].args.html).toContain("selected message");
+});
+
+test("proposal without a recorded draft does not reuse the current draft", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const harness = await import("/e2e/support/planner-snapshot-harness.tsx");
+    harness.mountPlannerSnapshotHarness();
+    window.__ARUVI_E2E__.clearInvokeCalls();
+  });
+  await page.getByRole("button", { name:"Export proposal without draft" }).click();
+  await expect(page.getByTestId("snapshot-path")).toContainText("design-review-packet.html");
+  const calls = await page.evaluate(() => ({render:window.__ARUVI_E2E__.getInvokeCalls("render_planner_packet_snapshot_command"), save:window.__ARUVI_E2E__.getInvokeCalls("export_product_overview_html")}));
+  expect(calls.render[0].args.snapshot.draftTreeNodes).toEqual([]);
+  expect(calls.render[0].args.snapshot.plan.assistant_response).toBe("Earlier proposal");
+  expect(calls.save[0].args.html).toContain("No staged structure is currently available");
+});

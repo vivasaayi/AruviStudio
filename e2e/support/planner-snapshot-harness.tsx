@@ -15,6 +15,7 @@ export function mountPlannerSnapshotHarness() {
       selectedDraftNode: null, latestAssistantMessage: null, onAppendMessage: () => {},
     });
     return <><button onClick={() => void packet.exportDesignReviewPacket()}>Export snapshot fixture</button>
+      <button onClick={() => void packet.exportDesignReviewPacket({ id:"old", role:"assistant", content:"Earlier proposal", kind:"proposal", plan:{assistant_response:"Earlier proposal",needs_confirmation:true,clarification_question:null,actions:[]} })}>Export proposal without draft</button>
       <span data-testid="snapshot-path">{packet.designPacketPath}</span>
       <span data-testid="snapshot-error">{packet.designPacketError}</span></>;
   }
