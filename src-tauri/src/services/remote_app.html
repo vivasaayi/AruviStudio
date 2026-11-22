@@ -900,6 +900,11 @@
               <div class="panel-header"><div class="panel-title">Add model provider</div><button class="secondary" id="refreshModelsButton" type="button">Refresh</button></div>
               <div class="panel-body stack">
                 <p class="empty">The address must be reachable from the Studio server. In Docker Desktop, localhost refers to the container; for LM Studio or another service on the Mac, use the Docker Desktop host address and the service's actual port. For Aruvi Model Host, enter its running endpoint and API token.</p>
+                <div class="button-row" aria-label="Provider quick starts">
+                  <button type="button" class="secondary" id="providerPresetModelHost">Use Aruvi Model Host</button>
+                  <button type="button" class="secondary" id="providerPresetDeepSeek">Use DeepSeek Hosted</button>
+                  <button type="button" class="secondary" id="providerPresetLmStudio">Use LM Studio Local</button>
+                </div>
                 <form id="providerForm" class="stack">
                   <label><span class="label">Provider name</span><input id="providerName" required /></label>
                   <label><span class="label">Protocol</span><select id="providerProtocol"><option value="openai_compatible">OpenAI compatible</option><option value="openai_reasoning">OpenAI reasoning models (no temperature)</option><option value="anthropic">Anthropic Messages</option></select></label>
@@ -5925,6 +5930,18 @@
       } catch (error) { setStatus(error.message || "Enter a valid loopback URL first.", "error"); }
     }
     document.getElementById("providerDockerHost").addEventListener("click", () => useDockerDesktopHost(el.providerUrl));
+    function applyProviderPreset(name, baseUrl) {
+      if ((el.providerName.value || el.providerUrl.value || el.providerKey.value || el.providerProtocol.value !== "openai_compatible") &&
+          !window.confirm("Replace the current provider draft? This clears the entered API key.")) return;
+      el.providerName.value = name;
+      el.providerProtocol.value = "openai_compatible";
+      el.providerUrl.value = baseUrl;
+      el.providerKey.value = "";
+      setStatus("Provider draft filled; review the server address and credentials before saving.", "ok");
+    }
+    document.getElementById("providerPresetModelHost").addEventListener("click", () => applyProviderPreset("Aruvi Model Host", ""));
+    document.getElementById("providerPresetDeepSeek").addEventListener("click", () => applyProviderPreset("DeepSeek (Hosted)", "https://api.deepseek.com/v1"));
+    document.getElementById("providerPresetLmStudio").addEventListener("click", () => applyProviderPreset("LM Studio (Local)", "http://localhost:1234/v1"));
 
     async function createProvider(event) {
       event.preventDefault();

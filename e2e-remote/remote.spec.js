@@ -2789,3 +2789,39 @@ test("new work item clears stale delivery while its details load", async ({ page
     releaseDelivery();
   }
 });
+
+test("provider quick starts preserve or explicitly replace the draft without saving", async ({ page }) => {
+  if (process.env.ARUVI_TEST_REMOTE_HTML_SOURCE === "1") {
+    const html = await readFile("src-tauri/src/services/remote_app.html", "utf8");
+    await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
+  }
+  let providerWrites = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/mobile/providers" && request.method() === "POST") providerWrites++;
+  });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(token);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Models", exact: true }).click();
+  await page.getByRole("button", { name: "Use Aruvi Model Host" }).click();
+  await expect(page.locator("#providerName")).toHaveValue("Aruvi Model Host");
+  await expect(page.locator("#providerUrl")).toHaveValue("");
+  await expect(page.locator("#providerProtocol")).toHaveValue("openai_compatible");
+  await page.locator("#providerKey").fill("synthetic-draft-key");
+  page.once("dialog", (dialog) => dialog.dismiss());
+  await page.getByRole("button", { name: "Use LM Studio Local" }).click();
+  await expect(page.locator("#providerName")).toHaveValue("Aruvi Model Host");
+  await expect(page.locator("#providerKey")).toHaveValue("synthetic-draft-key");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Use LM Studio Local" }).click();
+  await expect(page.locator("#providerName")).toHaveValue("LM Studio (Local)");
+  await expect(page.locator("#providerUrl")).toHaveValue("http://localhost:1234/v1");
+  await expect(page.locator("#providerKey")).toHaveValue("");
+  await page.locator("#providerDockerHost").click();
+  await expect(page.locator("#providerUrl")).toHaveValue("http://host.docker.internal:1234/v1");
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "Use DeepSeek Hosted" }).click();
+  await expect(page.locator("#providerUrl")).toHaveValue("https://api.deepseek.com/v1");
+  await expect(page.locator("#providerName")).toHaveValue("DeepSeek (Hosted)");
+  expect(providerWrites).toBe(0);
+});

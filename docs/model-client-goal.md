@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Browser provider quick starts
+
+The browser Models screen now has the desktop's Aruvi Model Host, DeepSeek and
+LM Studio provider drafts. Model Host leaves the endpoint blank for the deployed
+server's actual address; the LM Studio draft can use the existing explicit
+Docker Desktop host-address conversion. Replacing a nonempty draft requires
+confirmation and clears the typed API key; choosing a preset does not save or
+contact a provider. A focused browser test and the isolated remote suite passed
+(47 passed, one skipped) with the updated HTML and the preceding server image;
+PDF outage checks passed. Packaged-image, real third-party provider and staging
+validation remain pending.
+
 ### Selector fix: clean-image and branch validation
 
 Hosted ARM64 run `44990630486` passed the exact clean image's 60 workflow tests
