@@ -22,6 +22,9 @@ browser fixture covers both hierarchy levels, draft preservation, the filter,
 pagination, and product switching. The configured native browser suite passed
 49 tests with five fixture-dependent skips. This is a native validation checkpoint;
 the change is not yet deployed to the worktree or staging.
+The native Rust library suite passed 351 tests with eight ignored. A further
+source comparison found desktop product-overview planner shortcuts that are
+not yet represented by equivalent contextual web actions; see the parity audit.
 
 ### Hierarchy-scoped work browsing: branch validation
 

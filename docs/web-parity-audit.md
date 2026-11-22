@@ -166,6 +166,13 @@ the product tree also links directly to that filtered view. MCP supports the
 same top-level query. The goal checkpoint records validation
 status and pagination limits.
 
+The desktop product overview also opens Planner with a prepared prompt for
+improving a product, area, capability or work item, adding hierarchy children,
+or adding stories. The browser has a product-scoped Planner and separate tree
+and work controls, but the reviewed product-tree actions do not yet offer these
+contextual planner shortcuts. Matching the selected-node context, preserving an
+existing draft and validating the resulting planner request remain open.
+
 Refreshing the backlog retains an off-page selection after checking its product
 and status against the server. The goal checkpoint records the current test and
 deployment status for this behavior.
