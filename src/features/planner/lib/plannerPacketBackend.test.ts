@@ -53,3 +53,13 @@ it("renders an offline, escaped overview and complete hierarchy beyond the visua
   expect(html).not.toContain('<script');
   expect(html).not.toContain('cdn.jsdelivr.net');
 });
+
+
+it("escapes a caller-supplied readiness score", () => {
+  const snapshot = { title:"Review", generatedAt:"fixture", activeProductName:null, currentProducts:[], currentProductTrees:[],
+    currentWorkItems:[], currentWorkItemsHasMore:false, draftTreeNodes:[], plan:null,
+    validation:{score:'</div><img src=x onerror=alert(1)>',issues:[]}, selectedNode:null };
+  const { html } = JSON.parse(renderJson(JSON.stringify(snapshot)));
+  expect(html).toContain('&lt;/div&gt;&lt;img src=x onerror=alert(1)&gt;');
+  expect(html).not.toContain('<img src=x onerror=alert(1)>');
+});

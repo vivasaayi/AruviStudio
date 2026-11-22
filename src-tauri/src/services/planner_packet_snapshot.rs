@@ -86,6 +86,11 @@ mod tests {
         for text in ["Stock &lt;&amp;&gt;", "Count stock", "Review risk", "Missing owner", "Complete staged design hierarchy"] { assert!(html.contains(text), "missing {text}"); }
         assert!(!html.contains("<script"));
         assert!(!html.contains("cdn.jsdelivr.net"));
+        let mut malicious = snapshot();
+        malicious["validation"]["score"] = json!("</div><img src=x onerror=alert(1)>");
+        let html = render_snapshot(malicious).await.unwrap().html;
+        assert!(html.contains("&lt;/div&gt;&lt;img src=x onerror=alert(1)&gt;"));
+        assert!(!html.contains("<img src=x onerror=alert(1)>"));
         assert!(matches!(render_snapshot(json!({})).await, Err(AppError::Validation(_))));
         let mut invalid_kind = snapshot(); invalid_kind["snapshotKind"] = json!("unknown");
         assert!(matches!(render_snapshot(invalid_kind).await, Err(AppError::Validation(_))));

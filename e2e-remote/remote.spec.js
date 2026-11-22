@@ -6,7 +6,7 @@ import { createHmac } from "node:crypto";
 const token = process.env.ARUVI_MOBILE_API_TOKEN;
 const mcpToken = process.env.ARUVI_MCP_API_TOKEN;
 
-test("MCP renders a caller-supplied Planner packet without a session", async ({ request }) => {
+test("MCP renders a caller-supplied Planner packet without a session", async ({ request, page }) => {
   test.skip(!mcpToken, "Requires an MCP token");
   const snapshot = { title:"<Inventory>", generatedAt:"fixture", activeProductName:null, currentProducts:[], currentProductTrees:[],
     currentWorkItems:[], currentWorkItemsHasMore:false, draftTreeNodes:[], plan:null, validation:{score:0,issues:[]}, selectedNode:null, latestAssistantText:null };
@@ -29,6 +29,12 @@ test("MCP renders a caller-supplied Planner packet without a session", async ({ 
   expect(proposalPacket.html).toContain("selected message");
   expect(proposalPacket.html).toContain("Earlier design");
   expect(proposalPacket.html).toContain("Earlier task");
+  snapshot.validation.score = '</div><img src=x onerror=alert(1)>';
+  const hostile = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`}, data:payload});
+  const hostilePacket = (await hostile.json()).result.structuredContent.result;
+  await page.setContent(hostilePacket.html);
+  await expect(page.locator("img")).toHaveCount(0);
+  await expect(page.locator(".metric-value").last()).toHaveText('</div><img src=x onerror=alert(1)>');
   payload.params.arguments.arguments.snapshot = {};
   const invalid = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`}, data:payload});
   expect((await invalid.json()).result.isError).toBeTruthy();

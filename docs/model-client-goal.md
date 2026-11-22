@@ -30,6 +30,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Planner snapshot readiness escaping
+
+The caller-supplied readiness score was interpolated into the snapshot HTML
+without escaping, although MCP accepts a caller-supplied validation object. It
+is now HTML-escaped. Focused frontend and native Rust tests pass for an HTML
+injection payload; an authenticated native MCP/browser test verifies that the
+payload is displayed as text and creates no image element. The frontend build
+passed. Clean-image and deployed validation remain pending; the deployed
+`4576218` worktree still has the earlier renderer until replaced.
+
 ### Worktree deployment at `4576218`
 
 The clean ARM64 and AMD64 image jobs and both hosted test workflows passed for

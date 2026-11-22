@@ -107,7 +107,7 @@ export function buildDesignReviewPacketHtml(input: DesignReviewPacketInput) {
           <div class="metric"><div class="metric-label">Current Products</div><div class="metric-value">${input.currentProducts.length}</div></div>
           <div class="metric"><div class="metric-label">Draft Roots</div><div class="metric-value">${input.draftTreeNodes.length}</div></div>
           <div class="metric"><div class="metric-label">Proposed Changes</div><div class="metric-value">${input.plan?.actions.length ?? 0}</div></div>
-          <div class="metric"><div class="metric-label">Readiness</div><div class="metric-value">${input.validation.score}</div></div>
+          <div class="metric"><div class="metric-label">Readiness</div><div class="metric-value">${escapeHtml(input.validation.score)}</div></div>
         </div>
         <nav class="toc">
           ${[
