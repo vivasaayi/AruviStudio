@@ -3339,6 +3339,9 @@ test("browser manages portfolio strategy and product dependencies", async ({ pag
     await page.getByRole('button',{name:'Add strategy node'}).click();
     const response = await creation; expect(response.ok(), await response.text()).toBeTruthy(); node = await response.json();
     await expect(page.locator('#strategyList')).toContainText(node.name);
+    await page.getByLabel('View products in strategy').selectOption(node.id);
+    await expect(page.locator('#portfolioScopeSummary')).toContainText('0 product(s) in scope');
+    await expect(page.locator('#portfolioScopeProducts')).toContainText('No products in this strategy scope.');
     await page.getByText('Edit strategy', {exact:true}).click();
     await page.getByLabel('Edit strategy name').fill(`Stale strategy ${suffix}`);
     await call('update_strategy_node', {id:node.id, name:`Concurrent strategy ${suffix}`});
@@ -3364,9 +3367,11 @@ test("browser manages portfolio strategy and product dependencies", async ({ pag
     await call('link_product_to_strategy',{product_id:b.id,strategy_node_id:child.id,is_primary:false});
     await page.getByRole('button',{name:'Refresh portfolio'}).click();
     await page.getByLabel('View products in strategy').selectOption(node.id);
+    await expect(page.locator('#portfolioScopeSummary')).toContainText('2 product(s) in scope');
     await expect(page.locator('#portfolioScopeProducts')).toContainText(a.name);
     await expect(page.locator('#portfolioScopeProducts')).toContainText(b.name);
     await page.getByLabel('View products in strategy').selectOption(child.id);
+    await expect(page.locator('#portfolioScopeSummary')).toContainText('1 product(s) in scope');
     await expect(page.locator('#portfolioScopeProducts')).not.toContainText(a.name);
     await expect(page.locator('#portfolioScopeProducts')).toContainText(b.name);
     await page.locator('#portfolioScopeProducts').getByRole('button',{name:b.name,exact:true}).click();
@@ -3374,6 +3379,8 @@ test("browser manages portfolio strategy and product dependencies", async ({ pag
     await call('delete_strategy_node',{id:child.id});
     await page.getByRole('button',{name:'Refresh portfolio'}).click();
     await expect(page.getByLabel('View products in strategy')).toHaveValue('');
+    await expect(page.locator('#portfolioScopeProducts')).toContainText(a.name);
+    await expect(page.locator('#portfolioScopeProducts')).toContainText(b.name);
     let releaseOld, markStarted;
     const oldStarted = new Promise(resolve => { markStarted = resolve; });
     const oldGate = new Promise(resolve => { releaseOld = resolve; });

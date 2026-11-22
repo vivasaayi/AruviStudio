@@ -36,7 +36,7 @@ Browser Products now displays all products or those linked within a selected
 strategy subtree, and shows the unlinked count. Clicking a result loads its
 product summary. A disposable native-server browser/MCP fixture passed parent
 and child scope filtering, navigation, and refresh after the selected strategy
-was deleted. The broader disposable native-server browser suite passed 43 tests
+was deleted; the fixture also verifies empty scope messaging and counts. The broader disposable native-server browser suite passed 43 tests
 and skipped 22 requiring additional fixtures. The frontend suite passed 140
 tests, the terminology check passed, and the native Rust library suite passed
 366 tests with eight ignored. This covers a desktop portfolio action
