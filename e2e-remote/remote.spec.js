@@ -2285,11 +2285,12 @@ test("browser filters top-level work by hierarchy with pagination", async ({ pag
   }
   const product = await mcp("aruvi_catalog","create_product",{name:`Scoped work ${Date.now()}`});
   const other = await mcp("aruvi_catalog","create_product",{name:`Other scope ${Date.now()}`});
-  const stories=[]; let child, otherStory;
+  const stories=[]; let child, otherStory, areaStory;
   try {
     const area=await mcp("aruvi_catalog","create_product_area",{product_id:product.id,name:"Scope area"});
     const first=await mcp("aruvi_catalog","create_capability",{product_area_id:area.id,name:"First feature"});
     const second=await mcp("aruvi_catalog","create_capability",{product_area_id:area.id,name:"Second feature"});
+    areaStory=await mcp("aruvi_work_items","create_story",{product_id:product.id,source_node_id:area.id,source_node_type:"product_area",title:"Area story"});
     for (let i=0;i<101;i++) stories.push(await mcp("aruvi_work_items","create_story",{product_id:product.id,source_node_id:first.id,source_node_type:"capability",title:`Scoped story ${String(i).padStart(3,"0")}`}));
     child=await mcp("aruvi_work_items","create_task",{story_id:stories[0].id,title:"Scoped child"});
     otherStory=await mcp("aruvi_work_items","create_story",{product_id:product.id,source_node_id:second.id,source_node_type:"capability",title:"Other feature story"});
@@ -2329,6 +2330,7 @@ test("browser filters top-level work by hierarchy with pagination", async ({ pag
     await expect(page.locator("#workPageStatus")).toContainText("100 work item(s) loaded");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
     await expect(page.locator("#workList")).not.toContainText("Other feature story");
+    await expect(page.locator("#workList")).not.toContainText("Area story");
     await expect(page.locator("#workList")).not.toContainText("Scoped child");
     await expect(page.locator("#workList [data-work-move]").first()).toBeDisabled();
     let releasePage, pageArrived;
@@ -2361,6 +2363,10 @@ test("browser filters top-level work by hierarchy with pagination", async ({ pag
     await expect(page.locator("#workList .work-card")).toHaveCount(1);
     await expect(page.locator("#workList")).toContainText("Other feature story");
     await expect(page.locator("#deliveryDetails")).not.toContainText("Scoped child");
+    await page.locator("#workHierarchyFilter").selectOption(JSON.stringify({id:area.id,type:"product_area"}));
+    await expect(page.locator("#workList .work-card")).toHaveCount(1);
+    await expect(page.locator("#workList")).toContainText("Area story");
+    await expect(page.locator("#workList")).not.toContainText("Other feature story");
     let releaseTree, treeArrived;
     const treeHeld=new Promise(resolve => { treeArrived=resolve; });
     const oldTree=`**/api/mobile/products/${product.id}/tree`;
@@ -2375,6 +2381,7 @@ test("browser filters top-level work by hierarchy with pagination", async ({ pag
   } finally {
     if(child) await mcp("aruvi_work_items","delete_work_item",{id:child.id});
     if(otherStory) await mcp("aruvi_work_items","delete_work_item",{id:otherStory.id});
+    if(areaStory) await mcp("aruvi_work_items","delete_work_item",{id:areaStory.id});
     for(const story of stories) await mcp("aruvi_work_items","delete_work_item",{id:story.id});
     await mcp("aruvi_catalog","archive_product",{id:other.id}); await mcp("aruvi_catalog","archive_product",{id:product.id});
   }

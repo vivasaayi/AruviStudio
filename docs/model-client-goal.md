@@ -28,6 +28,8 @@ A disposable native browser/MCP/API fixture covered 101 scoped top-level items,
 pagination, status filtering, children, cross-product isolation, authorization,
 invalid input, legacy MCP defaults, stale page responses and changing product
 while hierarchy choices load, including at 390×844 without document overflow.
+It also checked that an area filter excludes work directly attached to nested
+capabilities and vice versa.
 Lists use offsets and are not stable snapshots
 under concurrent changes. The configured native browser suite passed 49 tests
 with five fixture-dependent skips; the native Rust library suite passed 351
