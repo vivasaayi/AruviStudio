@@ -30,7 +30,7 @@ Piper and Whisper completed a real speech round trip, and browser manual and
 continuous voice tests used synthetic Piper audio with the real speech and local
 coding services. These are branch checks, not physical microphone, external
 provider, Mac integration or staging acceptance. The subsequent hosted
-clean-image workflow is still running at this checkpoint.
+clean-image workflow failed in its workflow suite, as detailed below.
 
 ### Clean-image browser validation
 
@@ -45,10 +45,12 @@ file and explicit test image.
 On the Mac, this explicit fixture mode passed 60 workflow tests, 45 remote UI
 tests with one skipped, and the PDF outage check against the existing derived
 worktree candidate; containers and test volumes were removed. An invalid
-project name was rejected before startup. The new hosted clean-image step has
-not yet completed at this checkpoint; its result must be checked before relying
-on it. The fixture uses simulated providers and does not establish staging,
-physical audio or real-provider behavior.
+project name was rejected before startup. The first hosted clean-image run passed 58 of 60 workflow tests but failed
+when the work-item workspace editor did not appear; a subsequent routing test
+then found a policy left by the interrupted test. The remote suite and artifact
+export were not reached. A follow-up run now retains browser traces on failure;
+its result and root cause remain to be established. The fixture uses simulated
+providers and does not establish staging, physical audio or real-provider behavior.
 
 ### Planner voice submission lifecycle
 
