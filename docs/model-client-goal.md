@@ -27,15 +27,20 @@ handling and synthetic speech generation/transcription. Hosted AMD64 CI run
 `45038751154` passed the independent-consumer suite. Run `45040193739` built a
 checksummed x86-64 probe from the same pinned consumer; under Docker Desktop's
 AMD64 emulation, it also passed real Model Host discovery, completion, streaming,
-token-limit handling and synthetic speech. This does not establish native AMD64
-hardware behavior or live third-party provider compatibility.
+token-limit handling and synthetic speech. This does not establish live
+third-party provider compatibility.
 
 A native x86-64 VPS attempt verified the host's compatible glibc and the copied
 probe's checksum, but the SSH server rejected the requested loopback remote
 forward. The model probe therefore did not run successfully there. Temporary
 probe files were removed; no staging or production service was changed. A
-separately authorized reachable Model Host endpoint is still needed for native
-AMD64 real-host validation.
+subsequent native x86-64 probe used the existing loopback staging Model Host
+instead. Running as an unprivileged user, the checksum-verified pinned client
+passed discovery, completion, streaming and token-limit handling with the
+`smol-test` model. The temporary binary was removed. The staging model host may
+record normal inference telemetry; no service configuration or deployment was
+changed. That host did not advertise the required pair of speech models, so
+native AMD64 speech remains unverified.
 
 ### Child-work details: branch validation
 
@@ -4620,7 +4625,7 @@ scope is reviewed, not merely until an example passes.
 
 | Requirement | Current evidence | Remaining work |
 | --- | --- | --- |
-| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and a separate fixture pinned to `484cce1f698be34c7ae901717640e6ad299deb95`. Its consumer tests passed on macOS, ARM64 Linux and hosted AMD64 Linux; real-host text and synthetic Piper/Whisper probes passed on macOS, ARM64 Linux and emulated AMD64 Linux. The pin check confirms the current client sources and manifest match. | Validate native AMD64 real-host access, and decide independent ownership, versioning and migration for other projects. The current pin is a checkpoint, not a published release. |
+| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and a separate fixture pinned to `484cce1f698be34c7ae901717640e6ad299deb95`. Its consumer tests passed on macOS, ARM64 Linux and hosted AMD64 Linux; real-host text passed on native AMD64, and text and synthetic Piper/Whisper probes passed on macOS, ARM64 Linux and emulated AMD64 Linux. The pin check confirms the current client sources and manifest match. | Validate native AMD64 speech, and decide independent ownership, versioning and migration for other projects. The current pin is a checkpoint, not a published release. |
 | OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
 | Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. A later new-module attempt produced a missing function definition; independent behavior checks caught it before delivery. | Investigate reliability on broader coding tasks and actual authenticated network delivery; syntax-only checks do not establish correctness. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
