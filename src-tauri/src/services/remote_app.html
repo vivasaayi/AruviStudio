@@ -3561,7 +3561,7 @@
     function renderWorkPageStatus() {
       document.getElementById("loadMoreWorkButton").hidden = !workHasMore;
       const outside = state.selectedWorkItemId && !state.workItems.some((item) => item.id === state.selectedWorkItemId) ? " · selected item outside loaded page" : "";
-      document.getElementById("workPageStatus").textContent = state.workItems.length ? `${state.workItems.length} work item(s) loaded${workHasMore ? " · more available" : ""}${outside}. Refresh to see changes to earlier pages.` : "";
+      document.getElementById("workPageStatus").textContent = state.workItems.length || outside ? `${state.workItems.length} work item(s) loaded${workHasMore ? " · more available" : ""}${outside}. Refresh to see changes to earlier pages.` : "";
     }
     async function loadWorkItems() {
       const requestId = ++workPageRequestId;

@@ -2355,6 +2355,13 @@ test("browser filters top-level work by hierarchy with pagination", async ({ pag
     await page.locator("#refreshWorkButton").click();
     await expect(page.locator("#deliveryDetails")).toContainText("Scoped child");
     await expect(page.locator("#workPageStatus")).toContainText("selected item outside loaded page");
+    await mcp("aruvi_work_items","update_work_item",{id:child.id,status:"blocked"});
+    await page.locator("#refreshWorkButton").click();
+    await expect(page.locator("#deliveryStatus")).toHaveText("blocked");
+    await page.locator("#workStatusFilter").selectOption("blocked");
+    await expect(page.locator("#workList .work-card")).toHaveCount(0);
+    await expect(page.locator("#deliveryDetails")).toContainText("Scoped child");
+    await expect(page.locator("#workPageStatus")).toContainText("0 work item(s) loaded · selected item outside loaded page");
     await page.locator("#workStatusFilter").selectOption("done");
     await expect(page.locator("#workList .work-card")).toHaveCount(1);
     await expect(page.locator("#workList")).toContainText("Scoped story 100");

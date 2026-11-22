@@ -22,7 +22,8 @@ The authenticated mobile endpoint accepts paired source-node filters and an
 optional top-level flag. MCP `list_work_items` also accepts `top_level_only`
 with and without pagination; both APIs retain their prior defaults. Reordering
 is disabled when either filter is active. An opened child can remain selected
-outside the filtered list if it belongs to the selected scope.
+outside the filtered list if it belongs to the selected scope; the page reports
+that selection even when the filtered top-level list is empty.
 
 A disposable native browser/MCP/API fixture covered 101 scoped top-level items,
 pagination, status filtering, children, cross-product isolation, authorization,
