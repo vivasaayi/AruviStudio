@@ -8,6 +8,12 @@ planner concurrency fixture. These are specific scenarios, not proof of full par
 Physical desktop interaction and audio devices, live third-party providers, and a
 real Aruvici connection remain unverified.
 
+A disposable real-model coding workflow now also links an enabled and a disabled
+skill to the coding agent through MCP. Its recorded coding requests included the
+enabled instruction but not the disabled one, and the generated file followed
+the enabled instruction before browser review and delivery. This is one model
+sample and does not establish team-skill or general instruction-following behavior.
+
 Manual browser recording now discards unfinished audio on navigation or page
 hide and closes a late microphone permission result; a disposable native-server
 browser fixture verified the navigation case. Hardware capture remains unverified.

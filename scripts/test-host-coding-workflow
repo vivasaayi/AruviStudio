@@ -20,6 +20,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-model-host-studio-validation")
 parser.add_argument("--scenario", choices=("new-module", "extend-module", "multi-file"), default="new-module")
 parser.add_argument("--require-missing-tree", action="store_true", help="Require the model to inspect the absent src directory before creating the module")
+parser.add_argument("--verify-skill", action="store_true", help="Check enabled and disabled coding-agent skills in the real model request and output")
 parser.add_argument("--json-mode", action="store_true", help="Opt the disposable coding agent into JSON-object output")
 parser.add_argument("--browser-approvals", action="store_true", help="Approve the plan and test gates through a headless browser")
 parser.add_argument("--prompt-template", action="store_true", help="Assign and verify a managed coding prompt template in the disposable fixture")
@@ -150,6 +151,12 @@ try:
     if args.prompt_template:
         template = call("aruvi_agents", "create_prompt_template", {"name": "Real coding fixture", "role": "coding", "template_text": template_instruction})
         call("aruvi_agents", "update_agent_definition", {"id": "coding-agent", "prompt_template_ref": "template:" + template["id"]})
+    skill_instruction = "Include the exact comment // ARUVI_SKILL_FIXTURE in src/math.js."
+    disabled_instruction = "ARUVI_DISABLED_SKILL_MUST_NOT_APPEAR"
+    if args.verify_skill:
+        for name, instruction, enabled in [("Enabled fixture", skill_instruction, True), ("Disabled fixture", disabled_instruction, False)]:
+            skill = call("aruvi_agents", "create_skill", {"name": name, "instructions": instruction, "enabled": enabled})
+            call("aruvi_agents", "link_skill_to_agent", {"agent_id": "coding-agent", "skill_id": skill["id"]})
     test_file = "/tmp/aruvi-invalid-syntax.js" if args.verify_gate_rejects_invalid else "src/math.js"
     test_argv = ["/tmp/aruvi-fixture-node", "/tmp/aruvi-multifile-syntax.cjs"] if args.scenario == "multi-file" else ["/tmp/aruvi-fixture-node", "--check", test_file]
     for key, value in [("workflow.auto_start_after_work_item_approval", "false"), ("workflow.auto_approve_plan", "false"), ("workflow.auto_approve_test_review", "false"), ("workflow.test_argv", json.dumps(test_argv))]:
@@ -233,6 +240,14 @@ try:
                 print("Duplicate-definition guidance reached the real coding model", flush=True)
                 return
         raise ValueError("Coding model request did not contain the expected edit guidance")
+    def verify_skill_request():
+        if not args.verify_skill: return
+        calls = call("aruvi_models", "list_model_calls", {"limit": 200})
+        coding_calls = [entry for entry in calls if entry.get("workflow_run_id") == run_id and entry.get("stage") == "coding" and entry.get("request_snapshot_path")]
+        snapshots = [call("aruvi_models", "read_model_call_snapshot", {"id": entry["id"], "kind": "request"}) for entry in coding_calls]
+        if not snapshots or not all(skill_instruction in snapshot and disabled_instruction not in snapshot for snapshot in snapshots):
+            raise ValueError("Coding requests did not consistently include only the enabled skill instruction")
+        print("Enabled skill reached real coding requests; disabled skill was absent", flush=True)
     try:
         approve_gate("plan")
     except ValueError as failure:
@@ -303,6 +318,7 @@ try:
             raise ValueError("Coding trace did not show the missing src directory response")
         print("Real coding workflow observed the missing src directory response", flush=True)
     verify_edit_guidance()
+    verify_skill_request()
     artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
     verify_prompt_template()
     test_artifacts = [artifact for artifact in artifacts if artifact.get("artifact_type") == "workflow_test_result" and artifact.get("workflow_run_id") == run_id]
@@ -317,6 +333,9 @@ try:
         if untouched.returncode: raise ValueError("Product default workspace was modified")
         print("Work item override received the generated file; product default workspace was untouched", flush=True)
     code = file["content"]
+    if args.verify_skill and not re.search(r"(?m)^\s*//\s*ARUVI_SKILL_FIXTURE\s*$", code):
+        raise ValueError("Generated math module did not follow the skill's comment instruction")
+    if args.verify_skill: print("Generated math module followed the enabled skill instruction", flush=True)
     assertions = "\nconst assert = require('node:assert/strict'); const f = module.exports.sumEven; assert.equal(f([1,2,3,4,-2]),4); assert.equal(f([]),0);\n"
     if args.scenario == "extend-module":
         assertions += "const c = module.exports.clamp; assert.equal(c(-5,0,10),0); assert.equal(c(5,0,10),5); assert.equal(c(12,0,10),10); assert.equal(c(2,2,2),2); assert.throws(() => c(3,9,1), RangeError);\n"

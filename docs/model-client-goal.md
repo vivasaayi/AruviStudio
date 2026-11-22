@@ -93,6 +93,18 @@ trip and continuous browser voice with synthetic audio also passed. This is a
 worktree deployment, not Mac integration or VPS staging; physical audio,
 desktop-window comparison and complete migration parity remain open.
 
+The same candidate passed a further disposable real-model two-file workflow:
+both generated files passed the syntax gate and independent behavior and import
+checks before browser approval and delivery. A separate new-module workflow
+linked an enabled and a disabled skill to the coding agent through MCP. Every
+recorded coding request contained the enabled skill instruction and omitted the
+disabled instruction, and the generated file included the requested comment.
+Syntax, independent behavior, browser approval and delivery passed; the
+default workspace and pre-review Git remote were unchanged. Repeat the latter
+with `--scenario new-module --verify-skill` in place of `--scenario multi-file`
+in the real-model command above. These are individual model samples and do not
+establish general instruction-following reliability or team-skill behavior.
+
 ### Static GIF Product Book images
 
 The shared Product Book image pipeline accepts embedded static GIFs in EPUB
