@@ -187,12 +187,11 @@ Browser hierarchy shortcuts now stage the selected area or capability by its
 catalog ID and snapshot before preparing a prompt. MCP and a desktop command
 can stage the same context. Confirming a bound design updates those nodes in
 place and rejects stale snapshots; unbound proposed nodes are still created.
-Existing work-item shortcuts remain name-based, as do the current desktop
-product-overview shortcuts. Real-model and native-window validation of the
-new flow remain open. The goal checkpoint records current test and deployment
-evidence.
-See the goal checkpoint for validation and deployment status. Planner behavior
-with real models and native-window comparison still require broader acceptance.
+Browser and desktop shortcuts now stage existing product, hierarchy and work
+items by ID. Representative real-model updates and child creation passed after
+confirmation; see the goal checkpoint for scope and deployment evidence. The
+desktop shortcut has automated coverage but still needs native-window validation,
+and broader real-model acceptance remains open.
 
 Refreshing the backlog retains an off-page selection after checking its product
 and status against the server. The goal checkpoint records the current test and

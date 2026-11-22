@@ -12,8 +12,9 @@ provider hosting into the model-host service as part of this work.
 
 ## Remaining acceptance work
 
-- [ ] Finish the clean ARM64 and AMD64 builds and hosted checks for the latest
-  runtime revision; test the verified Mac candidate and update the worktree.
+- [x] Build and check the current runtime revision on ARM64 and AMD64, and
+  validate and deploy the derived Mac worktree candidate. Repeat these checks
+  for any subsequent runtime changes and for the eventual merged revision.
 - [ ] Complete the action-by-action desktop/web/MCP parity inventory, including
   direct voice selection edge cases, native dialogs and deliberately platform-specific
   behavior. Validate actual native-window and physical audio interaction when
