@@ -43,8 +43,8 @@ scope, duplicates, story/task identity and rollback on conversation failure. A
 native browser/MCP fixture stages an area and capability through voice
 transcripts. A separate real Piper/Whisper synthetic-speech round trip produced
 “Select existing product area Inventory” and staged the intended area in a
-disposable native server. Physical microphone capture and clean image
-validation remain open.
+disposable native server. The full native Rust suite passed 366 tests with eight
+ignored. Physical microphone capture and clean image validation remain open.
 
 ### Current worktree deployment at `1215881`
 
