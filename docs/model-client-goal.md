@@ -31,9 +31,10 @@ A focused Rust test used two roots with identical contents to reject stale
 buffered, streaming and MCP requests, and checked a matching root passed the
 guard. A disposable native server and headless Chrome repeated the browser
 buffered and streaming checks after another process changed the path; an
-existing editor test also passed. The server guide now describes current
-unsaved-file, streaming and patch behavior. The full native suite, hosted
-checks and updated branch deployment remain pending at this checkpoint.
+existing editor test also passed. The full native Rust library suite passed
+348 tests with eight ignored. The server guide now describes current
+unsaved-file, streaming and patch behavior. Hosted checks and updated branch
+deployment remain pending at this checkpoint.
 
 ### Real-model delivery revalidation after URL update
 
