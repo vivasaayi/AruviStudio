@@ -5,6 +5,7 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 mode=${1:?Usage: test-host-browser-fixture.sh remote\|workflow\|ci}
 [[ $mode == remote || $mode == workflow || $mode == ci ]] || { printf '%s\n' 'Choose remote, workflow or ci.' >&2; exit 2; }
+shift
 [[ -x "$root/node_modules/.bin/playwright" ]] || { printf '%s\n' 'Install the project Node dependencies on the host first.' >&2; exit 1; }
 source "$root/scripts/test-fixture-env.sh"
 name="${project}-host-${mode}-app-$$"
@@ -61,7 +62,7 @@ PY
 if [[ $mode == remote ]]; then
   source "$root/scripts/test-remote-fixture-setup.sh"
   export ARUVI_TEST_INSPECT=1 ARUVI_TEST_REPOSITORY_PATH=/repositories/remote-fixture ARUVI_TEST_SECOND_REPOSITORY_PATH=/repositories/remote-fixture/second
-  "$root/node_modules/.bin/playwright" test -c playwright.remote.config.js remote.spec.js
+  "$root/node_modules/.bin/playwright" test -c playwright.remote.config.js remote.spec.js "$@"
   docker stop "$pdf" >/dev/null
   source "$root/scripts/test-remote-fixture-outage.sh"
 elif [[ $mode == workflow ]]; then
@@ -70,12 +71,12 @@ elif [[ $mode == workflow ]]; then
   source "$root/scripts/test-workflow-fixture-setup.sh"
   export ARUVI_TEST_WHISPER_MODE="$whisper_test_mode" ARUVI_ISOLATED_WORKFLOW=1
   export ARUVI_TEST_REPOSITORY_PATH=/repositories/workflow-test ARUVI_TEST_PUSH_REPOSITORY_PATH=/repositories/push-fixture
-  "$root/node_modules/.bin/playwright" test -c playwright.remote.config.js workflow.spec.js
+  "$root/node_modules/.bin/playwright" test -c playwright.remote.config.js workflow.spec.js "$@"
   source "$root/scripts/test-workflow-fixture-checks.sh"
 else
   source "$root/scripts/test-ci-fixture-setup.sh"
   docker run --rm -d --name "$ci_mock" --network none --user 0 \
     -v "$TEST_SOCKET_NAME:/ci" -v "$root/e2e-remote/mock-ci.mjs:/tmp/mock-ci.mjs:ro" \
     --entrypoint /usr/local/bin/node "$APP_IMAGE" /tmp/mock-ci.mjs >/dev/null
-  "$root/node_modules/.bin/playwright" test -c playwright.remote.config.js ci.spec.js
+  "$root/node_modules/.bin/playwright" test -c playwright.remote.config.js ci.spec.js "$@"
 fi

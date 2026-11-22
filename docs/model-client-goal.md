@@ -12,6 +12,20 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Workflow automation test timing correction
+
+Hosted ARM64 run `45007731706` failed an existing workflow-automation
+conflict test: Playwright's `check()` expected the checkbox to remain checked,
+but the expected HTTP 409 could arrive and revert it before `check()` returned.
+AMD64 passed the same test. The test now uses a click and still asserts the
+409 and reverted state. The host fixture runner forwards optional Playwright
+arguments for focused runs. Five sequential repetitions passed against the
+previous branch runtime, with PDF outage verification. An initial five-worker
+repeat had four failures because all workers shared and modified the same
+fixture setting; it did not represent independent test databases. The revised
+test has not yet passed a new clean-image matrix, and this does not validate
+the pending MCP patch changes.
+
 ### MCP reviewed-patch workspace guard in progress
 
 Desktop reviewed patches bind reads, previews and application to a captured

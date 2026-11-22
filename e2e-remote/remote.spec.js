@@ -1502,7 +1502,7 @@ test("browser edits workflow automation with conflict protection", async ({ page
   const mcp = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}`, Accept: "application/json, text/event-stream" }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_setting", arguments: { key: "workflow.auto_approve_plan", value: "true" } } } } });
   expect((await mcp.json()).result.isError).not.toBeTruthy();
   const conflict = page.waitForResponse((response) => response.url().endsWith(url) && response.request().method() === "POST");
-  await toggle.check();
+  await toggle.click();
   expect((await conflict).status()).toBe(409);
   await expect(toggle).not.toBeChecked();
   await page.getByRole("button", { name: "Refresh automation" }).click();
