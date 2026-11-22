@@ -23,8 +23,21 @@ five voice cases, including a simulated suspended context that resumes and a
 second whose resume is interrupted by navigation, and one that remains
 suspended. The test checks track and context cleanup and a late resume; manual transcription and continuous-voice
 regressions also passed. The native server was built with reduced debug output
-and only the `rlib` crate type. Linux candidate and deployed-branch checks are
-pending. This simulated input does not prove real-device capture.
+and only the `rlib` crate type. The regression check failed against the previous
+server because it never resumed the suspended context.
+
+The clean `1cd663b` ARM64 image build and both hosted test runs passed. Its
+archive checksum and source revision were verified; with limited disk the
+worktree deployment uses a derived image containing that verified server binary
+on the previous runtime, image ID
+`sha256:8fbc706205758ae35402aedd238ed798c57f7ce983d38ebf60101d5765fa5890`.
+It passed 58 isolated Linux workflow tests, 45 remote UI tests with one skipped,
+and the PDF outage check. Before restart, active jobs were checked, a SQLite
+backup passed `quick_check`, and the previous image was retained. Worktree
+acceptance verified the image ID, product, MCP, mobile authorization and PDF
+across restart; MCP origin checks, real-model coding, synthetic MCP speech,
+and manual and continuous browser voice with synthetic Piper audio and real
+Whisper passed. This does not prove real-device capture or staging readiness.
 
 The same native candidate also passed real Model Host coding, browser and MCP
 general Copilot, and a synthetic Piper/Whisper round trip. The first attempt to
