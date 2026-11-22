@@ -587,8 +587,10 @@ Using the locally available advisory database at revision `d1fe6ac3e`,
 `cargo-audit` reported no vulnerabilities or warnings for the independent
 consumer lockfile. The Studio lockfile reported one vulnerability,
 `RUSTSEC-2023-0071` for RSA, and 14 unmaintained and two unsound warnings.
-`cargo tree -i rsa` found no selected path for the current Studio configuration;
-that does not resolve the lockfile advisory or cover other feature selections.
+`cargo tree -i rsa` found no selected path for the current Studio configuration.
+A subsequent offline recheck with `--all-features --target all` also found no
+selected path for this manifest and toolchain. This does not resolve the
+lockfile advisory or prove other manifests and toolchains are unaffected.
 Release review of the warnings and locally patched SQLx remains open.
 
 ### Child task actions: branch validation
