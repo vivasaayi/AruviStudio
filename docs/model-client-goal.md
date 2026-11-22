@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Nested work-item creation parity in progress
+### Nested work-item creation parity: branch validation
 
 The shared backend and MCP allow a work item under an existing child, inheriting
 the parent's hierarchy scope, but the browser parent selector filtered out all
@@ -25,8 +25,43 @@ against a disposable native server and database with
 `bash scripts/test native-remote -g 'browser places work in hierarchy and under a parent'`.
 The new generic fixture requires a locally built `aruvi-studio-server` and
 Chrome; it creates its own temporary data and does not use the worktree database.
-The frontend suite passed 139 tests and the frontend build passed. Clean-image
-checks and deployment of this change are pending.
+The frontend suite passed 139 tests and the frontend build passed. Hosted test
+run `45015280853` passed 348 Rust tests (eight ignored), integration and UI
+checks. Clean-image run `45015280849` passed on ARM64 and AMD64, including 62
+workflow tests, 49 browser tests (one skipped), PDF isolation/outage and
+simulated CI. The browser suite created and checked the nested item on each.
+
+Docker's Linux filesystem had about 597 MiB free. Twelve explicitly identified
+unused Studio test-only images were removed after their build histories and lack
+of dependent containers were checked: `aruvi-planner-routing-test`,
+`aruvi-speech-select-test`, `aruvi-custom-speech-test`, `aruvi-model-routing-test`,
+`aruvi-client-test-local`, `aruvi-rand-all-features-local`,
+`aruvi-glib-scan-local`, `aruvi-rand-features-local`, `aruvi-advisory-tree-local`,
+`aruvi-voice-select-test-local`, `aruvi-rsa-tree-local` and `aruvi-voice-test-local`.
+Their test results were already recorded in this checkpoint file. Docker then had
+about 2.2 GiB free; the running branch, its immediately preceding rollback image,
+and persistent volumes were retained. This was not a machine-wide prune.
+
+The streamed ARM64 archive SHA-256 was
+`9cc85140b7bdaa3441e592c385067225f07b07c370d46b3380a54c754972077f`,
+its server layer was
+`26cc19ef8a7feb3fe61ea9fe8dce1fed0d2f9b858754b8a0cab2f102a45a6725`,
+and its server binary was
+`6ae3aa11cab2d844ba5576bee76b12e02d25777dc83c0dc3feecf7594387db7b`.
+That verified binary was added to the previous runtime, producing derived image
+`sha256:b888d6fc8fd436cb467b5ca89562ccd7f508a7bf1d82c98a041f8df6cdfe916f`.
+The binary hash and runtime configuration matched and separately packaged runtime
+inputs were unchanged. This is not a locally loaded full clean image. The local
+candidate passed the workflow, browser, PDF outage/isolation and simulated CI
+suites, a real Model Host quick start and stream cancellation, and simulated
+scoped-credential checks; the real host still uses a management-capable token.
+
+The active-job guard and verified database backup preceded the branch switch;
+the prior image remains tagged. Product, MCP, mobile authorization, PDF,
+13-section layout, published-port MCP origin, real coding, Piper/Whisper and
+synthetic-audio continuous voice passed after restart. Physical audio and native
+window behavior, live third-party providers, real Aruvici, integration and
+staging remain unverified; these checks do not establish full desktop parity.
 
 ### Stuck workflow recovery parity: branch validation
 

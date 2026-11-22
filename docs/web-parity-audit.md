@@ -151,6 +151,13 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+Browser work creation now lists child work items as possible parents, matching
+the backend and MCP's support for deeper nesting. A disposable native fixture
+and ARM64/AMD64 clean-image browser suites created a nested child and verified
+its inherited scope and MCP export. Parent labels mark child items but do not
+show full ancestry; paged results are not a stable snapshot. The goal checkpoint
+records the branch validation and remaining acceptance gaps.
+
 Work now offers the desktop's stuck-run recovery action. Browser, desktop and
 MCP record an operator failure and history atomically; the browser and MCP can
 reject a changed stage or status. Legacy partially recorded failures can be
