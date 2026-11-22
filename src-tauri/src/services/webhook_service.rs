@@ -9,7 +9,7 @@ pub use crate::services::webhook_bridge::{
     resolve_mcp_bridge_status, resolve_mobile_bridge_status, McpBridgeStatus, MobileBridgeStatus,
 };
 use crate::services::webhook_mobile_api::{
-    mobile_submit_bulk_import, mobile_bulk_import_jobs, mobile_bulk_import_status,
+    mobile_submit_bulk_import, mobile_bulk_import_jobs, mobile_bulk_import_status, mobile_stage_planner_catalog_node,
     mobile_update_repository,
     mobile_export_product_book, mobile_export_planner_review_packet, mobile_validate_planner_draft, mobile_planner_suggestions, mobile_planner_match_actions, mobile_analyze_planner_repository, mobile_clear_planner_turn, mobile_confirm_planner_turn, mobile_create_planner_session, mobile_create_product, mobile_edit_planner_draft,
     mobile_list_scoped_references, mobile_create_scoped_reference, mobile_delete_scoped_reference, mobile_get_model_call, mobile_get_product_tree, mobile_get_product_tree_summary, mobile_list_product_areas, mobile_create_hierarchy_node, mobile_update_hierarchy_node, mobile_delete_hierarchy_node, mobile_reorder_hierarchy, mobile_reset_product_plan,
@@ -524,6 +524,10 @@ pub(crate) fn build_webhook_router(app_state: AppState) -> Router {
         .route(
             "/api/mobile/planner/sessions/:session_id/analyze-repository",
             post(mobile_analyze_planner_repository),
+        )
+        .route(
+            "/api/mobile/planner/sessions/:session_id/catalog-node",
+            post(mobile_stage_planner_catalog_node),
         )
         .route(
             "/api/mobile/planner/sessions/:session_id/turn",

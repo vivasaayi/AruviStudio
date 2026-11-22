@@ -248,6 +248,7 @@ pub fn run() {
             commands::planner_commands::submit_planner_voice_turn_command,
             commands::planner_commands::confirm_planner_plan_command,
             commands::planner_commands::rename_planner_draft_node_command,
+            commands::planner_commands::stage_planner_catalog_node_command,
             commands::planner_commands::add_planner_draft_child_command,
             commands::planner_commands::delete_planner_draft_node_command,
             commands::planner_commands::analyze_repository_for_planner_command,

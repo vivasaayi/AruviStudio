@@ -569,7 +569,7 @@ test("planner requires an explicit scope when its selected product disappears", 
   await page.route("**/api/mobile/products", route => route.fulfill({json:[]}));
   await page.goto("/remote");
   await expect(page.locator("#plannerProductSelect")).toHaveValue("__choose__");
-  await expect(page.getByText("Proposed product areas and capabilities may be created as new nodes", {exact:false})).toBeVisible();
+  await expect(page.getByText("Selected hierarchy nodes are staged with snapshots", {exact:false})).toBeVisible();
   await page.locator("#composer").fill("Must stay scoped");
   await page.locator("#sendButton").click();
   await expect(page.locator("#status")).toContainText("Choose a planner product scope");
@@ -610,8 +610,7 @@ test("product and work actions prepare scoped planner requests without losing dr
     story = await mcp("aruvi_work_items", "create_story", {product_id:product.id,source_node_id:capability.id,source_node_type:"capability",title:"Planning story"});
     const turns=[];
     await page.addInitScript(() => localStorage.setItem("aruvi.remote.selected_node", "stale-draft-node"));
-    await page.route("**/api/mobile/planner/sessions", route => route.fulfill({json:{session_id:"fixture-session"}}));
-    await page.route("**/api/mobile/planner/sessions/*/turn", route => { turns.push(route.request().postDataJSON()); return route.fulfill({json:{session_id:"fixture-session",assistant_message:"Ready",draft_tree_nodes:[]}}); });
+    await page.route("**/api/mobile/planner/sessions/*/turn", route => { turns.push(route.request().postDataJSON()); return route.fulfill({json:{session_id:route.request().url().split("/").at(-2),assistant_message:"Ready",draft_tree_nodes:[]}}); });
     await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
     await page.locator("#composer").fill("Keep my unsent request");
     await page.getByRole("button",{name:"Products",exact:true}).click();
@@ -634,11 +633,13 @@ test("product and work actions prepare scoped planner requests without losing dr
     await page.getByRole("button",{name:"Plan children for Planning area",exact:true}).click();
     await expect(page.locator("#composer")).toHaveValue(/Planning area/);
     await expect(page.locator("#plannerProductSelect")).toHaveValue(product.id);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("aruvi.remote.selected_node"))).toBe(area.id);
     await page.getByRole("button",{name:"Products",exact:true}).click();
     await page.locator("#productTree summary").filter({hasText:"Planning capability"}).click();
     page.once("dialog", dialog => dialog.accept());
     await page.getByRole("button",{name:"Plan stories for Planning capability",exact:true}).click();
     await expect(page.locator("#composer")).toHaveValue(/Planning capability/);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("aruvi.remote.selected_node"))).toBe(capability.id);
     await page.getByRole("button",{name:"Work",exact:true}).click();
     await page.locator("#workProductSelect").selectOption(product.id);
     await page.locator("#workList .work-card").filter({hasText:"Planning story"}).click();
@@ -650,6 +651,55 @@ test("product and work actions prepare scoped planner requests without losing dr
     if (story) await mcp("aruvi_work_items", "delete_work_item", {id:story.id});
     await mcp("aruvi_catalog", "archive_product", {id:product.id});
   }
+});
+
+test("browser keeps a staged design when a catalog edit conflicts", async ({ page, request }) => {
+  test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
+  async function mcp(action, arguments_) {
+    const response=await request.post("/api/mcp",{headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"aruvi_catalog",arguments:{action,arguments:arguments_}}}});
+    const result=(await response.json()).result; expect(result.isError,JSON.stringify(result)).not.toBeTruthy(); return result.structuredContent.result;
+  }
+  const product=await mcp("create_product",{name:`Stale stage ${Date.now()}`});
+  try {
+    const area=await mcp("create_product_area",{product_id:product.id,name:"Stale area"});
+    const capability=await mcp("create_capability",{product_area_id:area.id,name:"Stale capability"});
+    await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+    await page.getByRole("button",{name:"Products",exact:true}).click(); await page.locator("#productList .product-card").filter({hasText:product.name}).click();
+    await page.getByRole("button",{name:"Load product tree"}).click();
+    await page.locator("#productTree summary").filter({hasText:"Stale area"}).click(); await page.locator("#productTree summary").filter({hasText:"Stale capability"}).click();
+    await page.getByRole("button",{name:"Improve Stale capability",exact:true}).click();
+    await expect(page.locator("#draftTree")).toContainText("Stale capability");
+    await mcp("update_capability",{id:capability.id,technical_notes:"Concurrent edit"});
+    await page.locator("#confirmButton").click();
+    await expect(page.locator("#status")).toContainText("staged capability changed");
+    await expect(page.locator("#draftTree")).toContainText("Stale capability");
+    await expect(page.locator("#composer")).toHaveValue(/Stale capability/);
+  } finally { await mcp("archive_product",{id:product.id}); }
+});
+
+test("late catalog staging does not replace a newer planner draft or navigation", async ({ page, request }) => {
+  test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
+  async function mcp(action, arguments_) {
+    const response=await request.post("/api/mcp",{headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"aruvi_catalog",arguments:{action,arguments:arguments_}}}});
+    const result=(await response.json()).result; expect(result.isError,JSON.stringify(result)).not.toBeTruthy(); return result.structuredContent.result;
+  }
+  const product=await mcp("create_product",{name:`Late stage ${Date.now()}`});
+  try {
+    await mcp("create_product_area",{product_id:product.id,name:"Late area"});
+    await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+    await page.getByRole("button",{name:"Products",exact:true}).click(); await page.locator("#productList .product-card").filter({hasText:product.name}).click();
+    await page.getByRole("button",{name:"Load product tree"}).click(); await page.locator("#productTree summary").filter({hasText:"Late area"}).click();
+    let release, notify; const held=new Promise(resolve => { notify=resolve; });
+    await page.route("**/api/mobile/planner/sessions/*/catalog-node", async route => { await new Promise(resolve => { release=resolve; notify(); }); await route.continue(); });
+    await page.getByRole("button",{name:"Improve Late area",exact:true}).click(); await held;
+    try {
+      await page.getByRole("button",{name:"Work",exact:true}).click();
+      await page.locator("#composer").evaluate(element => { element.value="A newer unsent request"; });
+    } finally { release(); }
+    await expect(page.locator("#status")).toContainText("Catalog node staged");
+    await expect(page.locator("#tab-work")).toHaveClass(/active/);
+    await expect(page.locator("#composer")).toHaveValue("A newer unsent request");
+  } finally { await mcp("archive_product",{id:product.id}); }
 });
 
 test("planner locks product and draft selection while a turn is pending", async ({ page }) => {
@@ -758,6 +808,42 @@ test("planner shows selected node evidence and honors server-cleared selection",
   await send("Continue");
   await expect.poll(() => requests.length).toBe(3);
   expect(requests[2].selected_draft_node_id).toBeNull();
+});
+
+test("MCP stages and updates an existing catalog node without duplicating it", async ({ request }) => {
+  test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
+  async function mcp(name, action, arguments_, expectError=false) {
+    const response=await request.post("/api/mcp",{headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:{action,arguments:arguments_}}}});
+    const result=(await response.json()).result; expect(Boolean(result.isError),JSON.stringify(result)).toBe(expectError); return result.structuredContent?.result;
+  }
+  const product=await mcp("aruvi_catalog","create_product",{name:`Bound fixture ${Date.now()}`});
+  try {
+    const area=await mcp("aruvi_catalog","create_product_area",{product_id:product.id,name:"Bound area"});
+    const capability=await mcp("aruvi_catalog","create_capability",{product_area_id:area.id,name:"Bound capability"});
+    const session=await mcp("aruvi_planner","create_planner_session",{});
+    const body={product_id:product.id,node_type:"capability",node_id:capability.id};
+    expect((await request.post(`/api/mobile/planner/sessions/${session.session_id}/catalog-node`,{data:body})).status()).toBe(401);
+    const wrong=await request.post(`/api/mobile/planner/sessions/${session.session_id}/catalog-node`,{headers:{Authorization:`Bearer ${token}`},data:{...body,node_id:"not-owned"}});
+    expect(wrong.status()).toBe(400);
+    const staged=await mcp("aruvi_planner","stage_catalog_node",{session_id:session.session_id,...body});
+    expect(staged.selected_draft_node_id).toBe(capability.id);
+    await mcp("aruvi_planner","rename_planner_draft_node",{session_id:session.session_id,node_id:capability.id,name:"Updated bound capability"});
+    const confirmed=await mcp("aruvi_planner","confirm_planner_plan",{session_id:session.session_id,product_id:product.id});
+    expect(confirmed.status,JSON.stringify(confirmed)).toBe("execution");
+    const tree=await (await request.get(`/api/mobile/products/${product.id}/tree`,{headers:{Authorization:`Bearer ${token}`}})).json();
+    expect(tree.product_areas).toHaveLength(1);
+    expect(tree.product_areas[0].features).toHaveLength(1);
+    expect(tree.product_areas[0].features[0].capability).toMatchObject({id:capability.id,name:"Updated bound capability"});
+    const staleSession=await mcp("aruvi_planner","create_planner_session",{});
+    await mcp("aruvi_planner","stage_catalog_node",{session_id:staleSession.session_id,...body});
+    await mcp("aruvi_planner","rename_planner_draft_node",{session_id:staleSession.session_id,node_id:capability.id,name:"Must not overwrite"});
+    await mcp("aruvi_catalog","update_capability",{id:capability.id,technical_notes:"Concurrent MCP edit"});
+    const conflict=await mcp("aruvi_planner","confirm_planner_plan",{session_id:staleSession.session_id,product_id:product.id});
+    expect(conflict.status).toBe("error"); expect(JSON.stringify(conflict)).toContain("staged capability changed");
+    const after=await (await request.get(`/api/mobile/products/${product.id}/tree`,{headers:{Authorization:`Bearer ${token}`}})).json();
+    expect(after.product_areas).toHaveLength(1); expect(after.product_areas[0].features).toHaveLength(1);
+    expect(after.product_areas[0].features[0].capability).toMatchObject({id:capability.id,name:"Updated bound capability",technical_notes:"Concurrent MCP edit"});
+  } finally { await mcp("aruvi_catalog","archive_product",{id:product.id}); }
 });
 
 test("browser and MCP reject switching a staged planner draft to another product", async ({ page, request }) => {

@@ -3,6 +3,73 @@ use crate::persistence::{product_repo, work_item_repo};
 use serde_json::json;
 
 #[tokio::test]
+async fn staging_catalog_node_preserves_draft_and_commits_existing_records() {
+    use crate::services::planner_catalog_binding::stage_catalog_node;
+    use crate::services::planner_draft_commands::rename_planner_draft_node;
+    use crate::services::planner_session::load_session_from_db;
+    use crate::services::planner_text_turn::submit_planner_turn;
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("stage_existing_catalog").await;
+    let product = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"stage-product", name:"Staging product", description:"", vision:"A vision", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let other = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"stage-other", name:"Other product", description:"", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let other_area = product_repo::create_product_area(&state.db, product_repo::CreateProductAreaInput { id:"stage-other-area", product_id:&other.id, name:"Other area", description:"", purpose:"", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let area = product_repo::create_product_area(&state.db, product_repo::CreateProductAreaInput { id:"stage-area", product_id:&product.id, name:"Catalog area", description:"Area description", purpose:"Purpose", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let capability = product_repo::create_capability(&state.db, product_repo::CreateCapabilityInput { id:"stage-capability", product_area_id:&area.id, parent_capability_id:None, name:"Catalog capability", description:"Capability description", acceptance_criteria:"Criteria", priority:"medium", risk:"low", technical_notes:"Notes", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let feature = product_repo::create_capability(&state.db, product_repo::CreateCapabilityInput { id:"stage-feature", product_area_id:&area.id, parent_capability_id:Some(&capability.id), name:"Catalog feature", description:"Feature description", acceptance_criteria:"", priority:"medium", risk:"low", technical_notes:"", node_kind:Some("feature"), explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let changed_session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let mut changed = crate::services::planner_turn_policy::seed_draft_with_product(None, &product);
+    changed.nodes[0].details["roadmap"] = json!("Unbound staged roadmap");
+    persist_draft_state(&state.db, &changed_session.session_id, Some(&changed), Some(&product.id)).await.unwrap();
+    let error = stage_catalog_node(state.planner_service.clone(), &state.db, changed_session.session_id.clone(), product.id.clone(), "capability".into(), capability.id.clone()).await.unwrap_err();
+    assert!(error.to_string().contains("unbound changes"));
+    let saved = load_session_from_db(&state.db, &changed_session.session_id).await.unwrap();
+    assert_eq!(serde_json::to_value(saved.draft_plan).unwrap(), serde_json::to_value(Some(changed)).unwrap());
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let stage = || stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "capability".into(), capability.id.clone());
+    let staged = stage().await.unwrap();
+    assert_eq!(staged.selected_draft_node_id.as_deref(), Some(capability.id.as_str()));
+    let loaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(loaded.draft_plan.as_ref().unwrap().nodes.len(), 3);
+    let nested = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "feature".into(), feature.id.clone()).await.unwrap();
+    assert_eq!(nested.selected_draft_node_id.as_deref(), Some(feature.id.as_str()));
+    let loaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(loaded.draft_plan.as_ref().unwrap().nodes.len(), 4);
+    rename_planner_draft_node(state.planner_service.clone(), &state.db, session.session_id.clone(), capability.id.clone(), "Edited capability".into()).await.unwrap();
+    stage().await.unwrap();
+    let before = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert!(before.draft_plan.as_ref().unwrap().nodes.iter().any(|node| node.name == "Edited capability"));
+    let actions = normalize_actions(vec![json!({"type":"update_capability", "target":{"productName":"Staging product", "productAreaName":"Catalog area", "capabilityName":"Edited capability"}, "fields":{"technicalNotes":"Planned update"}})]);
+    let planned = apply_actions_to_draft(before.draft_plan.clone(), Some(&capability.id), &actions).unwrap();
+    persist_draft_state(&state.db, &session.session_id, Some(&planned), Some(&capability.id)).await.unwrap();
+    let before = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    let cross = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), other.id.clone(), "product_area".into(), area.id.clone()).await.unwrap_err();
+    assert!(cross.to_string().contains("draft belongs to another"));
+    let error = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "capability".into(), "not-owned".into()).await.unwrap_err();
+    assert!(error.to_string().contains("not found in the selected product"));
+    let cross_area = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "product_area".into(), other_area.id.clone()).await.unwrap_err();
+    assert!(cross_area.to_string().contains("not found in the selected product"));
+    sqlx::query("UPDATE capabilities SET parent_capability_id=id WHERE id=?").bind(&capability.id).execute(&state.db).await.unwrap();
+    assert!(stage().await.unwrap_err().to_string().contains("cyclic"));
+    sqlx::query("UPDATE capabilities SET parent_capability_id=NULL WHERE id=?").bind(&capability.id).execute(&state.db).await.unwrap();
+    sqlx::query("UPDATE product_areas SET purpose='Concurrent change' WHERE id=?").bind(&area.id).execute(&state.db).await.unwrap();
+    assert!(stage().await.is_err());
+    let after = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(serde_json::to_value(&after.draft_plan).unwrap(), serde_json::to_value(&before.draft_plan).unwrap());
+    assert_eq!(after.selected_draft_node_id, before.selected_draft_node_id);
+    sqlx::query("UPDATE product_areas SET purpose='Purpose' WHERE id=?").bind(&area.id).execute(&state.db).await.unwrap();
+    let committed = submit_planner_turn(state.planner_service.clone(), &state, session.session_id.clone(), "confirm".into(), None, Some(product.id.clone())).await.unwrap();
+    assert_eq!(committed.status, "execution");
+    assert_eq!(product_repo::get_product(&state.db, &product.id).await.unwrap().description, "");
+    let areas = product_repo::list_product_areas(&state.db, &product.id).await.unwrap();
+    assert_eq!(areas.len(), 1); assert_eq!(areas[0].id, area.id);
+    let capabilities = product_repo::list_capabilities(&state.db, &area.id).await.unwrap();
+    assert_eq!(capabilities.len(), 2);
+    let updated = capabilities.iter().find(|item| item.id == capability.id).unwrap();
+    assert_eq!(updated.name, "Edited capability"); assert_eq!(updated.technical_notes, "Planned update");
+    assert!(capabilities.iter().any(|item| item.id == feature.id && item.parent_capability_id.as_deref() == Some(capability.id.as_str())));
+}
+
+#[tokio::test]
 async fn bound_catalog_nodes_update_in_place_and_rollback_on_conflicts() {
     use crate::services::planner_turn_policy::seed_draft_with_product;
     use crate::services::planner_types::PlannerDraftNode;

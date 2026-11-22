@@ -137,6 +137,15 @@ pub async fn confirm_planner_plan_command(
 }
 
 #[tauri::command]
+pub async fn stage_planner_catalog_node_command(
+    state: State<'_, AppState>, session_id: String, product_id: String, node_type: String, node_id: String,
+) -> Result<PlannerTurnResponse, AppError> {
+    crate::services::planner_catalog_binding::stage_catalog_node(
+        state.planner_service.clone(), &state.db, session_id, product_id, node_type, node_id,
+    ).await
+}
+
+#[tauri::command]
 pub async fn rename_planner_draft_node_command(
     state: State<'_, AppState>,
     session_id: Option<String>,

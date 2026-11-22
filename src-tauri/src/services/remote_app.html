@@ -485,7 +485,7 @@
                 <div class="button-row"><button class="secondary" id="refreshPlannerRepositoriesButton" type="button">Load workspaces</button><button class="secondary" id="analyzePlannerRepositoryButton" type="button">Analyze workspace</button></div>
                 <div class="empty" id="plannerRepositoryStatus">Analysis sends file paths, README excerpts, manifest summaries, and the selected product draft to the configured planner model.</div>
                 <div class="empty" id="plannerProductStatus">Save a connection token to load products.</div>
-                <div class="empty">Review the staged design before confirming. Proposed product areas and capabilities may be created as new nodes; they are not automatically linked to existing catalog nodes.</div>
+                <div class="empty">Review the staged design before confirming. Selected hierarchy nodes are staged with snapshots; other proposed areas, capabilities, and work items may be created as new records.</div>
                 <div class="conversation" id="conversation"></div>
                 <div class="composer">
                   <textarea id="composer" placeholder="Tell the planner what to change"></textarea>
@@ -2786,6 +2786,11 @@
           }
         });
         applyPlannerResponse(response, config.target);
+        if (response.status === "error") {
+          if (mode === "planner" && !config.box.value) config.box.value = prompt;
+          setStatus(response.assistant_message || "Planner request failed", "error");
+          return;
+        }
         if (plannerVoice) {
           appendMessage(el.conversation, "user", prompt);
           appendMessage(el.conversation, "assistant", response.assistant_message || "");
@@ -2834,6 +2839,10 @@
           method: "POST", body: { product_id: el.plannerProductSelect.value || null }
         });
         applyPlannerResponse(response, el.conversation);
+        if (response.status === "error") {
+          setStatus(response.assistant_message || "Planner confirmation failed", "error");
+          return;
+        }
         if (!response.draft_tree_nodes) {
           state.draftTreeNodes = [];
           state.selectedNodeId = "";
@@ -3282,13 +3291,29 @@
       more.addEventListener("click", load); return section;
     }
 
-    function appendPlannerAction(parent, label, productId, prompt) {
+    function appendPlannerAction(parent, label, productId, prompt, catalogNode = null) {
       const button = document.createElement("button");
       button.type = "button"; button.className = "secondary"; button.textContent = label;
-      button.addEventListener("click", () => {
+      button.addEventListener("click", async () => {
         if (state.busy || state.selectedProductId !== productId) return;
         if (el.composer.value.trim() && !confirm("Replace the unsent Planner draft with this prepared request?")) return;
-        state.selectedNodeId = ""; localStorage.removeItem(storageKeys.selectedNode); renderDraftTree();
+        const originalDraft = el.composer.value, originalTab = state.activeTab;
+        if (catalogNode) {
+          try {
+            setBusy(true);
+            const sessionId = await ensureSession();
+            const response = await request("/api/mobile/planner/sessions/" + encodeURIComponent(sessionId) + "/catalog-node", {
+              method:"POST", body:{product_id:productId, node_type:catalogNode.node_kind === "product_area" ? "product_area" : "capability", node_id:catalogNode.id}
+            });
+            applyPlannerResponse(response, el.conversation);
+            if (state.selectedProductId !== productId || state.activeTab !== originalTab || el.composer.value !== originalDraft) {
+              setStatus("Catalog node staged; open Planner to review it.", "warn"); return;
+            }
+          } catch (error) { setStatus(error.message || String(error), "error"); return; }
+          finally { setBusy(false); }
+        } else {
+          state.selectedNodeId = ""; localStorage.removeItem(storageKeys.selectedNode); renderDraftTree();
+        }
         el.composer.value = prompt;
         switchTab("planner");
       });
@@ -3362,11 +3387,11 @@
             const improve = area
               ? `Enhance ${scope} in product "${product.name}". Add or revise child capabilities, features, stories, and tasks so this branch is execution-ready.`
               : `Enhance ${scope} in product "${product.name}". Improve its description, acceptance criteria, technical notes, and missing child structure.`;
-            appendPlannerAction(actions, "Improve " + item.name, productId, improve);
+            appendPlannerAction(actions, "Improve " + item.name, productId, improve, item);
             appendPlannerAction(actions, "Plan children for " + item.name, productId, area
               ? `Add child capabilities under ${scope} in product "${product.name}". Include concise descriptions, acceptance criteria, and starter stories where helpful.`
-              : `Add child nodes under "${item.name}" in product "${product.name}". Stage concrete features with clear descriptions and acceptance criteria.`);
-            if (!area) appendPlannerAction(actions, "Plan stories for " + item.name, productId, `Add delivery stories and tasks under "${item.name}" in product "${product.name}". Make each story specific, testable, and scoped to this branch.`);
+              : `Add child nodes under "${item.name}" in product "${product.name}". Stage concrete features with clear descriptions and acceptance criteria.`, item);
+            if (!area) appendPlannerAction(actions, "Plan stories for " + item.name, productId, `Add delivery stories and tasks under "${item.name}" in product "${product.name}". Make each story specific, testable, and scoped to this branch.`, item);
             details.appendChild(actions);
           }
           const index = siblingIds.indexOf(item.id);

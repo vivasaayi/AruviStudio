@@ -172,18 +172,14 @@ stories. Browser product, tree and work views now prepare corresponding requests
 with the product selected, and ask before replacing an unsent Planner draft.
 They clear the unrelated selected Planner draft node; the hierarchy context is
 included in the prompt. An unavailable product requires an explicit new scope.
-The Planner turn currently receives a product ID and an optional *draft* node
-ID, not the selected catalog area, capability or work-item ID. Consequently the
-new shortcuts identify those catalog items by name in prompt text; duplicate
-names or a model's interpretation can still target the wrong context. Preserving
-and validating catalog identity through the server and confirmation is an open
-parity and correctness item; review staged actions before confirming.
-The current draft commit implementation creates product areas and capabilities
-from staged nodes; it does not bind those nodes to existing catalog IDs. A
-prepared request to improve an existing branch therefore does not establish an
-in-place update, and a proposed create can duplicate an existing node. The
-shortcut's draft must be reviewed as a proposed change; linking and guarded
-updates of existing nodes remain open.
+Browser hierarchy shortcuts now stage the selected area or capability by its
+catalog ID and snapshot before preparing a prompt. MCP and a desktop command
+can stage the same context. Confirming a bound design updates those nodes in
+place and rejects stale snapshots; unbound proposed nodes are still created.
+Existing work-item shortcuts remain name-based, as do the current desktop
+product-overview shortcuts. Real-model and native-window validation of the
+new flow remain open. The goal checkpoint records current test and deployment
+evidence.
 See the goal checkpoint for validation and deployment status. Planner behavior
 with real models and native-window comparison still require broader acceptance.
 

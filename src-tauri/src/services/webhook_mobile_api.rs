@@ -1884,6 +1884,26 @@ pub(crate) struct MobilePlannerTurnRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub(crate) struct MobilePlannerCatalogNodeRequest {
+    product_id: String,
+    node_type: String,
+    node_id: String,
+}
+
+pub(crate) async fn mobile_stage_planner_catalog_node(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(session_id): Path<String>,
+    Json(body): Json<MobilePlannerCatalogNodeRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::planner_catalog_binding::stage_catalog_node(
+        state.app_state.planner_service.clone(), &state.app_state.db, session_id, body.product_id, body.node_type, body.node_id,
+    ).await {
+        Ok(response) => Json(response).into_response(),
+        Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
+    }
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MobilePlannerConfirmRequest {
     #[serde(alias = "productId")]

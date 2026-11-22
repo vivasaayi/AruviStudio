@@ -18,6 +18,16 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "stage_catalog_node" => action_result(
+            "stage_catalog_node",
+            crate::services::planner_catalog_binding::stage_catalog_node(
+                state.planner_service.clone(), &state.db,
+                args.required_string(&["session_id", "sessionId"], "session_id")?,
+                args.required_string(&["product_id", "productId"], "product_id")?,
+                args.required_string(&["node_type", "nodeType"], "node_type")?,
+                args.required_string(&["node_id", "nodeId"], "node_id")?,
+            ).await?,
+        ),
         "match_planner_actions" => {
             let node: Option<crate::services::planner_suggestions::SuggestionNode> = args.optional_deserialize(&["node"], "node")?;
             let actions: Vec<Value> = args.required_deserialize(&["actions"], "actions")?;

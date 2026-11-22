@@ -1580,9 +1580,11 @@
 
   const invokeCalls = [];
   let productExportFailure = false;
+  let plannerConfirmFailure = false;
 
   window.__ARUVI_E2E__ = {
     setProductExportFailure(enabled) { productExportFailure = enabled; },
+    setPlannerConfirmFailure(enabled) { plannerConfirmFailure = enabled; },
     clearInvokeCalls() {
       invokeCalls.length = 0;
     },
@@ -1902,6 +1904,7 @@
         case "submit_planner_voice_turn_command":
           return ok(submitPlannerVoiceTurn(args || {}));
         case "confirm_planner_plan_command":
+          if (plannerConfirmFailure) return ok({status:"error",assistant_message:"Catalog node changed; review the draft",execution_lines:[],execution_errors:["Catalog node changed; review the draft"],trace_events:[]});
           return ok(confirmPlannerPlan(args || {}));
         case "rename_planner_draft_node_command":
           return ok(renamePlannerDraftNode(args || {}));

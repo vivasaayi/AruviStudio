@@ -66,6 +66,20 @@ test("planner supports deterministic create, refine, packet, and apply flow", as
   await expect(page.getByRole("heading", { name: "Products" })).toBeVisible();
 });
 
+test("planner retains its draft when a catalog conflict prevents confirmation", async ({ page }) => {
+  await page.goto("/");
+  await page.getByLabel("Planner product").selectOption("example-product-calculator");
+  await page.getByTestId("planner-input").fill("Design input and history product areas");
+  await page.getByTestId("planner-send").click();
+  await page.getByTestId("planner-view-draft").click();
+  await expect(page.getByTestId("draft-node-draft-product-calculator")).toBeVisible();
+  await page.evaluate(() => window.__ARUVI_E2E__.setPlannerConfirmFailure(true));
+  await page.getByTestId("draft-commit").click();
+  await expect(page.getByText(/Catalog node changed; review the draft/).first()).toBeVisible();
+  await page.getByTestId("planner-view-draft").click();
+  await expect(page.getByTestId("draft-node-draft-product-calculator")).toBeVisible();
+});
+
 test("planner can reverse engineer a registered repository into a design tree", async ({ page }) => {
   await page.goto("/");
 

@@ -118,6 +118,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
             "Drive planner sessions, draft trees, repository analysis, and plan confirmation.",
             &[
                 "create_planner_session",
+                "stage_catalog_node",
                 "update_planner_session",
                 "clear_planner_pending",
                 "validate_planner_draft",

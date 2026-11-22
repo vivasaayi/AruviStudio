@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Bound Planner catalog updates (foundation in validation)
+### Bound Planner catalog updates (in validation)
 
 The shared draft-commit path can now recognize server-format product, area and
 capability snapshot bindings and update the bound area or capability in place.
@@ -25,10 +25,22 @@ product, area and capability snapshots, including transaction rollback.
 The native Rust library suite passed 357 tests with eight ignored; the latest
 focused test also covered unsupported binding kinds and a JSON round trip.
 
-This is a foundation only: there is not yet a server operation to stage catalog
-bindings or a web, desktop, voice or MCP flow that supplies them. The existing
-Planner shortcut remains name-based and must be reviewed. Do not claim
-selected-catalog parity until those flows and real-model behavior are verified.
+The server can now stage a product area, capability or feature by product and
+node ID, including its ancestor chain, under a session lock and database write
+transaction. It preserves existing staged changes and refuses conflicting or
+stale nodes. Browser hierarchy Planner actions use this operation; MCP exposes
+`aruvi_planner` / `stage_catalog_node`, and a desktop command is available.
+Focused tests cover in-place MCP updates, concurrent conflicts, browser draft
+preservation and navigation races; the desktop confirmation UI retains a draft
+after a conflict. A full native browser run passed 56 tests with five fixture
+skips; the frontend build and 139 unit tests passed. The Rust suite passed 358
+tests with eight ignored, followed by a focused recheck of bounded ancestry,
+cross-product and unbound-draft handling. Worktree validation is pending.
+
+The desktop product-overview shortcuts and voice flow do not yet stage these
+bindings, and selected existing work items remain name-based. New unbound
+hierarchy proposals still create nodes. Real-model behavior and the full client
+matrix remain unverified; do not claim complete selected-catalog parity.
 
 ### Scoped Planner action targets (in validation)
 
@@ -58,7 +70,8 @@ does not yet bind existing product areas or capabilities to draft nodes.
 The native Planner turn regression group passed 23 tests; the full Rust library
 suite passed 355 tests with eight ignored.
 
-Remaining selected-catalog migration work:
+Selected-catalog migration work, with newer implementation evidence at the top
+of this file:
 
 1. Define a server-owned catalog context containing product and node IDs, node
    kind and ancestry. Validate ownership and reject missing or changed targets;
@@ -115,19 +128,19 @@ Rust regression and worktree deployment remain pending.
 
 ### Contextual Planner actions (in validation)
 
-Browser Products, hierarchy nodes and selected work now prepare the desktop's
-contextual improvement and child/story planning requests. They select the
-product, clear an unrelated selected Planner draft node, do not send a request
-automatically, and ask before replacing unsent text. A missing selected product
+Browser Products, hierarchy nodes and selected work prepare contextual
+improvement and child/story planning requests. Hierarchy actions now stage the
+selected catalog node and its ancestors; other shortcuts clear an unrelated
+selected Planner draft node. They do not send a request automatically and ask
+before replacing unsent text. A missing selected product
 requires an explicit scope rather than silently becoming unscoped. A disposable
 browser/MCP fixture covers product, area, capability and work actions, declined
 replacement and the outgoing scoped turn. The native server build and targeted
 tests passed. The configured native browser suite passed 51 tests with five
 fixture-dependent skips. Worktree deployment is pending; this does not prove
-real-model or native-window parity. These shortcuts currently identify catalog
-nodes and work items by prompt text rather than a validated catalog ID in the
-Planner turn. Duplicate names and model interpretation remain a correctness gap;
-do not treat the shortcuts as complete selected-context parity.
+real-model or native-window parity. Selected existing work items are still
+identified by prompt text rather than a validated catalog ID. Do not treat the
+shortcuts as complete selected-context parity.
 
 ### Product hierarchy to work navigation
 
