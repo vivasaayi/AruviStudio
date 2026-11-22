@@ -243,7 +243,8 @@ mod tests {
         let fixture_path = std::env::var("ARUVI_EPUB_FIXTURE_PATH").expect("fixture path required");
         let output_path = std::env::var("ARUVI_EPUB_TEST_OUTPUT").expect("output path required");
         let fixture: Fixture = serde_json::from_slice(&std::fs::read(fixture_path).unwrap()).unwrap();
-        let bytes = render_epub_archive(&fixture.title, &fixture.html, &fixture.toc_items, &fixture.author, &fixture.language).unwrap();
+        let (html, images) = crate::services::product_book_images::prepare_book_images(&fixture.html, crate::services::product_book_images::ImageTarget::Epub).unwrap();
+        let bytes = render_epub_archive_with_images(&fixture.title, &html, &fixture.toc_items, &fixture.author, &fixture.language, &images).unwrap();
         std::fs::write(output_path, bytes).unwrap();
     }
 

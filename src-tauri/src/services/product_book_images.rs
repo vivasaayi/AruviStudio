@@ -53,6 +53,7 @@ pub fn prepare_book_images(html: &str, target: ImageTarget) -> Result<(String, V
             limits.max_image_width = Some(2048);
             limits.max_image_height = Some(2048);
             limits.max_alloc = Some(32 * 1024 * 1024);
+            if format == ImageFormat::Gif { validate_static_gif(&bytes, limits.clone())?; }
             reader.limits(limits);
             reader.decode().map_err(|_| AppError::Validation("Product Book image is corrupt or exceeds the 2048-pixel limit".into()))?;
             let hash = digest.iter().map(|b| format!("{b:02x}")).collect::<String>();
@@ -75,6 +76,20 @@ pub fn prepare_book_images(html: &str, target: ImageTarget) -> Result<(String, V
     Ok((output, images))
 }
 
+fn validate_static_gif(bytes: &[u8], limits: Limits) -> Result<(), AppError> {
+    use image::{AnimationDecoder, ImageDecoder};
+    let invalid = || AppError::Validation("Product Book GIF is corrupt or exceeds the 2048-pixel limit".into());
+    let mut decoder = image::codecs::gif::GifDecoder::new(Cursor::new(bytes)).map_err(|_| invalid())?;
+    decoder.set_limits(limits).map_err(|_| invalid())?;
+    let mut frames = decoder.into_frames();
+    frames.next().ok_or_else(invalid)?.map_err(|_| invalid())?;
+    match frames.next() {
+        None => Ok(()),
+        Some(Err(_)) => Err(invalid()),
+        Some(Ok(_)) => Err(AppError::Validation("Animated GIF images are not yet supported in Product Book exports".into())),
+    }
+}
+
 fn is_animated_png(bytes: &[u8]) -> bool {
     let mut offset = 8_usize;
     while offset.saturating_add(12) <= bytes.len() {
@@ -88,10 +103,11 @@ fn is_animated_png(bytes: &[u8]) -> bool {
 }
 
 fn parse_source(source: &str) -> Result<(&'static str, ImageFormat, &'static str, &str), AppError> {
-    let (header, encoded) = source.split_once(',').ok_or_else(|| AppError::Validation("Only embedded PNG and JPEG images are currently supported in Product Book exports".into()))?;
+    let (header, encoded) = source.split_once(',').ok_or_else(|| AppError::Validation("Only embedded PNG, JPEG and static GIF images are currently supported in Product Book exports".into()))?;
     if header.eq_ignore_ascii_case("data:image/png;base64") { Ok(("image/png", ImageFormat::Png, "png", encoded)) }
     else if header.eq_ignore_ascii_case("data:image/jpeg;base64") { Ok(("image/jpeg", ImageFormat::Jpeg, "jpg", encoded)) }
-    else { Err(AppError::Validation("Only embedded PNG and JPEG images are currently supported in Product Book exports".into())) }
+    else if header.eq_ignore_ascii_case("data:image/gif;base64") { Ok(("image/gif", ImageFormat::Gif, "gif", encoded)) }
+    else { Err(AppError::Validation("Only embedded PNG, JPEG and static GIF images are currently supported in Product Book exports".into())) }
 }
 
 #[cfg(test)]
@@ -102,7 +118,7 @@ mod tests {
     fn fixture(format: ImageFormat, width: u32) -> String {
         let mut output = Cursor::new(Vec::new());
         image::DynamicImage::new_rgb8(width, 2).write_to(&mut output, format).unwrap();
-        let mime = if format == ImageFormat::Png { "image/png" } else { "image/jpeg" };
+        let mime = match format { ImageFormat::Png => "image/png", ImageFormat::Gif => "image/gif", _ => "image/jpeg" };
         format!("data:{mime};base64,{}", STANDARD.encode(output.into_inner()))
     }
 
@@ -110,9 +126,10 @@ mod tests {
     fn embedded_images_are_validated_deduplicated_and_packaged() {
         let png = fixture(ImageFormat::Png, 2);
         let jpeg = fixture(ImageFormat::Jpeg, 2);
-        let html = format!("<html><head></head><body><img src=\"{png}\" /><img src=\"{png}\" /><img src=\"{jpeg}\" /></body></html>");
+        let gif = fixture(ImageFormat::Gif, 2);
+        let html = format!("<html><head></head><body><img src=\"{png}\" /><img src=\"{png}\" /><img src=\"{jpeg}\" /><img src=\"{gif}\" /></body></html>");
         let (epub_html, images) = prepare_book_images(&html, ImageTarget::Epub).unwrap();
-        assert_eq!(images.len(), 2);
+        assert_eq!(images.len(), 3);
         assert_eq!(epub_html.matches(&images[0].filename).count(), 2);
         assert!(!epub_html.contains("data:image"));
         let archive = crate::services::product_book_epub::render_epub_archive_with_images("Book", &epub_html, &[], "Author", "en", &images).unwrap();
@@ -129,6 +146,9 @@ mod tests {
         let (pdf_html, _) = prepare_book_images(&html, ImageTarget::Pdf).unwrap();
         assert!(pdf_html.contains(&png));
         assert!(pdf_html.contains(&jpeg));
+        assert!(pdf_html.contains(&gif));
+        let small_gif = "<img src=\"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7\" />";
+        assert!(prepare_book_images(small_gif, ImageTarget::Epub).is_ok());
     }
 
     #[test]
@@ -147,5 +167,34 @@ mod tests {
         assert!(is_animated_png(&animated));
         let animated_source = format!("<img src=\"data:image/png;base64,{}\" />", STANDARD.encode(animated));
         assert!(prepare_book_images(&animated_source, ImageTarget::Epub).is_err());
+        let mut animated_gif = Cursor::new(Vec::new());
+        {
+            let mut encoder = image::codecs::gif::GifEncoder::new(&mut animated_gif);
+            let first = image::Frame::new(image::RgbaImage::new(2, 2));
+            let second = image::Frame::new(image::RgbaImage::new(2, 2));
+            encoder.encode_frames([first, second]).unwrap();
+        }
+        let animated_source = format!("<img src=\"data:image/gif;base64,{}\" />", STANDARD.encode(animated_gif.into_inner()));
+        let short_animation = "<img src=\"data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAAsAAAAAAEAAQAAAgFEADs=\" />";
+        for target in [ImageTarget::Epub, ImageTarget::Pdf] {
+            assert!(prepare_book_images(&animated_source, target).err().unwrap().to_string().contains("Animated GIF"));
+            assert!(prepare_book_images(short_animation, target).err().unwrap().to_string().contains("Animated GIF"));
+            let too_wide = format!("<img src=\"{}\" />", fixture(ImageFormat::Gif, 2049));
+            assert!(prepare_book_images(&too_wide, target).is_err());
+            let broken = "<img src=\"data:image/gif;base64,R0lGODlh\" />";
+            assert!(prepare_book_images(broken, target).is_err());
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a configured Chromium and Playwright installation"]
+    async fn static_gif_renders_in_pdf_worker() {
+        let gif = fixture(ImageFormat::Gif, 2);
+        let html = format!("<html><head><style>body {{ background: white }}</style></head><body><p>Static GIF fixture</p><img src=\"{gif}\" alt=\"Black square\" width=\"200\" height=\"200\" /></body></html>");
+        let (prepared, _) = prepare_book_images(&html, ImageTarget::Pdf).unwrap();
+        let trim = serde_json::json!({"pageWidth":"6in","pageHeight":"9in","marginTop":"0.75in","marginRight":"0.72in","marginBottom":"0.85in","marginLeft":"0.82in","label":"Trade"});
+        let pdf = crate::services::product_book_pdf::render_pdf(&prepared, "GIF fixture", &trim).await.unwrap();
+        assert!(pdf.starts_with(b"%PDF-"));
+        if let Some(path) = std::env::var_os("ARUVI_GIF_TEST_PDF_OUTPUT") { std::fs::write(path, pdf).unwrap(); }
     }
 }

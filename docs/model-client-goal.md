@@ -12,7 +12,27 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Saved binary workspace downloads (local validation)
+### Static GIF Product Book images (local validation)
+
+The shared Product Book image pipeline accepts embedded static GIFs in EPUB
+and PDF alongside PNG and JPEG. It validates the actual format, applies the
+existing dimension and best-effort allocation limits, rejects animated or malformed
+GIFs, deduplicates identical images, and applies existing per-image, total-byte
+and reference-count limits. Desktop exports and browser/MCP artifact creation
+share this pipeline. Rust tests cover static GIF EPUB packaging and PDF input,
+animation, corruption, and excessive dimensions. The full native Rust library
+suite passed 339 tests with eight ignored; the new GIF PDF test was run separately.
+A desktop-rendered EPUB fixture with
+an inserted static GIF passed EPUBCheck 5.4.0 with no errors or warnings, and a
+native PDF worker rendered a static GIF; the rasterized first page was inspected.
+The browser/MCP export fixture now includes a GIF, but Linux container validation
+is pending. A RustSec scan against the existing 2026-11-21 advisory database
+reported the same RSA advisory and maintenance/soundness warnings as the prior
+lockfile; this is not a fresh advisory-database scan. Remote URLs,
+repository-relative resources and animated PNG/GIF remain unsupported. The
+running branch image predates this change.
+
+### Saved binary workspace downloads
 
 Browser workspace trees can download saved binary or text files up to 8 MiB,
 and MCP exposes both the action and first-class operation. The open-buffer

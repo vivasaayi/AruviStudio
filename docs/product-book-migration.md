@@ -77,15 +77,20 @@ limitations and validation items below are not complete.
   browser and `aruvi_catalog.export_product_book`; MCP returns a filename, media
   type and base64 bytes. Artifacts over 24 MiB fail explicitly; PDF source is
   limited to 12 MiB and PDF rendering to 60 seconds. EPUB and PDF can include
-  embedded PNG and JPEG data images, subject to count, dimension and byte
+  embedded PNG, JPEG and static GIF data images, subject to count, dimension and byte
   limits (32 references, 4 MiB per image, 12 MiB total unique image data, and
-  2048 pixels per dimension). Repository-relative paths, remote URLs, animated
-  PNG and other image types fail explicitly; safe scope-aware resolution and
+  2048 pixels per dimension). GIF is a core [EPUB 3 media type](https://www.w3.org/TR/epub-33/#sec-core-media-types).
+  Repository-relative paths, remote URLs, animated PNG/GIF and other image types
+  fail explicitly; safe scope-aware resolution and
   broader format support remain open. HTML may reference external resources.
-  The real browser/MCP fixture includes PNG, JPEG and a duplicate PNG; the
+  The existing browser/MCP fixture includes PNG, JPEG and a duplicate PNG; the
   captured EPUB passed EPUBCheck 5.4.0 and the captured PDF contained both
   image types, with its first page visually inspected. The EPUB writer used by
-  desktop shares the same image packaging code.
+  desktop shares the same image packaging code. Static GIF packaging and
+  animated-GIF rejection have local Rust coverage; a desktop-rendered fixture
+  with an inserted GIF passed EPUBCheck, and a native PDF worker rendered a
+  GIF that was visually inspected. Updated Linux browser/MCP validation remains
+  pending until a candidate is built.
   The export action accepts `product_id`, `format` (`docs_html`, `book_html`,
   `epub`, or `pdf`) and `trim_preset` (`trade-6x9`, `a5`, or `us-letter`). For example:
 
