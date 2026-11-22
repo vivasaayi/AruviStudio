@@ -38,7 +38,8 @@ product summary. A disposable native-server browser/MCP fixture passed parent
 and child scope filtering, navigation, and refresh after the selected strategy
 was deleted. The broader disposable native-server browser suite passed 43 tests
 and skipped 22 requiring additional fixtures. The frontend suite passed 140
-tests and the terminology check passed. This covers a desktop portfolio action
+tests, the terminology check passed, and the native Rust library suite passed
+366 tests with eight ignored. This covers a desktop portfolio action
 but is not a complete portfolio audit. Clean images and worktree deployment remain pending; the Docker
 disk condition below still prevents a safe restart.
 
