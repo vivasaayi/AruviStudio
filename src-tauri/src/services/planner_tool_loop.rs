@@ -297,7 +297,7 @@ pub(crate) async fn run_tool_loop(
                 if input.draft_plan.is_some() {
                     let mut scoped = plan.clone();
                     if let Some(product) = input.selected_product {
-                        crate::services::planner_turn_policy::scope_plan_to_selected_product(&mut scoped, product);
+                        crate::services::planner_turn_policy::scope_plan_to_selected_product(&mut scoped, product)?;
                     }
                     if crate::services::planner_turn_policy::has_draft_mutations(&scoped) {
                         if let Err(error) = crate::services::planner_draft_apply::apply_actions_to_draft(
@@ -421,28 +421,47 @@ mod tests {
         }
         assert!(get_product_tree_tool(&pool, Some("Other product"), Some(&selected)).await.is_err());
         assert!(list_work_items_tool(&pool, Some("Other product"), None, None, None, Some(&selected)).await.is_err());
+        assert!(find_product(&pool, Some("Same name")).await.is_err());
         let unscoped = list_work_items_tool(&pool, None, None, None, None, None).await.unwrap();
         assert_eq!(unscoped["workItems"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn scoped_plan_rejects_cross_product_actions_and_fills_null_target() {
+        let pool = create_test_pool("selected_product_plan_scope").await;
+        create_test_product(&pool, "plan-a", "Selected product").await;
+        let product = product_repo::get_product(&pool, "plan-a").await.unwrap();
+        let plan = |action| PlannerPlan { assistant_response:"Ready".into(), needs_confirmation:false, clarification_question:None, actions:vec![action] };
+        for action in [json!({"type":"report_tree","target":{"productName":"Other product"}}), json!({"type":"report_status","productName":"Other product"}), json!({"type":"report_tree","target":{"productName":5}})] {
+            let mut proposed = plan(action);
+            let error = crate::services::planner_turn_policy::scope_plan_to_selected_product(&mut proposed, &product).unwrap_err();
+            assert!(error.to_string().contains("outside the selected product"));
+        }
+        let mut proposed = plan(json!({"type":"report_tree","target":{"productName":null}}));
+        crate::services::planner_turn_policy::scope_plan_to_selected_product(&mut proposed, &product).unwrap();
+        assert_eq!(proposed.actions[0]["target"]["productName"], "Selected product");
     }
 
     #[tokio::test]
     async fn model_tool_loop_never_sends_other_product_work_to_scoped_provider() {
         use crate::persistence::model_repo;
         use axum::{extract::State, routing::post, Json, Router};
-        use std::sync::{atomic::{AtomicUsize, Ordering}, Arc, Mutex};
+        use std::sync::{atomic::{AtomicBool, AtomicUsize, Ordering}, Arc, Mutex};
         #[derive(Clone)]
-        struct Fixture { count: Arc<AtomicUsize>, requests: Arc<Mutex<Vec<Value>>> }
+        struct Fixture { count: Arc<AtomicUsize>, requests: Arc<Mutex<Vec<Value>>>, wrong_action: Arc<AtomicBool> }
         async fn complete(State(fixture): State<Fixture>, Json(request): Json<Value>) -> Json<Value> {
             let count = fixture.count.fetch_add(1, Ordering::SeqCst);
             fixture.requests.lock().unwrap().push(request);
-            let reply = match count {
+            let reply = if fixture.wrong_action.load(Ordering::SeqCst) {
+                json!({"type":"final","assistant_response":"Ready", "needs_confirmation":false,"clarification_question":null,"actions":[{"type":"report_tree","target":{"productName":"Other product"}}]})
+            } else { match count {
                 0 => json!({"type":"tool_call","tool":"list_work_items","arguments":{}}),
                 1 => json!({"type":"tool_call","tool":"get_product_tree","arguments":{"productName":"Other product"}}),
                 _ => json!({"type":"final","assistant_response":"Reviewed", "needs_confirmation":false,"clarification_question":null,"actions":[]}),
-            };
+            }};
             Json(json!({"choices":[{"message":{"content":reply.to_string()},"finish_reason":"stop"}]}))
         }
-        let fixture = Fixture { count: Arc::new(AtomicUsize::new(0)), requests: Arc::new(Mutex::new(Vec::new())) };
+        let fixture = Fixture { count: Arc::new(AtomicUsize::new(0)), requests: Arc::new(Mutex::new(Vec::new())), wrong_action: Arc::new(AtomicBool::new(false)) };
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let server_fixture = fixture.clone();
@@ -465,6 +484,12 @@ mod tests {
         assert!(!after_work.contains("Other private story"));
         assert!(requests[2].to_string().contains("outside the selected product"));
         assert!(!requests[2].to_string().contains("Other private story"));
+        drop(requests);
+        fixture.wrong_action.store(true, Ordering::SeqCst);
+        let draft = crate::services::planner_turn_policy::seed_draft_with_product(None, &selected);
+        let input = PlannerToolLoopInput { db:&pool, artifact_base_path:&artifacts, session_id:"fixture", provider_id:"scope-provider", model_name:"fixture", conversation:&[], pending_plan:None, draft_plan:Some(&draft), selected_draft_node_id:Some(&selected.id), selected_product:Some(&selected), user_input:"Review the selected product" };
+        let error = run_tool_loop(input, &mut Vec::new()).await.unwrap_err();
+        assert!(error.to_string().contains("outside the selected product"));
         server.abort();
     }
 

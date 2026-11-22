@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Scoped Planner action targets (in validation)
+
+Planner responses for a selected product now reject an explicit action target
+for a different product, rather than executing or reporting against that target.
+Missing or null product targets are filled from the selection. Catalog lookup by
+name rejects duplicate exact product names instead of choosing the first; this
+can make name-based reports unavailable for duplicates until they carry IDs.
+The guard applies to text and repository analysis and validates model output;
+the model tool-read scope is separately documented below. Test and deployment
+evidence is pending. Focused tests cover explicit cross-product targets,
+duplicate product names and null targets; a simulated model also attempted a
+cross-product report and was rejected before any action executed.
+
 ### Planner product identity on commit (in validation)
 
 Applying a staged design now resolves a persisted product by ID first. A draft

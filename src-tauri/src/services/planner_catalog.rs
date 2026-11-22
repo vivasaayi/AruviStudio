@@ -15,10 +15,14 @@ pub(crate) async fn find_product(
         let normalized = normalize_name(Some(name));
         let exact = products
             .iter()
-            .find(|product| normalize_name(Some(&product.name)) == normalized)
-            .cloned();
-        if let Some(product) = exact {
-            return Ok(product);
+            .filter(|product| normalize_name(Some(&product.name)) == normalized)
+            .cloned()
+            .collect::<Vec<_>>();
+        if exact.len() == 1 {
+            return Ok(exact.into_iter().next().expect("one exact match"));
+        }
+        if exact.len() > 1 {
+            return Err(AppError::Validation(format!("Multiple products match {}", name)));
         }
         let partial = products
             .into_iter()

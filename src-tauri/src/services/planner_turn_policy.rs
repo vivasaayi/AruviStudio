@@ -79,7 +79,7 @@ pub(crate) fn seed_draft_with_product(
     draft_plan
 }
 
-pub(crate) fn scope_plan_to_selected_product(plan: &mut PlannerPlan, product: &Product) {
+pub(crate) fn scope_plan_to_selected_product(plan: &mut PlannerPlan, product: &Product) -> Result<(), AppError> {
     plan.actions.retain(|action| {
         !matches!(
             action.get("type").and_then(Value::as_str),
@@ -87,6 +87,11 @@ pub(crate) fn scope_plan_to_selected_product(plan: &mut PlannerPlan, product: &P
         )
     });
     for action in &mut plan.actions {
+        for value in [action.get("productName"), action.get("target").and_then(|target| target.get("productName"))].into_iter().flatten() {
+            if !value.is_null() && value.as_str().is_none_or(|name| normalize(Some(name)) != normalize(Some(&product.name))) {
+                return Err(AppError::Validation("Planner action is outside the selected product.".into()));
+            }
+        }
         let Some(action_object) = action.as_object_mut() else {
             continue;
         };
@@ -97,11 +102,10 @@ pub(crate) fn scope_plan_to_selected_product(plan: &mut PlannerPlan, product: &P
             *target = json!({});
         }
         if let Some(target_object) = target.as_object_mut() {
-            target_object
-                .entry("productName".to_string())
-                .or_insert_with(|| Value::String(product.name.clone()));
+            target_object.insert("productName".to_string(), Value::String(product.name.clone()));
         }
     }
+    Ok(())
 }
 
 pub(crate) fn heuristic_plan(input: &str) -> PlannerPlan {

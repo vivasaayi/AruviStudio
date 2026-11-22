@@ -201,7 +201,7 @@ pub async fn analyze_repository_for_planner(
                 ))
             } else {
                 annotate_repository_analysis_plan(&repo_snapshot, &mut plan);
-                scope_plan_to_selected_product(&mut plan, &selected_product);
+                scope_plan_to_selected_product(&mut plan, &selected_product)?;
                 if !plan.actions.is_empty() {
                     if let Err(error) = apply_actions_to_draft(
                         session.draft_plan.clone(), session.selected_draft_node_id.as_deref(), &plan.actions,

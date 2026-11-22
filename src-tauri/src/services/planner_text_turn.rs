@@ -188,7 +188,7 @@ pub(crate) async fn submit_planner_turn_locked(
         heuristic_plan(&user_input)
     };
     if let Some(product) = selected_product.as_ref() {
-        scope_plan_to_selected_product(&mut plan, product);
+        scope_plan_to_selected_product(&mut plan, product)?;
     }
     push_trace(
         &mut trace,
