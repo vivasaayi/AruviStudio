@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Bound Planner catalog updates (foundation in validation)
+
+The shared draft-commit path can now recognize server-format product, area and
+capability snapshot bindings and update the bound area or capability in place.
+It checks product ownership, ancestry, identity, kind and the complete stored
+snapshots within the commit transaction; a missing or changed record rejects the
+whole commit. Unbound draft nodes retain their existing create behavior. An
+isolated database test covers in-place updates, a new child, preserved fields,
+cross-product and parent mismatches, malformed bindings, deleted nodes and stale
+product, area and capability snapshots, including transaction rollback.
+The native Rust library suite passed 357 tests with eight ignored; the latest
+focused test also covered unsupported binding kinds and a JSON round trip.
+
+This is a foundation only: there is not yet a server operation to stage catalog
+bindings or a web, desktop, voice or MCP flow that supplies them. The existing
+Planner shortcut remains name-based and must be reviewed. Do not claim
+selected-catalog parity until those flows and real-model behavior are verified.
+
 ### Scoped Planner action targets (in validation)
 
 Planner responses for a selected product now reject an explicit action target

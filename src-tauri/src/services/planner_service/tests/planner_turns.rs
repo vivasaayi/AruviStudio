@@ -3,6 +3,74 @@ use crate::persistence::{product_repo, work_item_repo};
 use serde_json::json;
 
 #[tokio::test]
+async fn bound_catalog_nodes_update_in_place_and_rollback_on_conflicts() {
+    use crate::services::planner_turn_policy::seed_draft_with_product;
+    use crate::services::planner_types::PlannerDraftNode;
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("bound_catalog_commit").await;
+    let product = product_repo::create_product(&state.db, product_repo::CreateProductInput {
+        id:"bound-product", name:"Bound product", description:"Original product", vision:"", goals:"[]", tags:"[]",
+        lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None,
+    }).await.unwrap();
+    let area = product_repo::create_product_area(&state.db, product_repo::CreateProductAreaInput {
+        id:"bound-area", product_id:&product.id, name:"Existing area", description:"Original area", purpose:"Keep purpose", node_kind:None,
+        explanation:"", examples:"", implementation_notes:"", test_guidance:"",
+    }).await.unwrap();
+    let capability = product_repo::create_capability(&state.db, product_repo::CreateCapabilityInput {
+        id:"bound-capability", product_area_id:&area.id, parent_capability_id:None, name:"Existing capability", description:"Original capability",
+        acceptance_criteria:"Keep criteria", priority:"medium", risk:"low", technical_notes:"Original notes", node_kind:None,
+        explanation:"", examples:"", implementation_notes:"", test_guidance:"",
+    }).await.unwrap();
+    let mut draft = seed_draft_with_product(None, &product);
+    draft.nodes[0].details["_catalog_binding"] = json!({"kind":"product","snapshot":product});
+    draft.nodes.push(PlannerDraftNode { id:area.id.clone(), parent_id:Some(product.id.clone()), node_type:"product_area".into(), name:"Updated area".into(), summary:Some("Updated area description".into()), details:json!({"_catalog_binding":{"kind":"product_area","snapshot":area}}) });
+    draft.nodes.push(PlannerDraftNode { id:capability.id.clone(), parent_id:Some(area.id.clone()), node_type:"capability".into(), name:"Updated capability".into(), summary:Some("Updated capability description".into()), details:json!({"_catalog_binding":{"kind":"capability","snapshot":capability}}) });
+    draft.nodes.push(PlannerDraftNode { id:"new-feature-draft".into(), parent_id:Some(capability.id.clone()), node_type:"capability".into(), name:"New feature".into(), summary:None, details:json!({"nodeKind":"feature"}) });
+    draft = serde_json::from_value(serde_json::to_value(&draft).unwrap()).unwrap();
+    let mut no_product_snapshot = draft.clone(); no_product_snapshot.nodes[0].details.as_object_mut().unwrap().remove("_catalog_binding");
+    assert!(commit_draft_plan(&state, &no_product_snapshot).await.is_err());
+    let mut malformed = draft.clone(); malformed.nodes[1].details["_catalog_binding"]["kind"] = json!("capability");
+    assert!(commit_draft_plan(&state, &malformed).await.is_err());
+    let mut unsupported = draft.clone(); unsupported.nodes[3].node_type = "work_item".into(); unsupported.nodes[3].details["_catalog_binding"] = json!({});
+    assert!(commit_draft_plan(&state, &unsupported).await.is_err());
+    let mut wrong = draft.clone(); wrong.nodes[1].details["_catalog_binding"]["snapshot"]["product_id"] = json!("other-product");
+    assert!(commit_draft_plan(&state, &wrong).await.is_err());
+    let mut wrong_parent = draft.clone(); wrong_parent.nodes[2].details["_catalog_binding"]["snapshot"]["parent_capability_id"] = json!("other-parent");
+    assert!(commit_draft_plan(&state, &wrong_parent).await.is_err());
+    let mut missing = draft.clone(); missing.nodes[2].id = "deleted-capability".into(); missing.nodes[2].details["_catalog_binding"]["snapshot"]["id"] = json!("deleted-capability"); missing.nodes[3].parent_id = Some("deleted-capability".into());
+    assert!(commit_draft_plan(&state, &missing).await.unwrap_err().to_string().contains("no longer exists"));
+    sqlx::query("UPDATE products SET description='Concurrent product edit' WHERE id=?").bind(&product.id).execute(&state.db).await.unwrap();
+    let product_error = commit_draft_plan(&state, &draft).await.unwrap_err();
+    assert!(product_error.to_string().contains("staged product changed"));
+    let unchanged = product_repo::list_product_areas(&state.db, &product.id).await.unwrap();
+    assert_eq!(unchanged[0].name, "Existing area");
+    sqlx::query("UPDATE products SET description='Original product' WHERE id=?").bind(&product.id).execute(&state.db).await.unwrap();
+    let refreshed = product_repo::get_product(&state.db, &product.id).await.unwrap();
+    draft.nodes[0].details["_catalog_binding"]["snapshot"] = serde_json::to_value(&refreshed).unwrap();
+    sqlx::query("UPDATE product_areas SET purpose='Concurrent area edit' WHERE id=?").bind(&area.id).execute(&state.db).await.unwrap();
+    let area_error = commit_draft_plan(&state, &draft).await.unwrap_err();
+    assert!(area_error.to_string().contains("staged product area changed"));
+    sqlx::query("UPDATE product_areas SET purpose='Keep purpose' WHERE id=?").bind(&area.id).execute(&state.db).await.unwrap();
+    let refreshed_area = product_repo::list_product_areas(&state.db, &product.id).await.unwrap().remove(0);
+    draft.nodes[1].details["_catalog_binding"]["snapshot"] = serde_json::to_value(&refreshed_area).unwrap();
+    sqlx::query("UPDATE capabilities SET technical_notes='Concurrent edit' WHERE id=?").bind(&capability.id).execute(&state.db).await.unwrap();
+    let error = commit_draft_plan(&state, &draft).await.unwrap_err();
+    assert!(error.to_string().contains("staged capability changed"));
+    let unchanged = product_repo::list_product_areas(&state.db, &product.id).await.unwrap();
+    assert_eq!(unchanged.len(), 1); assert_eq!(unchanged[0].name, "Existing area");
+    let current = product_repo::get_capability(&state.db, &capability.id).await.unwrap();
+    assert_eq!(current.technical_notes, "Concurrent edit");
+    draft.nodes[2].details["_catalog_binding"]["snapshot"] = serde_json::to_value(&current).unwrap();
+    commit_draft_plan(&state, &draft).await.unwrap();
+    let areas = product_repo::list_product_areas(&state.db, &product.id).await.unwrap();
+    assert_eq!(areas.len(), 1); assert_eq!(areas[0].id, area.id); assert_eq!(areas[0].name, "Updated area"); assert_eq!(areas[0].purpose, "Keep purpose");
+    let updated = product_repo::get_capability(&state.db, &capability.id).await.unwrap();
+    assert_eq!(updated.name, "Updated capability"); assert_eq!(updated.acceptance_criteria, "Keep criteria"); assert_eq!(updated.technical_notes, "Concurrent edit");
+    let capabilities = product_repo::list_capabilities(&state.db, &area.id).await.unwrap();
+    assert_eq!(capabilities.len(), 2); assert!(capabilities.iter().any(|item| item.name == "New feature" && item.parent_capability_id.as_deref() == Some(capability.id.as_str())));
+}
+
+#[tokio::test]
 async fn draft_commit_rejects_ambiguous_legacy_product_name_and_honors_id() {
     use crate::services::planner_turn_policy::seed_draft_with_product;
     let _guard = acquire_planner_test_lock().await;

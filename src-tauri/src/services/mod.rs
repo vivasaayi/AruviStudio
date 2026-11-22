@@ -33,6 +33,7 @@ pub mod model_service;
 pub mod planner_action_fields;
 pub mod planner_action_parser;
 pub mod planner_catalog;
+pub(crate) mod planner_catalog_binding;
 pub mod planner_catalog_tree;
 pub mod planner_commit;
 pub mod planner_draft;

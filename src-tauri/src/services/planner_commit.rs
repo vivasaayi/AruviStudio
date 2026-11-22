@@ -2,6 +2,7 @@ use crate::error::AppError;
 use crate::persistence::{product_area_repo, product_capability_repo, product_core_repo, product_repo, work_item_repo, work_item_write_repo};
 use sqlx::SqliteConnection;
 use crate::services::planner_action_fields::{format_joined, string_array_field, string_field};
+use crate::services::planner_catalog_binding::{apply_bound_area, apply_bound_capability, check_bound_product};
 use crate::services::planner_draft::{build_draft_node_path, find_draft_ancestor_node_by_type};
 use crate::services::planner_service::PlannerDraftPlan;
 #[cfg(test)]
@@ -27,6 +28,10 @@ pub(crate) async fn commit_draft_plan_in_conn(
     let mut product_ids: HashMap<String, String> = HashMap::new();
     let mut product_area_ids: HashMap<String, String> = HashMap::new();
     let mut capability_ids: HashMap<String, String> = HashMap::new();
+    if draft_plan.nodes.iter().any(|node| node.details.get("_catalog_binding").is_some() && !matches!(node.node_type.as_str(), "product" | "product_area" | "capability")) {
+        return Err(AppError::Validation("Staged catalog binding has an unsupported node kind.".into()));
+    }
+    let has_bound_nodes = draft_plan.nodes.iter().any(|node| node.node_type != "product" && node.details.get("_catalog_binding").is_some());
 
     let mut products = draft_plan
         .nodes
@@ -74,6 +79,7 @@ pub(crate) async fn commit_draft_plan_in_conn(
             }
             Err(error) => return Err(error),
         };
+        check_bound_product(&product_node, existing_product.as_ref(), has_bound_nodes)?;
         let product = if let Some(existing_product) = existing_product {
             product_core_repo::update_product_in_conn(
                 conn,
@@ -143,7 +149,9 @@ pub(crate) async fn commit_draft_plan_in_conn(
             let test_guidance = string_field(&product_area_node.details, "testGuidance")
                 .or_else(|| string_field(&product_area_node.details, "test_guidance"))
                 .unwrap_or_default();
-            let product_area = product_area_repo::create_product_area_in_conn(
+            let bound = apply_bound_area(conn, &product_area_node, &product.id).await?;
+            let was_bound = bound.is_some();
+            let product_area = if let Some(area) = bound { area } else { product_area_repo::create_product_area_in_conn(
                 conn,
                 product_repo::CreateProductAreaInput {
                     id: &id,
@@ -158,10 +166,10 @@ pub(crate) async fn commit_draft_plan_in_conn(
                     test_guidance: &test_guidance,
                 },
             )
-            .await?;
+            .await? };
             lines.push(format!(
-                "Created product area \"{}\" in \"{}\".",
-                product_area.name, product.name
+                "{} product area \"{}\" in \"{}\".",
+                if was_bound { "Updated" } else { "Created" }, product_area.name, product.name
             ));
             product_area_ids.insert(product_area_node.id.clone(), product_area.id.clone());
         }
@@ -241,7 +249,9 @@ pub(crate) async fn commit_draft_plan_in_conn(
             let test_guidance = string_field(&capability_node.details, "testGuidance")
                 .or_else(|| string_field(&capability_node.details, "test_guidance"))
                 .unwrap_or_default();
-            let capability = product_capability_repo::create_capability_in_conn(
+            let bound = apply_bound_capability(conn, &capability_node, &product_area_id, parent_capability_id.as_deref()).await?;
+            let was_bound = bound.is_some();
+            let capability = if let Some(capability) = bound { capability } else { product_capability_repo::create_capability_in_conn(
                 conn,
                 product_repo::CreateCapabilityInput {
                     id: &id,
@@ -260,8 +270,8 @@ pub(crate) async fn commit_draft_plan_in_conn(
                     test_guidance: &test_guidance,
                 },
             )
-            .await?;
-            lines.push(format!("Created capability \"{}\".", capability.name));
+            .await? };
+            lines.push(format!("{} capability \"{}\".", if was_bound { "Updated" } else { "Created" }, capability.name));
             capability_ids.insert(capability_node.id.clone(), capability.id.clone());
             progressed = true;
         }
