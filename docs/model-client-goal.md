@@ -30,6 +30,14 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Shared client packaging recheck
+
+With the portfolio work on the branch, the offline package check again passed
+all 67 client tests, and the independent pinned consumer passed all 32 tests
+offline on the Mac. The pin check confirmed its revision matches the current
+client manifest, license and sources. This does not establish live third-party
+provider behavior or an independently published release.
+
 ### Native Model Host revalidation with portfolio revision
 
 A disposable current native server passed Model Host discovery, coding and
