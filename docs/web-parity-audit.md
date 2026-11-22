@@ -153,8 +153,9 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 The current source adds MCP direct capability lookup, product-wide capability
 listing and product-tree summary actions corresponding to the desktop Rust
-queries. The definitions and dispatch tests are pending hosted validation;
-see the current goal checkpoint for deployment status.
+queries. Definitions, dispatch and HTTP discovery passed hosted checks, and the
+new actions passed a disposable hierarchy check on the branch deployment; see
+the current goal checkpoint for details.
 
 #### CI artifact delivery and service dependency
 

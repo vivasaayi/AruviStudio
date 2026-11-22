@@ -12,6 +12,38 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### MCP catalog read parity: branch validation
+
+Hosted test run `45003826053` passed 343 Rust unit tests (eight ignored),
+including catalog read dispatch and discovery. Clean ARM64 and AMD64 run
+`45003927185` passed the HTTP discovery, authorization and hierarchy scenario,
+61 workflow tests, 49 browser tests (one skipped), PDF isolation/outage and
+the simulated CI test on each architecture. The ARM64 archive SHA-256 was
+`64a5633f90306d44cc111a0922ed6be6929fc60c5393dc572ffd4fad2dfa1cf7`,
+the server layer SHA-256 was
+`203e986c5ea1f2e929d4eb0b1bb61b8085d6b0995d946c67dc95c637a70432e9`,
+and the server binary SHA-256 was
+`e21ef7b94df117c5577b509218f6fe0df8269d350443a0fd8350a6d784053034`.
+
+The verified server was copied into a stopped disposable container based on
+the preceding branch runtime and committed as
+`sha256:4742beea19fbf46b61b73f5c9b10ac8a349e493a3f36d8329483ff3328ec6c71`.
+Its runtime configuration and binary hash were checked. It is a derived
+image, not a locally loaded full clean image. Its isolated local workflow,
+browser, PDF and simulated CI suites passed, as did real Model Host browser
+quick-start and cancellation and simulated scoped-credential checks.
+
+After the active-job guard and a checked SQLite backup, the worktree app and
+PDF sidecar were updated to this candidate; the preceding image remains tagged
+for rollback. Restart acceptance passed for product, MCP/mobile authorization
+and PDF. A temporary product, area, capability and feature exercised the new
+live MCP lookup, ordered product listing and summary, then the product was
+archived. Phone/desktop layout, MCP origin, real coding and Piper/Whisper, and
+continuous voice with synthetic audio passed. The real host still uses a
+management-capable credential. Physical devices, native-window parity, real
+third-party providers, deployed Aruvici, Mac integration and VPS staging
+remain unverified.
+
 ### MCP catalog read parity in progress
 
 The desktop exposes capability lookup, product-wide capability listing and a
@@ -20,8 +52,8 @@ product-tree summary through shared Rust queries. MCP now has corresponding
 `summarize_product_tree`, plus first-class `catalog.capabilities.get`,
 `catalog.capabilities.list_for_product` and `catalog.products.summarize_tree`
 tools. Tests cover discovery, both naming styles, hierarchy order, product
-isolation and missing records. These changes are not yet built, tested or
-deployed; the broader desktop-to-web and MCP inventory remains open.
+isolation and missing records. The later branch-validation checkpoint above records hosted and deployed
+checks; the broader desktop-to-web and MCP inventory remains open.
 
 ### Real browser stream cancellation
 
