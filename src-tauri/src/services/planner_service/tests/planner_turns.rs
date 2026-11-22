@@ -14,15 +14,17 @@ async fn staged_product_root_checks_identity_and_concurrent_edits() {
     let staged = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "product".into(), product.id.clone()).await.unwrap();
     assert_eq!(staged.selected_draft_node_id.as_deref(), Some(product.id.as_str()));
     let loaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
-    let mut draft = loaded.draft_plan.unwrap();
-    draft.nodes[0].name = "Improved product".into();
+    let actions = normalize_actions(vec![json!({"type":"update_product", "details":{"name":"Improved product", "description":"Planned description"}, "target":{"productName":"Bound product"}})]);
+    let draft = apply_actions_to_draft(loaded.draft_plan, Some(&product.id), &actions).unwrap();
     sqlx::query("UPDATE products SET description='Concurrent edit' WHERE id=?").bind(&product.id).execute(&state.db).await.unwrap();
     assert!(commit_draft_plan(&state, &draft).await.unwrap_err().to_string().contains("staged product changed"));
     let current = product_repo::get_product(&state.db, &product.id).await.unwrap();
     assert_eq!(current.name, "Bound product");
     sqlx::query("UPDATE products SET description='Original' WHERE id=?").bind(&product.id).execute(&state.db).await.unwrap();
     commit_draft_plan(&state, &draft).await.unwrap();
-    assert_eq!(product_repo::get_product(&state.db, &product.id).await.unwrap().name, "Improved product");
+    let updated = product_repo::get_product(&state.db, &product.id).await.unwrap();
+    assert_eq!(updated.name, "Improved product");
+    assert_eq!(updated.description, "Planned description");
 }
 
 #[tokio::test]

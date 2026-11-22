@@ -224,22 +224,40 @@ pub(crate) fn normalize_planner_action(action: Value) -> Option<Value> {
             }
         }
     }
-    if action_type == "update_work_item" {
-        // Accept the supported update payload in `fields`, `details`, or at
-        // top level, but never silently choose between conflicting values.
+    if matches!(action_type.as_str(), "update_product" | "update_product_area" | "update_capability" | "update_work_item") {
+        // Promote only fields the update handlers actually apply. Model output
+        // may put them in fields, details, or at the top level; conflicts and
+        // empty updates must fail rather than silently report success.
+        let groups: &[&[&str]] = match action_type.as_str() {
+            "update_product" => &[&["name"], &["description"], &["vision"], &["goals"], &["tags"]],
+            "update_product_area" => &[&["name"], &["description"], &["purpose"], &["nodeKind", "node_kind"], &["explanation"], &["examples"], &["implementationNotes", "implementation_notes"], &["testGuidance", "test_guidance"]],
+            "update_capability" => &[&["name"], &["description"], &["acceptanceCriteria", "acceptance_criteria"], &["priority"], &["risk"], &["technicalNotes", "technical_notes"], &["nodeKind", "node_kind"], &["explanation"], &["examples"], &["implementationNotes", "implementation_notes"], &["testGuidance", "test_guidance"]],
+            _ => &[&["title"], &["description"], &["problemStatement", "problem_statement"], &["acceptanceCriteria", "acceptance_criteria"], &["constraints"], &["status"]],
+        };
         let object = action.as_object_mut()?;
         let fields = match object.get("fields") { None | Some(Value::Null) => serde_json::Map::new(), Some(Value::Object(map)) => map.clone(), Some(_) => return None };
         let details = match object.get("details") { None | Some(Value::Null) => serde_json::Map::new(), Some(Value::Object(map)) => map.clone(), Some(_) => return None };
+        let is_supported = |key: &str| groups.iter().any(|aliases| aliases.contains(&key));
+        if fields.keys().any(|key| !is_supported(key)) || details.keys().any(|key| !is_supported(key) && !matches!(key.as_str(), "id" | "node_id" | "parent_id" | "node_type" | "type" | "_catalog_binding")) {
+            return None;
+        }
         let mut normalized = fields.clone();
         let mut found = false;
-        for aliases in [&["title"][..], &["description"], &["problemStatement", "problem_statement"], &["acceptanceCriteria", "acceptance_criteria"], &["constraints"], &["status"]] {
+        for aliases in groups {
             let mut chosen: Option<Value> = None;
-            for key in aliases {
+            for key in *aliases {
                 for value in [object.get(*key), fields.get(*key), details.get(*key)].into_iter().flatten() {
                     if value.is_null() { continue; }
-                    if !value.is_string() { return None; }
-                    if chosen.as_ref().is_some_and(|existing| existing != value) { return None; }
-                    chosen = Some(value.clone());
+                    let value = if matches!(aliases[0], "goals" | "tags") {
+                        let values = value.as_array()?;
+                        if values.iter().any(|item| !item.is_string()) { return None; }
+                        value.clone()
+                    } else if aliases[0] == "examples" && value.is_array() {
+                        let examples: Option<Vec<&str>> = value.as_array()?.iter().map(Value::as_str).collect();
+                        Value::String(examples?.join("\n"))
+                    } else if value.is_string() { value.clone() } else { return None };
+                    if chosen.as_ref().is_some_and(|existing| existing != &value) { return None; }
+                    chosen = Some(value);
                 }
             }
             if let Some(value) = chosen { found = true; normalized.insert(aliases[0].into(), value); }
@@ -382,6 +400,22 @@ mod malformed_response_tests {
         assert_eq!(plan.actions[0]["fields"]["acceptanceCriteria"], "Notify staff");
         assert!(plan.actions[0]["fields"].get("id").is_none());
         for action in [json!({"type":"update_work_item", "details":{}}), json!({"type":"update_work_item", "fields":{"acceptanceCriteria":"One"}, "details":{"acceptance_criteria":"Other"}}), json!({"type":"update_work_item", "details":{"constraints":123}})] {
+            assert!(parse_final_response(&response(action)).is_err());
+        }
+    }
+
+    #[test]
+    fn normalizes_nested_product_and_hierarchy_updates_without_silent_noops() {
+        let response = |action: Value| json!({"assistant_response":"Ready", "needs_confirmation":true, "actions":[action]}).to_string();
+        for action in [
+            json!({"type":"update_product", "details":{"description":"New product description", "goals":["One"]}}),
+            json!({"type":"update_product_area", "details":{"description":"New area description", "examples":["First","Second"]}}),
+            json!({"type":"update_capability", "details":{"description":"New capability description", "technical_notes":"Notes"}}),
+        ] {
+            let plan = parse_final_response(&response(action)).unwrap();
+            assert!(plan.actions[0]["fields"]["description"].is_string());
+        }
+        for action in [json!({"type":"update_product", "details":{"goals":["ok",3]}}), json!({"type":"update_product_area", "details":{"ignored":"value"}}), json!({"type":"update_capability", "fields":{"description":"One"}, "details":{"description":"Two"}}), json!({"type":"update_product", "details":{"description":"New", "lifecycle":"active"}})] {
             assert!(parse_final_response(&response(action)).is_err());
         }
     }
