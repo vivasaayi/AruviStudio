@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Scoped Model Host authorization recheck
+
+The separate Model Host draft branch `1302b938bbc4edaf260d247ac64b4d607c82dd19`
+remains unmerged. Two isolated lifecycle tests passed against its existing local
+binary, including inference access and denial for all unapproved protected
+routes derived from the current router. This does not establish that the deployed
+host uses scoped credentials. An attempted full offline Cargo rerun started a
+fresh dependency compilation; it was stopped to avoid exhausting the Mac's disk,
+and only files created by that interrupted attempt were removed. The earlier
+full-suite results remain historical evidence rather than a new full-suite pass.
+
 ### Browser provider quick starts
 
 The browser Models screen now has the desktop's Aruvi Model Host, DeepSeek and
