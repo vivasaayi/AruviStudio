@@ -36,9 +36,9 @@ after a conflict. An isolated simulated model also proposed an update to a
 staged capability, which was applied to the same ID only after confirmation.
 A real Model Host browser fixture for an existing area is prepared but not yet
 run against the new image. A full native browser run passed 56 tests with five fixture
-skips; the frontend build and 139 unit tests passed. The Rust suite passed 358
-tests with eight ignored, followed by a focused recheck of bounded ancestry,
-cross-product and unbound-draft handling. Worktree validation is pending.
+skips; the frontend build and 139 unit tests passed. The Rust suite passed 359
+tests with eight ignored, including bounded ancestry, cross-product and
+unbound-draft handling. Worktree validation is pending.
 
 The desktop product-overview shortcuts and voice flow do not yet stage these
 bindings, and selected existing work items remain name-based. New unbound
