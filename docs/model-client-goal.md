@@ -12,6 +12,23 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Saved binary workspace downloads (local validation)
+
+Browser workspace trees can download saved binary or text files up to 8 MiB,
+and MCP exposes both the action and first-class operation. The open-buffer
+download remains separate and includes unsaved edits. Browser requests carry the
+selected workspace root; MCP clients can supply it. Cooperating workspace updates
+are serialized while the root is checked and the file is read. On Unix, the
+file is opened relative to a directory descriptor without following symlink
+components, and hard links and non-regular files are rejected. Non-Unix uses a
+weaker canonical-path fallback. An external writer can modify a file while it
+is read; the operation does not promise an immutable snapshot. The native Rust
+suite passed 339 tests with seven ignored; 136 frontend tests, 69 local browser
+tests, the frontend production build and terminology check passed. A disposable native browser/server fixture verified
+binary bytes, both MCP names, authorization, stale root and the 8 MiB boundary.
+The native workspace-edit and code-editor fixtures passed. Linux container validation and
+deployment remain pending; physical desktop and complete parity remain open.
+
 ### Short continuous voice turns
 
 Continuous browser voice previously required 500 ms of above-threshold capture

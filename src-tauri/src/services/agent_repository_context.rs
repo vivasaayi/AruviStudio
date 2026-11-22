@@ -3,7 +3,7 @@ use crate::services::agent_execution_limits::{self, AgentExecutionBoundaries};
 use std::{fs::File, io::Read, path::Path};
 
 #[cfg(unix)]
-fn open_context_file(root: &Option<File>, _canonical_root: &Path, relative: &Path) -> std::io::Result<File> {
+pub(crate) fn open_context_file(root: &Option<File>, _canonical_root: &Path, relative: &Path) -> std::io::Result<File> {
     use std::os::{fd::{AsRawFd, FromRawFd}, unix::{ffi::OsStrExt, fs::MetadataExt}};
     use std::path::Component;
     let components: Vec<_> = relative.components().collect();
@@ -28,7 +28,7 @@ fn open_context_file(root: &Option<File>, _canonical_root: &Path, relative: &Pat
 }
 
 #[cfg(not(unix))]
-fn open_context_file(_root: &Option<File>, canonical_root: &Path, relative: &Path) -> std::io::Result<File> {
+pub(crate) fn open_context_file(_root: &Option<File>, canonical_root: &Path, relative: &Path) -> std::io::Result<File> {
     let path = canonical_root.join(relative);
     if !std::fs::symlink_metadata(&path)?.file_type().is_file() || !std::fs::canonicalize(&path)?.starts_with(canonical_root) {
         return Err(std::io::ErrorKind::PermissionDenied.into());

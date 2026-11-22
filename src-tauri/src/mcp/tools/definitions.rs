@@ -95,6 +95,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "create_local_workspace",
                 "list_repository_tree",
                 "read_repository_file",
+                "read_repository_binary",
                 "write_repository_file",
                 "get_repository_file_sha256",
                 "apply_repository_patch",

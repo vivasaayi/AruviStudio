@@ -138,6 +138,17 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             )?;
             action_result("read_repository_file", json!({ "content": content, "workspace_root": repository.local_path }))
         }
+        "read_repository_binary" => {
+            use base64::Engine as _;
+            let repository_id = args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
+            let path = args.required_string(&["relative_path", "relativePath"], "relative_path")?;
+            let bytes = crate::services::repo_file_service::read_repository_binary(&root, &path)?;
+            let result = json!({"content_base64":base64::engine::general_purpose::STANDARD.encode(&bytes), "size":bytes.len(), "workspace_root":root});
+            transaction.commit().await?;
+            action_result("read_repository_binary", result)
+        }
         "write_repository_file" => {
             let repository_id =
                 args.required_string(&["repository_id", "repositoryId"], "repository_id")?;

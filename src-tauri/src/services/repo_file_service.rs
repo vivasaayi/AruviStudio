@@ -9,6 +9,33 @@ use crate::services::repo_path_service::{
 use sha2::{Digest, Sha256};
 
 const MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
+pub(crate) const MAX_DOWNLOAD_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Read a bounded server-side copy without following workspace symlinks on Unix.
+pub(crate) fn read_repository_binary(repo_root: &str, relative_path: &str) -> Result<Vec<u8>, AppError> {
+    use std::io::Read;
+    let root = canonicalize_repo_root(repo_root)?;
+    let candidate = resolve_repository_relative_path(&root, relative_path)?;
+    let relative = candidate.strip_prefix(&root).map_err(|_| AppError::Validation("Invalid workspace path".into()))?;
+    #[cfg(unix)]
+    let root_handle = {
+        use std::os::unix::fs::OpenOptionsExt;
+        Some(fs::OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC).open(&root)?)
+    };
+    #[cfg(not(unix))]
+    let root_handle = None;
+    let file = crate::services::agent_repository_context::open_context_file(&root_handle, &root, relative)
+        .map_err(|_| AppError::Validation("File is unavailable or not a regular workspace file".into()))?;
+    if !file.metadata()?.is_file() || file.metadata()?.len() > MAX_DOWNLOAD_BYTES {
+        return Err(AppError::Validation("File is unavailable or exceeds the 8 MiB download limit".into()));
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_DOWNLOAD_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_DOWNLOAD_BYTES {
+        return Err(AppError::Validation("File exceeds the 8 MiB download limit".into()));
+    }
+    Ok(bytes)
+}
 
 pub fn read_repository_file(repo_root: &str, relative_path: &str) -> Result<String, AppError> {
     let root = canonicalize_repo_root(repo_root)?;
@@ -285,6 +312,31 @@ mod tests {
     use crate::error::AppError;
     use std::fs;
     use std::path::PathBuf;
+
+    #[test]
+    fn binary_workspace_download_is_bounded_and_confined() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::create_dir(root.join("nested")).unwrap();
+        let bytes = [0, 255, 17, 128, 1];
+        fs::write(root.join("nested/data.bin"), bytes).unwrap();
+        let read = |path| super::read_repository_binary(root.to_str().unwrap(), path);
+        assert_eq!(read("nested/data.bin").unwrap(), bytes);
+        assert!(read("../data.bin").is_err());
+        assert!(read("nested").is_err());
+        let huge = fs::File::create(root.join("huge.bin")).unwrap();
+        huge.set_len(super::MAX_DOWNLOAD_BYTES + 1).unwrap();
+        assert!(read("huge.bin").is_err());
+        #[cfg(unix)] {
+            use std::os::unix::fs::symlink;
+            let outside = tempfile::tempdir().unwrap();
+            fs::write(outside.path().join("secret.bin"), bytes).unwrap();
+            symlink(outside.path(), root.join("link")).unwrap();
+            assert!(read("link/secret.bin").is_err());
+            fs::hard_link(outside.path().join("secret.bin"), root.join("hard.bin")).unwrap();
+            assert!(read("hard.bin").is_err());
+        }
+    }
 
     fn temp_repo_dir(test_name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(

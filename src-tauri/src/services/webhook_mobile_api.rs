@@ -1354,11 +1354,11 @@ pub(crate) async fn mobile_inspect_repository(State(state): State<WebhookState>,
             Ok(matches) => Json(matches).into_response(), Err(error) => (StatusCode::BAD_REQUEST, error.to_string()).into_response(),
         };
     }
-    if !matches!(body.action.as_str(), "list_repository_tree" | "read_repository_file" | "get_git_status" | "get_git_diff" | "preview_repository_patch" | "apply_reviewed_repository_patch") {
+    if !matches!(body.action.as_str(), "list_repository_tree" | "read_repository_file" | "read_repository_binary" | "get_git_status" | "get_git_diff" | "preview_repository_patch" | "apply_reviewed_repository_patch") {
         return (StatusCode::BAD_REQUEST, "Unsupported repository inspection action").into_response();
     }
     let is_read = body.action == "read_repository_file";
-    let arguments = serde_json::json!({"repository_id":body.repository_id, "relative_path":body.relative_path, "patch":body.patch, "base_sha256":body.base_sha256, "expected_exists":body.expected_exists, "max_depth":8});
+    let arguments = serde_json::json!({"repository_id":body.repository_id, "relative_path":body.relative_path, "patch":body.patch, "base_sha256":body.base_sha256, "expected_exists":body.expected_exists, "expected_root":body.expected_root, "max_depth":8});
     match crate::mcp::dispatch_tool(&state.app_state, "aruvi_repositories", serde_json::json!({"action":body.action,"arguments":arguments})).await {
         Ok(value) => {
             let mut result = value["result"].clone();

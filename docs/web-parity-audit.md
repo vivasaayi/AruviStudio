@@ -75,6 +75,20 @@ patch without an open file. The browser fixture also checks streamed and buffere
 proposals, stale review rejection, and application with an open file; the
 provider is simulated and multi-file application can partially succeed.
 
+The browser workspace tree can download a saved server file, including binary
+files up to 8 MiB; the separate open-copy action includes unsaved editor edits.
+MCP exposes `aruvi_repositories` / `read_repository_binary` and
+`repositories.files.read_binary`, returning base64 bytes. The browser supplies
+the displayed workspace root, and MCP callers may do the same; a SQLite write
+lock coordinates that check with workspace updates by cooperating processes.
+Unix reads use descriptor-relative no-follow opens and reject hard links and
+non-regular files. Non-Unix reads use a canonical-path check with weaker race
+protection. External writers may modify file contents while a download is read;
+it is not an immutable snapshot. Native disposable server/browser and MCP tests
+covered a binary download, both MCP names, authorization, stale root and the
+8 MiB boundary; a Rust test covered traversal, links and oversized files. Linux
+container and physical desktop acceptance are not yet complete for this change.
+
 The desktop IDE supports ⌘/Ctrl+S. The browser file editor now supports the
 same shortcut while the editor is focused, using its existing conflict-checked
 save operation. A disposable browser fixture saved a file with the shortcut
@@ -661,7 +675,7 @@ validate the newer database fixes that are absent from that running image.
 
 - A live browser test edited task details and checked persistence and validation. It then changed the task through MCP while the browser editor was open; the stale save returned a conflict, preserved the server change and kept the unsaved browser text available.
 
-- The workspace browser lists a bounded tree, reads UTF-8 text files up to 2 MiB and displays Git status and bounded staged/working-tree diffs. A browser/API test verified contents, authentication, traversal and symlink escape rejection, oversized-file rejection, and exclusion of `node_modules`. The tree excludes hidden paths and common generated directories and uses a depth limit of eight and a cap of 10,000 entries. The editor supports existing UTF-8 files up to 2 MiB, preserves consistent CRLF line endings, and opens mixed-line-ending files read-only. It compares the file contents before saving and serializes browser saves, but cannot prevent a non-cooperating external process from writing between the comparison and filesystem write. Browser tests covered saves, stale-content conflicts, unsaved-change protection and line endings. The open UTF-8 buffer can be downloaded with unsaved edits, retaining CRLF and the original mixed endings for read-only files. This is a browser copy, which can differ from later disk changes; it does not reveal the server folder or download binary files.
+- The workspace browser lists a bounded tree, reads UTF-8 text files up to 2 MiB and displays Git status and bounded staged/working-tree diffs. A browser/API test verified contents, authentication, traversal and symlink escape rejection, oversized-file rejection, and exclusion of `node_modules`. The tree excludes hidden paths and common generated directories and uses a depth limit of eight and a cap of 10,000 entries. The editor supports existing UTF-8 files up to 2 MiB, preserves consistent CRLF line endings, and opens mixed-line-ending files read-only. It compares the file contents before saving and serializes browser saves, but cannot prevent a non-cooperating external process from writing between the comparison and filesystem write. Browser tests covered saves, stale-content conflicts, unsaved-change protection and line endings. The open UTF-8 buffer can be downloaded with unsaved edits, retaining CRLF and the original mixed endings for read-only files. This is a browser copy, which can differ from later disk changes; it does not reveal the server folder. Saved binary-file downloads were added later as described above.
 
 - A disposable Git fixture verified the browser diff contains staged and working-tree changes; MCP checks exercised truncation across multibyte boundaries without a panic.
 

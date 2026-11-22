@@ -660,6 +660,7 @@
               <button id="repositoryDiffButton" type="button" class="secondary" disabled>Show Git diff</button>
               <pre id="repositoryDiff" style="white-space: pre-wrap; overflow-wrap: anywhere; max-height: 24rem; overflow: auto"></pre>
               <label><span class="label">Filter workspace files</span><input id="repositoryTreeFilter" placeholder="Filter by name or path" /></label><button id="refreshRepositoryTree" type="button" class="secondary" disabled>Refresh file tree</button>
+              <span class="empty">Download retrieves the saved server file (up to 8 MiB), including binary files.</span>
               <div id="repositoryTree" class="tree"></div><div id="repositoryTreeEmpty" class="empty" hidden>No matching files.</div>
               <div id="repositoryFileTabs" class="button-row" aria-label="Open workspace files"></div>
               <button type="button" class="secondary" id="toggleCodeEditor">Use code editor</button>
@@ -4520,14 +4521,34 @@
             const details = document.createElement("details"), summary = document.createElement("summary"); summary.textContent = node.name;
             details.dataset.treePath = node.relative_path; details.appendChild(summary); appendNodes(details, node.children || []); parent.appendChild(details);
           } else {
+            const row = document.createElement("div"); row.className = "button-row"; row.dataset.treePath = node.relative_path;
             const button = document.createElement("button"); button.type = "button"; button.className = "secondary"; button.textContent = node.name;
-            button.dataset.treePath = node.relative_path; button.addEventListener("click", () => void inspectFile(repositoryId, node.relative_path)); parent.appendChild(button);
+            button.addEventListener("click", () => void inspectFile(repositoryId, node.relative_path)); row.appendChild(button);
+            const download = document.createElement("button"); download.type = "button"; download.className = "secondary"; download.textContent = "Download";
+            download.setAttribute("aria-label", `Download saved ${node.relative_path}`);
+            download.addEventListener("click", () => void downloadSavedRepositoryFile(repositoryId, node.relative_path, download)); row.appendChild(download); parent.appendChild(row);
           }
         });
       }
       appendNodes(el.repositoryTree, tree);
       if (!tree.length) el.repositoryTree.textContent = "No visible files.";
       filterRepositoryTree();
+    }
+    async function downloadSavedRepositoryFile(repositoryId, path, button) {
+      const root = inspectedRepositoryRoot;
+      if (!root || repositoryId !== inspectedRepositoryId) return;
+      button.disabled = true;
+      try {
+        const result = await request("/api/mobile/repository-inspect", { method:"POST", body:{ action:"read_repository_binary", repository_id:repositoryId, relative_path:path, expected_root:root } });
+        if (repositoryId !== inspectedRepositoryId || root !== inspectedRepositoryRoot) throw new Error("Workspace changed; reopen it before downloading.");
+        const decoded = atob(result.content_base64), bytes = new Uint8Array(decoded.length);
+        for (let i = 0; i < decoded.length; i++) bytes[i] = decoded.charCodeAt(i);
+        const url = URL.createObjectURL(new Blob([bytes], { type:"application/octet-stream" }));
+        const anchor = document.createElement("a"); anchor.href = url; anchor.download = path.split("/").pop() || "workspace-file";
+        document.body.appendChild(anchor); anchor.click(); anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+        setStatus("Saved workspace file downloaded", "ok");
+      } catch (error) { setStatus(error.message || String(error), "error"); }
+      finally { button.disabled = false; }
     }
     document.getElementById("refreshRepositoryTree").addEventListener("click", async () => {
       const repositoryId = inspectedRepositoryId;

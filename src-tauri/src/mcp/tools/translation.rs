@@ -111,6 +111,7 @@ pub(super) fn translate_first_class_tool(
         }
         "repositories.trees.list" => ("aruvi_repositories", "list_repository_tree"),
         "repositories.files.read" => ("aruvi_repositories", "read_repository_file"),
+        "repositories.files.read_binary" => ("aruvi_repositories", "read_repository_binary"),
         "repositories.files.write" => ("aruvi_repositories", "write_repository_file"),
         "repositories.files.get_sha256" => ("aruvi_repositories", "get_repository_file_sha256"),
         "repositories.files.apply_patch" => ("aruvi_repositories", "apply_repository_patch"),

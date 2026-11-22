@@ -979,24 +979,41 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       }
       expect(limitedDiffs.some((diff) => diff.endsWith("�"))).toBe(true);
       await expect(page.locator("#repositoryTree")).not.toContainText("node_modules");
+      await page.getByLabel("Filter workspace files").fill("nested/binary.bin");
+      const binaryDownload = page.waitForEvent("download");
+      await page.getByRole("button", { name: "Download saved nested/binary.bin" }).click();
+      const downloaded = await binaryDownload;
+      expect(downloaded.suggestedFilename()).toBe("binary.bin");
+      const chunks = []; for await (const chunk of await downloaded.createReadStream()) chunks.push(chunk);
+      expect(Buffer.concat(chunks)).toEqual(Buffer.from([0, 255, 17, 128, 1]));
+      const binaryArgs = { repository_id:repositoryId, relative_path:"nested/binary.bin", expected_root:process.env.ARUVI_TEST_REPOSITORY_PATH };
+      const binary = await call("aruvi_repositories", "read_repository_binary", binaryArgs);
+      expect(Buffer.from(binary.content_base64, "base64")).toEqual(Buffer.from([0, 255, 17, 128, 1]));
+      const binaryBody = { action:"read_repository_binary", ...binaryArgs };
+      expect((await request.post("/api/mobile/repository-inspect", { data:binaryBody })).status()).toBe(401);
+      expect((await request.post("/api/mobile/repository-inspect", { headers:{ Authorization:`Bearer ${token}` }, data:{...binaryBody, expected_root:"/stale"} })).status()).toBe(409);
+      for (const path of ["../outside", "outside-link", "patch-alias.txt"]) {
+        const rejected = await request.post("/api/mobile/repository-inspect", { headers:{ Authorization:`Bearer ${token}` }, data:{...binaryBody, relative_path:path} });
+        expect(rejected.status()).toBe(400);
+      }
       await page.getByLabel("Filter workspace files").fill("NESTED/target");
-      await expect(page.locator("#repositoryTree").getByRole("button", { name: "target-file.txt" })).toBeVisible();
+      await expect(page.locator("#repositoryTree").getByRole("button", { name: "target-file.txt", exact: true })).toBeVisible();
       await expect(page.locator("#repositoryTree button").filter({ hasText: "inspection.txt" })).toBeHidden();
-      await page.locator("#repositoryTree").getByRole("button", { name: "target-file.txt" }).click();
+      await page.locator("#repositoryTree").getByRole("button", { name: "target-file.txt", exact: true }).click();
       await expect(page.getByLabel("Selected file contents")).toHaveValue("nested fixture\n");
       if (copilotProvider) {
         await expect(page.locator("#repositoryCopilotResult")).toBeEmpty();
         await page.getByRole("button", { name: /Close .*target-file\.txt/ }).click();
         await expect(page.locator("#repositoryCopilotResult")).toContainText("Continue without a file");
         await page.getByRole("button", { name: "New conversation", exact: true }).click();
-        await page.locator("#repositoryTree").getByRole("button", { name: "target-file.txt" }).click();
+        await page.locator("#repositoryTree").getByRole("button", { name: "target-file.txt", exact: true }).click();
         await expect(page.getByLabel("Selected file contents")).toHaveValue("nested fixture\n");
       }
       await page.getByLabel("Filter workspace files").fill("no-such-file");
       await expect(page.locator("#repositoryTreeEmpty")).toBeVisible();
       await page.getByLabel("Filter workspace files").fill("");
       await expect(page.locator("#repositoryTreeEmpty")).toBeHidden();
-      await page.locator("#repositoryTree").getByRole("button", { name: "inspection.txt" }).click();
+      await page.locator("#repositoryTree").getByRole("button", { name: "inspection.txt", exact: true }).click();
       await expect(page.getByLabel("Selected file contents")).toHaveValue("workspace inspection fixture\n");
       await page.getByLabel("Selected file contents").fill("saved from browser\n");
       await page.getByLabel("Selected file contents").press("ControlOrMeta+s");
@@ -1005,7 +1022,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       await page.getByLabel("Selected file contents").fill("unsaved during refresh\n");
       await call("aruvi_repositories", "write_repository_file", { repository_id: repositoryId, relative_path: "new-after-open.txt", content: "new file\n" });
       await page.getByRole("button", { name: "Refresh file tree" }).click();
-      await expect(page.locator("#repositoryTree").getByRole("button", { name: "new-after-open.txt" })).toBeVisible();
+      await expect(page.locator("#repositoryTree").getByRole("button", { name: "new-after-open.txt", exact: true })).toBeVisible();
       await expect(page.getByLabel("Selected file contents")).toHaveValue("unsaved during refresh\n");
       await page.getByRole("button", { name: "Discard file edits" }).click();
       await expect(page.getByLabel("Selected file contents")).toHaveValue("saved from browser\n");
@@ -1168,7 +1185,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
         const afterLong = await (await request.get(process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/copilot/last"))).json();
         expect(afterLong.messages.map((entry) => entry.role)).toEqual(["system", "user"]);
         await page.getByRole("button", { name: "Refresh file tree" }).click();
-        await page.locator("#repositoryTree").getByRole("button", { name: "patch-alias.txt" }).click();
+        await page.locator("#repositoryTree").getByRole("button", { name: "patch-alias.txt", exact: true }).click();
         await expect(page.getByLabel("Selected file contents")).toHaveValue("alpha\nmiddle\nbeta\n");
         await page.getByLabel("Selected file contents").fill("unsaved patch target\n");
         await page.locator("#repositoryTree").getByRole("button", { name: "inspection.txt", exact: true }).click();
@@ -1292,7 +1309,7 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       }
       await page.getByLabel("Selected file contents").fill("unsaved browser edit\n");
       await expect(page.getByRole("button", { name: "Ask about unsaved file" })).toBeEnabled();
-      await page.locator("#repositoryTree").getByRole("button", { name: "windows.txt" }).click();
+      await page.locator("#repositoryTree").getByRole("button", { name: "windows.txt", exact: true }).click();
       await expect(page.getByLabel("Selected file contents")).toHaveValue("windows line\n");
       await page.getByLabel("Selected file contents").fill("second unsaved edit\n");
       await expect(page.locator("#repositoryFileTabs")).toContainText("inspection.txt • unsaved");
@@ -1323,13 +1340,13 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       await expect(page.getByLabel("Selected file contents")).toHaveValue("unsaved browser edit\n");
       expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: "inspection.txt" })).content).toBe("concurrent edit\n");
       await page.getByRole("button", { name: "Discard file edits" }).click();
-      await page.locator("#repositoryTree").getByRole("button", { name: "windows.txt" }).click();
+      await page.locator("#repositoryTree").getByRole("button", { name: "windows.txt", exact: true }).click();
       await expect(page.getByLabel("Selected file contents")).toHaveValue("windows line\n");
       await page.getByLabel("Selected file contents").fill("updated windows\n");
       await page.getByRole("button", { name: "Save file", exact: true }).click();
       await expect(page.locator("#status")).toHaveText("File saved");
       expect((await call("aruvi_repositories", "read_repository_file", { repository_id: repositoryId, relative_path: "windows.txt" })).content).toBe("updated windows\r\n");
-      await page.locator("#repositoryTree").getByRole("button", { name: "mixed.txt" }).click();
+      await page.locator("#repositoryTree").getByRole("button", { name: "mixed.txt", exact: true }).click();
       await expect(page.getByLabel("Selected file contents")).toHaveAttribute("readonly", "");
       await expect(page.locator("#status")).toContainText("mixed line endings");
       const tooLarge = { repository_id: repositoryId, relative_path: "inspection.txt", expected_content: "concurrent edit\n", content: "x".repeat(2097153) };

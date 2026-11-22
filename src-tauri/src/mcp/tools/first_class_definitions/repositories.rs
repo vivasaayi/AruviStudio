@@ -118,6 +118,19 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
             ),
         ),
         first_class_tool(
+            "repositories.files.read_binary",
+            "Read Binary Repository File",
+            "Read a saved file up to 8 MiB as base64; optionally reject a changed workspace root.",
+            object_schema(
+                vec![
+                    ("repositoryId", string_property("The repository id.")),
+                    ("relativePath", string_property("Repository-relative file path.")),
+                    ("expectedRoot", string_property("Optional workspace root captured when browsing.")),
+                ],
+                &["repositoryId", "relativePath"],
+            ),
+        ),
+        first_class_tool(
             "repositories.files.write",
             "Write Repository File",
             "Write a file in a repository.",
