@@ -11,10 +11,11 @@ const host = resolve(process.env.ARUVI_TEST_MODEL_HOST || "../aruvi-model-host-s
 const model = process.env.ARUVI_CODING_TEST_MODEL || "qwen25-coder-7b-q4";
 const arguments_ = process.argv.slice(2);
 const packaged = arguments_.includes("--packaged");
+const cancelStream = arguments_.includes("--cancel-stream");
 const scopeIndex = arguments_.indexOf("--credential-scope");
 const credentialScope = scopeIndex < 0 ? "management" : arguments_[scopeIndex + 1];
 if (!["management", "inference"].includes(credentialScope)) throw new Error("Credential scope must be management or inference");
-if (arguments_.filter((value) => value === "--credential-scope").length > 1 || arguments_.some((value, index) => value !== "--packaged" && value !== "--credential-scope" && !(scopeIndex >= 0 && index === scopeIndex + 1))) throw new Error("Usage: host-model-quickstart [--packaged] [--credential-scope management|inference]");
+if (arguments_.filter((value) => value === "--credential-scope").length > 1 || arguments_.some((value, index) => value !== "--packaged" && value !== "--cancel-stream" && value !== "--credential-scope" && !(scopeIndex >= 0 && index === scopeIndex + 1))) throw new Error("Usage: host-model-quickstart [--packaged] [--cancel-stream] [--credential-scope management|inference]");
 const nativeEnv = { ...process.env, ARUVI_MODEL_HOST_ENV: "native" };
 const hostPlan = JSON.parse(execFileSync("bash", ["scripts/env", "worktree", "plan"], { cwd: host, env: nativeEnv, encoding: "utf8" }));
 const hostStatus = JSON.parse(execFileSync("bash", ["scripts/env", "worktree", "status"], { cwd: host, env: nativeEnv, encoding: "utf8" }));
@@ -101,6 +102,32 @@ try {
   const reply = await completion;
   if (!reply.ok()) throw new Error(`Model Host completion failed (${reply.status()})`);
   assert.match((await reply.json()).content, /sumEven/);
+  if (cancelStream) {
+    await page.getByLabel("Stream response").check();
+    const assistant = page.locator("#chatConversation .bubble.assistant");
+    const before = await assistant.count();
+    await page.locator("#chatComposer").fill("Explain twenty different JavaScript array methods in detail, with a separate code example for each method.");
+    const stream = page.waitForResponse((response) => response.url().endsWith("/api/mobile/chat/stream") && response.request().method() === "POST", { timeout: 120000 });
+    await page.locator("#chatSendButton").click();
+    const streamResponse = await stream;
+    assert.equal(streamResponse.ok(), true, `Streaming API returned ${streamResponse.status()}`);
+    await page.waitForFunction((previous) => {
+      const replies = document.querySelectorAll("#chatConversation .bubble.assistant");
+      return replies.length > previous && replies[replies.length - 1].textContent.trim().length > 0;
+    }, before, { timeout: 120000 });
+    assert.equal(await page.locator("#chatStopButton").isEnabled(), true, "The stream finished before it could be stopped");
+    await page.locator("#chatStopButton").click();
+    await page.locator("#status").getByText("Stream stopped", { exact: true }).waitFor({ timeout: 30000 });
+    await page.waitForFunction(() => document.querySelector("#chatStopButton").disabled && !document.querySelector("#chatSendButton").disabled);
+    await page.getByLabel("Stream response").uncheck();
+    await page.locator("#chatComposer").fill("What is 2 plus 2? Reply with the number only.");
+    const next = page.waitForResponse((response) => response.url().endsWith("/api/mobile/chat/completions") && response.request().method() === "POST", { timeout: 120000 });
+    await page.locator("#chatSendButton").click();
+    const nextResponse = await next;
+    assert.equal(nextResponse.ok(), true, `Chat after cancellation returned ${nextResponse.status()}`);
+    assert.match((await nextResponse.json()).content, /4/);
+    console.log("Real Model Host browser stream stopped after partial output; a subsequent chat completed.");
+  }
   console.log(`Disposable ${packaged ? "packaged" : "source-HTML"} ${credentialScope}-credential quick start discovered a Model Host model, registered it through the browser, listed it through MCP, and completed browser coding chat.`);
 } finally {
   try { if (browser) await browser.close(); }

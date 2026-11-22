@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Real browser stream cancellation
+
+The disposable packaged Model Host quick-start fixture now accepts
+`--cancel-stream`. After browser setup and a real coding chat, it starts a long
+stream, waits for visible partial output, presses Stop, checks the stopped state
+and enabled controls, then completes another chat. It passed against the
+`03da1d0`-derived branch image and real `qwen25-coder-7b-q4` host using the
+existing management-capable fixture credential. The disposable container and
+its data were removed. The separate simulated scoped-credential quick-start
+also passed after this fixture change. This verifies browser recovery and a
+subsequent request, not whether the Model Host immediately stops all underlying
+computation or how a physical desktop window behaves.
+
 ### File-aware Copilot branch revalidation
 
 The worktree runtime derived from `03da1d0` passed two disposable
