@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### MCP catalog read parity in progress
+
+The desktop exposes capability lookup, product-wide capability listing and a
+product-tree summary through shared Rust queries. MCP now has corresponding
+`aruvi_catalog` actions `get_capability`, `list_product_capabilities` and
+`summarize_product_tree`, plus first-class `catalog.capabilities.get`,
+`catalog.capabilities.list_for_product` and `catalog.products.summarize_tree`
+tools. Tests cover discovery, both naming styles, hierarchy order, product
+isolation and missing records. These changes are not yet built, tested or
+deployed; the broader desktop-to-web and MCP inventory remains open.
+
 ### Real browser stream cancellation
 
 The disposable packaged Model Host quick-start fixture now accepts

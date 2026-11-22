@@ -308,6 +308,17 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 product_repo::list_capabilities(&state.db, &product_area_id).await?,
             )
         }
+        "list_product_capabilities" => {
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            action_result(
+                "list_product_capabilities",
+                product_repo::list_product_capabilities(&state.db, &product_id).await?,
+            )
+        }
+        "get_capability" => {
+            let id = args.required_string(&["id"], "id")?;
+            action_result("get_capability", product_repo::get_capability(&state.db, &id).await?)
+        }
         "update_capability" => {
             let id = args.required_string(&["id"], "id")?;
             let name = args.optional_string(&["name"])?;
@@ -458,6 +469,13 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 tree_value["productAreas"] = product_areas;
             }
             action_result("get_product_tree", tree_value)
+        }
+        "summarize_product_tree" => {
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            action_result(
+                "summarize_product_tree",
+                product_repo::summarize_product_tree(&state.db, &product_id).await?,
+            )
         }
         action @ ("list_references" | "list_product_references") => {
             let scope_type = args.optional_string(&["scope_type", "scopeType"])?;

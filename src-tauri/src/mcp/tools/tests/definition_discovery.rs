@@ -83,6 +83,19 @@ fn discovery_exposes_catalog_reference_tools() {
 }
 
 #[test]
+fn discovery_exposes_catalog_read_parity_tools() {
+    let definitions = definitions();
+    for (name, argument) in [
+        ("catalog.capabilities.get", "id"),
+        ("catalog.capabilities.list_for_product", "productId"),
+        ("catalog.products.summarize_tree", "productId"),
+    ] {
+        let tool = definitions.iter().find(|tool| tool.name == name).expect(name);
+        assert!(tool.input_schema["required"].as_array().unwrap().contains(&json!(argument)));
+    }
+}
+
+#[test]
 fn discovery_exposes_bulk_import_tools() {
     let definitions = definitions();
     assert!(definitions

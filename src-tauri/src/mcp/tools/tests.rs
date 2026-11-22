@@ -69,6 +69,58 @@ async fn create_test_work_item(state: &AppState, id: &str, product_id: &str, tit
 }
 
 #[tokio::test]
+async fn catalog_exposes_desktop_capability_reads_and_tree_summary() {
+    let state = create_test_state("catalog_read_parity").await;
+    create_test_product(&state, "catalog-product-a").await;
+    create_test_product(&state, "catalog-product-b").await;
+    let area = dispatch_tool(&state, "catalog.product_areas.create", json!({
+        "productId": "catalog-product-a", "name": "Inventory"
+    })).await.unwrap();
+    let area_id = area["result"]["id"].as_str().unwrap();
+    let capability = dispatch_tool(&state, "catalog.capabilities.create", json!({
+        "productAreaId": area_id, "name": "Stock", "nodeKind": "capability"
+    })).await.unwrap();
+    let capability_id = capability["result"]["id"].as_str().unwrap();
+    let feature = dispatch_tool(&state, "catalog.capabilities.create", json!({
+        "productAreaId": area_id, "parentCapabilityId": capability_id,
+        "name": "Updates", "nodeKind": "feature"
+    })).await.unwrap();
+    let feature_id = feature["result"]["id"].as_str().unwrap();
+
+    let get = dispatch_tool(&state, "catalog.capabilities.get", json!({"id": feature_id})).await.unwrap();
+    assert_eq!(get["result"]["id"], feature_id);
+    let legacy_get = dispatch_tool(&state, "aruvi_catalog", json!({
+        "action": "get_capability", "arguments": {"id": feature_id}
+    })).await.unwrap();
+    assert_eq!(get["result"], legacy_get["result"]);
+    assert!(dispatch_tool(&state, "catalog.capabilities.get", json!({"id": "missing"})).await.is_err());
+
+    let list = dispatch_tool(&state, "catalog.capabilities.list_for_product", json!({"productId": "catalog-product-a"})).await.unwrap();
+    let rows = list["result"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["id"], capability_id);
+    assert_eq!(rows[1]["id"], feature_id);
+    let legacy_list = dispatch_tool(&state, "aruvi_catalog", json!({
+        "action": "list_product_capabilities", "arguments": {"product_id": "catalog-product-a"}
+    })).await.unwrap();
+    assert_eq!(list["result"], legacy_list["result"]);
+    let other = dispatch_tool(&state, "aruvi_catalog", json!({
+        "action": "list_product_capabilities", "arguments": {"product_id": "catalog-product-b"}
+    })).await.unwrap();
+    assert!(other["result"].as_array().unwrap().is_empty());
+
+    let summary = dispatch_tool(&state, "catalog.products.summarize_tree", json!({"productId": "catalog-product-a"})).await.unwrap();
+    assert_eq!(summary["result"]["product_area_count"], 1);
+    assert_eq!(summary["result"]["capability_count"], 2);
+    assert_eq!(summary["result"]["leaf_node_count"], 1);
+    let legacy_summary = dispatch_tool(&state, "aruvi_catalog", json!({
+        "action": "summarize_product_tree", "arguments": {"product_id": "catalog-product-a"}
+    })).await.unwrap();
+    assert_eq!(summary["result"], legacy_summary["result"]);
+    assert!(dispatch_tool(&state, "catalog.products.summarize_tree", json!({"productId": "missing"})).await.is_err());
+}
+
+#[tokio::test]
 async fn work_items_list_supports_opt_in_pagination_metadata() {
     let state = create_test_state("work_item_list_pagination").await;
     create_test_product(&state, "mcp-product-page").await;

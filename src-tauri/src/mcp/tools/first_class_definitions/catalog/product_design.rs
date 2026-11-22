@@ -107,6 +107,21 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
             ),
         ),
         first_class_tool(
+            "catalog.capabilities.list_for_product",
+            "List Product Capabilities",
+            "List a product's capabilities and features in hierarchy order.",
+            object_schema(
+                vec![("productId", string_property("The product id."))],
+                &["productId"],
+            ),
+        ),
+        first_class_tool(
+            "catalog.capabilities.get",
+            "Get Capability",
+            "Get a capability or feature by id.",
+            object_schema(vec![("id", string_property("The capability id."))], &["id"]),
+        ),
+        first_class_tool(
             "catalog.capabilities.create",
             "Create Capability",
             "Create a capability or feature inside the product management hierarchy. Feature is the product-management leaf; stories and tasks live in work items.",

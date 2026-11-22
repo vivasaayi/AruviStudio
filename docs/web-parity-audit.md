@@ -151,6 +151,11 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+The current source adds MCP direct capability lookup, product-wide capability
+listing and product-tree summary actions corresponding to the desktop Rust
+queries. The definitions and dispatch tests are pending hosted validation;
+see the current goal checkpoint for deployment status.
+
 #### CI artifact delivery and service dependency
 
 The desktop CI run panel can reveal a verified artifact in Finder. The browser

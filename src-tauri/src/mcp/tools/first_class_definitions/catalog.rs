@@ -66,6 +66,15 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
             ),
         ),
         first_class_tool(
+            "catalog.products.summarize_tree",
+            "Summarize Product Tree",
+            "Count product areas, capabilities and leaf nodes for a product.",
+            object_schema(
+                vec![("productId", string_property("The product id."))],
+                &["productId"],
+            ),
+        ),
+        first_class_tool(
             "catalog.references.list",
             "List Catalog References",
             "List scoped notes, external docs, evidence, architecture references, standards, and design packets attached to product book scopes.",
