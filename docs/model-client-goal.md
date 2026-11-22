@@ -30,6 +30,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Portfolio strategy scope
+
+Browser Products now displays all products or those linked within a selected
+strategy subtree, and shows the unlinked count. Clicking a result loads its
+product summary. A disposable native-server browser/MCP fixture passed parent
+and child scope filtering, navigation, and refresh after the selected strategy
+was deleted. This covers a desktop portfolio action but is not a complete
+portfolio audit. Clean images and worktree deployment remain pending; the Docker
+disk condition below still prevents a safe restart.
+
 ### Workflow-stage artifact paging
 
 The browser workflow-stage view now offers the same bounded artifact paging

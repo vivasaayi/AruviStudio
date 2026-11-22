@@ -641,6 +641,9 @@
             <div class="panel-body stack">
               <p class="empty">Changes apply immediately. Refresh before editing if another user may have changed the portfolio.</p>
               <button type="button" class="secondary" id="portfolioRefresh">Refresh portfolio</button>
+              <label><span class="label">View products in strategy</span><select id="portfolioScope"><option value="">All products</option></select></label>
+              <div id="portfolioScopeSummary" class="empty"></div>
+              <div id="portfolioScopeProducts" class="tool-list"></div>
               <form id="strategyCreate" class="stack">
                 <label><span class="label">Strategy name</span><input name="name" required maxlength="200" /></label>
                 <label><span class="label">Strategy kind</span><select name="kind"><option value="strategic_product_area">Strategic product area</option><option value="domain">Domain</option><option value="sub_domain">Sub-domain</option></select></label>
@@ -2927,7 +2930,7 @@
     }
 
     const portfolioElement = (id) => document.getElementById(id);
-    let portfolioLinks = [];
+    let portfolioLinks = [], portfolioNodes = [];
     const dependencyScopeState = { source: {generation: 0, loading: false, error: false}, target: {generation: 0, loading: false, error: false} };
     function updateDependencyReadiness() {
       const scopes = Object.values(dependencyScopeState);
@@ -2965,6 +2968,21 @@
       const button = document.createElement("button"); button.type = "button"; button.className = "secondary"; button.textContent = label;
       button.addEventListener("click", action); return button;
     }
+    function renderPortfolioScope() {
+      const scope = portfolioElement("portfolioScope").value, ids = new Set(scope ? [scope] : []);
+      let changed = true;
+      while (changed) { changed = false; for (const node of portfolioNodes) if (ids.has(node.parent_node_id) && !ids.has(node.id)) { ids.add(node.id); changed = true; } }
+      const linked = new Set(portfolioLinks.filter((link) => !scope || ids.has(link.strategy_node_id)).map((link) => link.product_id));
+      const products = scope ? state.products.filter((product) => linked.has(product.id)) : state.products;
+      const unlinked = state.products.filter((product) => !portfolioLinks.some((link) => link.product_id === product.id)).length;
+      portfolioElement("portfolioScopeSummary").textContent = `${products.length} product(s) in scope · ${unlinked} unlinked product(s)`;
+      const list = portfolioElement("portfolioScopeProducts"); list.replaceChildren();
+      if (!products.length) { const empty = document.createElement("p"); empty.className = "empty"; empty.textContent = "No products in this strategy scope."; list.appendChild(empty); return; }
+      for (const product of products) {
+        const button = portfolioButton(product.name, () => { void loadProductSummary(product.id).catch((error) => setStatus(error.message || String(error), "error")); });
+        list.appendChild(button);
+      }
+    }
     async function portfolioChange(action, args) {
       try { await portfolioAction(action, args); await loadPortfolio(); setStatus("Portfolio updated", "ok"); }
       catch (error) { setStatus(error.message || String(error), "error"); }
@@ -2972,11 +2990,12 @@
     async function loadPortfolio() {
       try {
         const [nodes, links, dependencies] = await Promise.all([portfolioAction("list_strategy_nodes"), portfolioAction("list_product_strategy_links"), portfolioAction("list_product_dependencies")]);
-        portfolioLinks = links;
+        portfolioLinks = links; portfolioNodes = nodes;
         const names = new Map(state.products.map((p) => [p.id, p.name]));
         const nodeNames = new Map(nodes.map((n) => [n.id, n.name]));
         portfolioSelect(portfolioElement("strategyParent"), nodes, "No parent (root)");
         portfolioSelect(portfolioElement("strategyNode"), nodes, "Select strategy");
+        portfolioSelect(portfolioElement("portfolioScope"), nodes, "All products"); renderPortfolioScope();
         for (const id of ["strategyProduct", "dependencyProduct", "dependencyTarget"]) portfolioSelect(portfolioElement(id), state.products, "Select product");
         await Promise.all([loadDependencyCapabilities("source"), loadDependencyCapabilities("target")]);
         const list = portfolioElement("strategyList"); list.replaceChildren();
@@ -3019,6 +3038,7 @@
     }
     portfolioElement("portfolioSection").addEventListener("toggle", () => { if (portfolioElement("portfolioSection").open) void loadPortfolio(); });
     portfolioElement("portfolioRefresh").addEventListener("click", loadPortfolio);
+    portfolioElement("portfolioScope").addEventListener("change", renderPortfolioScope);
     portfolioElement("strategyCreate").addEventListener("submit", async (event) => {
       event.preventDefault(); const form = event.currentTarget.elements;
       await portfolioChange("create_strategy_node", {name:form.name.value.trim(), node_kind:form.kind.value, parent_node_id:form.parent.value || null, description:form.description.value.trim(), owner_label:form.owner.value.trim()});

@@ -368,6 +368,11 @@ changes. Strategy creation and updates validate under SQLite write transactions;
 legacy desktop/MCP updates that omit a snapshot remain last-write-wins, and
 browser strategy deletion compares the confirmed subtree and its links under a write lock. Browser link and unlink operations compare the product's complete link set under the same lock, including changes to the primary link. Legacy desktop/MCP link actions can still omit the optional snapshot.
 Native-window acceptance and broader comparison remain open. This is not complete portfolio parity.
+The browser portfolio now also offers an all-products or strategy-scope view,
+including products linked to descendant nodes and an unlinked-product count.
+Selecting a displayed product loads its summary. A disposable native-server
+browser test covered parent and child scopes, selection and removing a selected
+scope; clean-image and worktree deployment checks remain pending.
 
 #### Settings and outbound contact comparison — 2026-11-14
 
