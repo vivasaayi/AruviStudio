@@ -63,7 +63,8 @@ Piper/Whisper browser voice. A packaged independent model client passed 67
 tests and its pinned consumer passed real Model Host discovery, completion,
 streaming, JSON mode and token-limit checks. Full parity, physical audio and
 native-window checks, live external providers, Mac integration, and VPS staging
-remain open. Branch commits after `79be018` at this checkpoint change docs only.
+remain open. Later branch commits include desktop and product-root Planner
+binding; their clean build and worktree deployment remain pending.
 The backup is `/private/tmp/aruvi-deploy-79be018/pre-deploy.db`.
 
 ### Interim worktree deployment at `24ef166`
