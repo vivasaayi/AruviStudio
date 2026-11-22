@@ -28,8 +28,26 @@ suite passed 139 tests and the production frontend build passed. Twenty-six
 mocked-Tauri browser tests covered Planner, Direct Chat, Voice Chat and stream
 regressions; seven browser voice tests passed against an isolated native server,
 including suspended and interrupted resume. Input devices were simulated, not
-physical. The native server used a debug-reduced `rlib` build; Linux candidate
-and deployed-branch checks remain pending.
+physical. The native server used a debug-reduced `rlib` build.
+
+The `74da268` clean ARM64 image build and both hosted tests passed. Its archive
+checksum and source revision were verified. The worktree runs a derived image
+containing that server binary on the previous runtime, image ID
+`sha256:a58503cdb32b5d6e016b889cf0f3204a1002d30c2b990a57ae4d7b3e600cddb6`.
+It passed 60 isolated Linux workflow tests, 45 remote UI tests with one skipped,
+and the PDF outage check. After checking for active jobs and taking a SQLite
+backup that passed `quick_check`, the previous image was retained and the
+worktree updated. Restart acceptance, browser-origin MCP, real-model coding,
+synthetic MCP speech and manual and continuous browser voice using synthetic
+audio with real Whisper all passed. This is not staging or hardware acceptance.
+
+An isolated ad-hoc-signed desktop app was also rebuilt for native comparison.
+An initial MCP binary build exhausted disk during debug-symbol stripping: Cargo
+reported success with a warning, but the output was not a valid executable.
+The bad output was discarded, the package build artifacts were cleaned, and a
+separate rebuild produced a valid ARM64 executable. The resulting bundle passed
+signature verification. It is a debug fixture, not a notarized release, and has
+not been opened in a native window.
 
 ### Manual browser voice and suspended audio contexts
 
