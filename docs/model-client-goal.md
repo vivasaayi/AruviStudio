@@ -12,6 +12,30 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Root-area repair: hosted and real-model validation
+
+GitHub Actions runs `44999813243` and `44999813226` passed at `6b86e00`,
+including the targeted draft-repair regression, 341 Rust unit tests (eight
+ignored), integration and frontend checks, and clean ARM64/AMD64 packaged
+image suites. The streamed ARM64 archive SHA-256 matched
+`48ba8e47514d73b8b39653d16b6d797007dfec3f2b910e97b53a13ae43fc9c52`;
+the server layer matched
+`7e3c4419b9bcf913dc1dfbdd1dbeba60a36580b7b5575b1534a6a71978295fd7`,
+and the extracted binary was
+`b66999ff7a7d361656c81a3974d02e4918220266203f004a8e3b3e45898d113a`.
+
+A disposable browser/MCP workflow used that binary through the verified
+read-only mount and real `qwen25-coder-7b-q4`. The first run reached
+confirmation but its model trace included an unrequested feature proposal;
+the old fixture checked the requested capability but did not rule out extra
+nodes. The fixture now requires exactly the product, one inventory area and
+one stock capability before confirmation. A second run passed this stricter
+check and MCP verified the confirmed capability; its selected-node turn needed
+one model call without retries. These two samples do not establish general
+model reliability or eliminate the need to review proposals. The Docker
+worktree still runs the earlier `c48ee96`-derived runtime because internal
+Docker storage remains nearly full; this is not integration or staging.
+
 ### Read-only binary planner fixture and root-area repair
 
 The disposable real-model planner fixture now accepts `--server-binary` and

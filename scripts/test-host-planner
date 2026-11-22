@@ -148,9 +148,14 @@ try:
         print("Model output:", json.dumps(model_events, ensure_ascii=False)[:6000], flush=True)
         raise ValueError("Expected an inventory-related product area in the staged draft; response: " + json.dumps(result, ensure_ascii=False)[:3000])
     if args.selected_node:
-        inventory = next(node for node in nodes if node.get("node_type") == "product_area" and "inventory" in node.get("label", "").lower())
-        if not any(node.get("node_type") == "capability" and "stock" in node.get("label", "").lower() for node in flatten(inventory.get("children"))):
-            raise ValueError("Expected a stock-related capability beneath the selected inventory area: " + json.dumps(result, ensure_ascii=False)[:3000])
+        areas_in_draft = [node for node in nodes if node.get("node_type") == "product_area"]
+        if len(areas_in_draft) != 1 or "inventory" not in areas_in_draft[0].get("label", "").lower():
+            raise ValueError("Expected exactly one inventory product area in the draft")
+        children = areas_in_draft[0].get("children") or []
+        if len(children) != 1 or children[0].get("node_type") != "capability" or "stock" not in children[0].get("label", "").lower() or children[0].get("children"):
+            raise ValueError("Expected exactly one stock capability and no additional child nodes; draft: " + json.dumps(result.get("draft_tree_nodes"), ensure_ascii=False)[:3000])
+        if len(nodes) != 3:
+            raise ValueError("Draft contains nodes beyond the requested product, area and capability")
     before = call("aruvi_catalog", "list_product_areas", {"product_id": product["id"]})
     if before:
         raise ValueError("Draft was persisted before confirmation")
