@@ -63,6 +63,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Test independent model client consumer
+        run: cargo test --locked --manifest-path validation/model-client-consumer/Cargo.toml
+
       - name: Install frontend dependencies
         run: npm ci
 
