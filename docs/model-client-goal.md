@@ -33,7 +33,9 @@ guard. A disposable native server and headless Chrome repeated the browser
 buffered and streaming checks after another process changed the path; an
 existing editor test also passed. The full native Rust library suite passed
 348 tests with eight ignored. The server guide now describes current
-unsaved-file, streaming and patch behavior. Hosted checks and updated branch
+unsaved-file, streaming and patch behavior. The fixture also sent a buffered
+request while another process held the SQLite reservation and changed the root;
+the request waited and rejected the newly stale root. Hosted checks and updated branch
 deployment remain pending at this checkpoint.
 
 ### Real-model delivery revalidation after URL update
