@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### MCP file digest workspace snapshot in progress
+### MCP file digest workspace snapshot: branch validation
 
 `aruvi_repositories.get_repository_file_sha256` and
 `repositories.files.get_sha256` now return `workspace_root` alongside the
@@ -28,8 +28,30 @@ Focused Rust tests covered both MCP names, discovery, unchanged hashes and
 stale-root rejection. A disposable native server and browser fixture verified
 the returned pair and rejection while another process held a workspace change.
 The full native Rust library suite passed 348 tests with eight ignored. The
-headless guide documents the paired values. Hosted clean-image checks and branch
-deployment remain pending at this checkpoint.
+headless guide documents the paired values.
+
+Hosted test workflows `45024867100` and `45024871343` passed; clean ARM64 and
+AMD64 image validation in run `45024867091` passed for source `0bcec7f`. Later
+commits add only test and checkpoint material. The worktree candidate used the
+hash-verified ARM64 server from the clean image on the existing runtime image,
+so it is derived rather than the complete clean image. Its image ID is
+`sha256:91350261778367e7fd54df8d0afb3dd8dd7bc785d3a57621dd210edd339ab57a`;
+the server SHA-256 is
+`9fe71ac99bb2a9b83e1e50e8ee7ddfda8db8fa0e701893f3c0537d3958227f05`.
+It passed 62 workflow tests, 50 browser tests (one skipped), simulated CI, and
+PDF isolation and outage checks. In a disposable real Model Host fixture, the
+paired MCP snapshot was used for web and MCP file chat, patch preview and
+application; a browser discussed an unsaved buffer and applied a reviewed real
+model proposal. This is one model sample using a management-capable credential.
+
+After an active-job check and verified database backup, the app and PDF
+containers were updated. Restart acceptance checked product persistence, MCP,
+mobile authorization and PDF; Chrome checked all 13 sections at phone and
+desktop widths and published-port MCP origin rules. Real local coding, MCP
+speech with synthetic audio and continuous browser voice with synthetic audio
+passed. The previous image is tagged for rollback. Physical desktop and audio,
+live third-party providers, deployed Aruvici, Mac integration and VPS staging
+remain unverified.
 
 ### File Copilot workspace-root guard: branch validation
 
