@@ -52,13 +52,27 @@ pub(crate) async fn commit_draft_plan_in_conn(
         let product_evidence = string_field(details, "evidence");
         let existing_product = match product_core_repo::get_product_in_conn(conn, &product_node.id).await {
             Ok(product) => Some(product),
-            Err(_) => product_core_repo::list_products_in_conn(conn)
-                .await?
-                .into_iter()
-                .find(|product| {
-                    normalize_name(Some(product.name.as_str()))
-                        == normalize_name(Some(product_node.name.as_str()))
-                }),
+            Err(AppError::NotFound(_)) => {
+                if string_field(details, "type").as_deref() == Some("update_product") {
+                    return Err(AppError::Validation("The product linked to this draft no longer exists; review the design before applying it.".into()));
+                }
+                let mut matches = product_core_repo::list_products_in_conn(conn)
+                    .await?
+                    .into_iter()
+                    .filter(|product| {
+                        normalize_name(Some(product.name.as_str()))
+                            == normalize_name(Some(product_node.name.as_str()))
+                    });
+                let first = matches.next();
+                if matches.next().is_some() {
+                    return Err(AppError::Validation(format!(
+                        "Multiple products match draft product \"{}\"; resolve its identity before applying the design.",
+                        product_node.name
+                    )));
+                }
+                first
+            }
+            Err(error) => return Err(error),
         };
         let product = if let Some(existing_product) = existing_product {
             product_core_repo::update_product_in_conn(

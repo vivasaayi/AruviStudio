@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Planner product identity on commit (in validation)
+
+Applying a staged design now resolves a persisted product by ID first. A draft
+marked as an update is rejected if its linked product no longer exists; it is
+not rebound by name. For older create drafts with generated IDs, a unique name
+match remains supported, but multiple matching products are rejected instead
+of silently selecting one. Database errors are no longer treated as missing
+products. A disposable database test checks that ambiguous and missing update
+targets leave both same-name products unchanged and that an exact ID updates
+only its product. Broader regression and deployment checks are pending. This
+does not yet bind existing product areas or capabilities to draft nodes.
+The native Planner turn regression group passed 23 tests.
+
 ### Scoped Planner model tool reads (in validation)
 
 Planner model tool calls for a selected product now resolve its tree and work
@@ -38,9 +51,9 @@ explicit voice clear remains available to discard a staged draft deliberately.
 Mobile confirmation accepts legacy empty bodies; a nonempty malformed request
 must be rejected rather than interpreted as an unscoped confirmation. Existing
 clients that omit product scope remain unscoped; unknown confirmation fields
-are rejected. For older drafts with a root ID
-that no longer identifies a persisted product, matching falls back to the root
-name, which cannot disambiguate deleted or historical same-name products.
+are rejected. A draft marked as an update cannot fall back by name if its linked
+product has disappeared. Older create drafts with a generated root ID can still
+fall back to a unique root name; ambiguous same-name matches are rejected.
 
 An isolated Rust test covers same-name persisted products, unchanged stored
 draft and selection, text, voice, repository analysis, confirmation, legacy root

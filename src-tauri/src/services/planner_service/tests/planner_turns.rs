@@ -3,6 +3,34 @@ use crate::persistence::{product_repo, work_item_repo};
 use serde_json::json;
 
 #[tokio::test]
+async fn draft_commit_rejects_ambiguous_legacy_product_name_and_honors_id() {
+    use crate::services::planner_turn_policy::seed_draft_with_product;
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("ambiguous_draft_product").await;
+    let make_product = |id| product_repo::CreateProductInput {
+        id, name: "Shared name", description: "Original", vision: "", goals: "[]", tags: "[]",
+        lifecycle: None, health: None, owner_label: None, investment_status: None,
+        roadmap: None, evidence: None,
+    };
+    let first = product_repo::create_product(&state.db, make_product("ambiguous-first")).await.unwrap();
+    let second = product_repo::create_product(&state.db, make_product("ambiguous-second")).await.unwrap();
+    let mut draft = seed_draft_with_product(None, &second);
+    draft.nodes[0].id = "historical-draft-root".into();
+    draft.nodes[0].summary = Some("Proposed change".into());
+    let missing = commit_draft_plan(&state, &draft).await.unwrap_err();
+    assert!(missing.to_string().contains("linked to this draft no longer exists"));
+    draft.nodes[0].details["type"] = json!("create_product");
+    let error = commit_draft_plan(&state, &draft).await.unwrap_err();
+    assert!(error.to_string().contains("Multiple products match draft product"));
+    assert_eq!(product_repo::get_product(&state.db, &first.id).await.unwrap().description, "Original");
+    assert_eq!(product_repo::get_product(&state.db, &second.id).await.unwrap().description, "Original");
+    draft.nodes[0].id = second.id.clone();
+    commit_draft_plan(&state, &draft).await.unwrap();
+    assert_eq!(product_repo::get_product(&state.db, &first.id).await.unwrap().description, "Original");
+    assert_eq!(product_repo::get_product(&state.db, &second.id).await.unwrap().description, "Proposed change");
+}
+
+#[tokio::test]
 async fn product_switch_does_not_discard_or_confirm_another_products_draft() {
     use crate::services::planner_session::load_session_from_db;
     use crate::services::planner_text_turn::submit_planner_turn;
@@ -19,6 +47,8 @@ async fn product_switch_does_not_discard_or_confirm_another_products_draft() {
     let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
     let draft = seed_draft_with_product(None, &first);
     let mut legacy = draft.clone(); legacy.nodes[0].id = "legacy-generated-root".into();
+    assert!(ensure_draft_product_scope(&state.db, Some(&legacy), &first).await.is_err());
+    legacy.nodes[0].details["type"] = json!("create_product");
     ensure_draft_product_scope(&state.db, Some(&legacy), &first).await.unwrap();
     legacy.nodes[0].name = "Different historical product".into();
     assert!(ensure_draft_product_scope(&state.db, Some(&legacy), &first).await.is_err());

@@ -22,7 +22,8 @@ pub(crate) async fn ensure_draft_product_scope(
         if root.id == product.id { continue; }
         let same_legacy_product = match product_repo::get_product(db, &root.id).await {
             Ok(_) => false,
-            Err(AppError::NotFound(_)) => normalize(Some(&root.name)) == normalize(Some(&product.name)),
+            Err(AppError::NotFound(_)) => root.details.get("type").and_then(Value::as_str) != Some("update_product")
+                && normalize(Some(&root.name)) == normalize(Some(&product.name)),
             Err(error) => return Err(error),
         };
         if !same_legacy_product {
