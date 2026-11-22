@@ -46,6 +46,13 @@ c.commit()`,db,task.id,join(root,'artifacts','stage.txt')]);
   const stageText=await page.locator('#deliveryDetails').innerText();assert(stageText.includes(delivery.workflow_run.id+'-stage → done'));assert(!stageText.includes((delivery.workflow_run.id==='first'?'second':'first')+'-stage → done'));
   assert(stageText.includes(expected));assert(!stageText.includes(unexpected));
   await page.getByRole('button',{name:'Show stage artifact: '+delivery.workflow_run.id+' artifact'}).click();await page.getByText('Recorded stage artifact.',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Show stage artifact: '+(delivery.workflow_run.id==='first'?'second':'first')+' artifact'}).count(),0);
+  await page.getByText('Show workflow diagram',{exact:true}).click();
+  const graph=map.locator('svg[aria-hidden="true"]');assert.equal(await graph.locator('line').count(),27);assert.equal(await graph.locator('[data-graph-stage="coding"]').count(),1);
+  if(process.env.ARUVI_WORKFLOW_MAP_CAPTURE_DIR){await page.getByText('Show workflow diagram',{exact:true}).scrollIntoViewIfNeeded();await page.screenshot({path:join(process.env.ARUVI_WORKFLOW_MAP_CAPTURE_DIR,'desktop.png')});}
+  await map.getByRole('button',{name:'Integration plan',exact:true}).click();assert.equal(await graph.locator('[data-graph-node="integration_plan"] rect').getAttribute('stroke'),'#8ecbff');assert.notEqual(await graph.locator('[data-graph-node="architecture"] rect').getAttribute('stroke'),'#8ecbff');
+  await graph.locator('[data-graph-stage="coding"]').click();assert.equal(await page.getByLabel('Workflow stage').inputValue(),'coding');
+  const focused=page.getByLabel('Focus diagram on selected stage');await focused.check();assert.equal(await graph.getAttribute('viewBox'),'760 0 600 260');
+  await page.getByLabel('Workflow stage').selectOption(delivery.workflow_run.id+'-stage');assert.equal(await focused.isDisabled(),true);assert.equal(await focused.isChecked(),false);assert.equal(await graph.getAttribute('viewBox'),'0 0 2480 260');
   await page.locator('#deliveryDetails').getByRole('button',{name:'Coding',exact:true}).click();assert.equal(await page.getByLabel('Workflow stage').inputValue(),'coding');assert.equal(await map.getByRole('button',{name:'Coding',exact:true}).getAttribute('aria-pressed'),'true');assert.equal(await map.getByRole('button',{name:'Done',exact:true}).getAttribute('aria-pressed'),'false');assert((await page.locator('#deliveryDetails').innerText()).includes('No runs, model calls or transitions recorded for this stage.'));
   await map.getByRole('button',{name:'Done',exact:true}).focus();await page.keyboard.press('Enter');assert.equal(await page.getByLabel('Workflow stage').inputValue(),'done');assert.equal(await map.getByRole('button',{name:'Done',exact:true}).getAttribute('aria-pressed'),'true');
   await page.setViewportSize({width:390,height:844});
@@ -53,6 +60,9 @@ c.commit()`,db,task.id,join(root,'artifacts','stage.txt')]);
   const rect=await mobileCoding.boundingBox();assert(rect && rect.x>=0 && rect.x+rect.width<=390,'Workflow map button should fit the mobile viewport');
   const mapButtons=page.getByText('Workflow map:',{exact:false}).locator('..').locator('button');
   for (const button of await mapButtons.all()) {const bounds=await button.boundingBox();assert(bounds && bounds.x>=0 && bounds.x+bounds.width<=390,'Each workflow map button should fit the mobile viewport');}
+  await focused.check();assert.equal(await graph.getAttribute('viewBox'),'1880 0 600 260');assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),true,'Diagram should not widen the mobile page');
+  const selectedBounds=await graph.locator('[data-graph-stage="done"] rect').boundingBox(), viewportBounds=await graph.locator('..').boundingBox();assert(selectedBounds && viewportBounds && selectedBounds.x>=viewportBounds.x && selectedBounds.x+selectedBounds.width<=viewportBounds.x+viewportBounds.width,'Focused node should remain visible on mobile');
+  if(process.env.ARUVI_WORKFLOW_MAP_CAPTURE_DIR){await focused.scrollIntoViewIfNeeded();await page.screenshot({path:join(process.env.ARUVI_WORKFLOW_MAP_CAPTURE_DIR,'mobile.png')});}
   await page.getByRole('button',{name:'Show workflow model calls'}).click();await page.locator('#deliveryDetails pre').filter({hasText:expected}).waitFor();
   const details=await page.locator('#deliveryDetails').innerText();assert(details.includes(expected));assert(!details.includes(unexpected));
   assert(details.includes('Source: per-call telemetry'));assert(details.includes('Input tokens: 12'));assert(details.includes('Output tokens: 7'));

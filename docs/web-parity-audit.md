@@ -12,6 +12,11 @@ Manual browser recording now discards unfinished audio on navigation or page
 hide and closes a late microphone permission result; a disposable native-server
 browser fixture verified the navigation case. Hardware capture remains unverified.
 
+Stage review now includes an optional connected diagram and focused-stage view;
+a disposable native-server browser fixture checked its connections, selection,
+focus and mobile containment. Its topology is explanatory and duplicated with
+the desktop definition, and full native-window comparison remains open.
+
 **Earlier revalidation:** Docker capacity was increased and the worktree database
 passed a read-only SQLite `quick_check`. The current worktree image built and started
 successfully. The Rust library suite passed 145 tests with one live-provider test

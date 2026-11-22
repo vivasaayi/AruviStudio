@@ -12,6 +12,28 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Connected browser workflow diagram
+
+The browser stage review now offers an optional connected diagram using the
+desktop workflow's intake, planning split/merge, execution, verification
+split/merge and delivery topology. Selecting a stage in the diagram updates the
+existing stage details; the existing labeled buttons provide keyboard and
+screen-reader access. An optional focused view follows the selected runtime
+stage, including scrolling it into view at mobile widths. Current and recorded
+entry colors do not assert completion; planning branches still share one runtime
+stage, while their selected diagram node remains distinct; the visual topology is explanatory. The diagram's presentation data
+is presently maintained alongside the desktop definition, so the two can drift.
+
+A disposable native Studio server and Chromium fixture verified 27 connections,
+diagram and keyboard selection, focus behavior, unknown stages, stage history and
+artifact isolation. The mobile test checked that the page does not widen and
+the focused node is visible. Desktop and 390-pixel screenshots were reviewed;
+the first layout and focus failures were corrected and the fixture rerun. The
+frontend build and 128 frontend tests passed; the Rust library suite passed 333
+tests with seven ignored. This is not full desktop workflow
+parity or a physical native-window comparison. The deployed branch image predates
+this checkpoint until a clean image is built, validated and deployed.
+
 ### Manual browser microphone cleanup
 
 Leaving the Voice tab or hiding the page now discards an unfinished manual
