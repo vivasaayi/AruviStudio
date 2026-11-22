@@ -19,8 +19,10 @@ LM Studio provider drafts. Model Host leaves the endpoint blank for the deployed
 server's actual address; the LM Studio draft can use the existing explicit
 Docker Desktop host-address conversion. Replacing a nonempty draft requires
 confirmation and clears the typed API key; choosing a preset does not save or
-contact a provider. A focused browser test and the isolated remote suite passed
-(47 passed, one skipped) with the updated HTML and the preceding server image;
+contact a provider. At a 390-pixel viewport, a focused Chrome and Chromium test
+verified keyboard activation, the named control group and absence of document
+horizontal overflow. The isolated remote suite passed (47 passed, one skipped)
+with the updated HTML and the preceding server image;
 PDF outage checks passed. The existing browser/provider/MCP workflow was also
 extended to start from the Model Host draft, supply a simulated endpoint, save
 the provider and select its model; the full isolated remote suite passed again.

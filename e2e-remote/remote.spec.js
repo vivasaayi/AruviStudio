@@ -2798,6 +2798,7 @@ test("new work item clears stale delivery while its details load", async ({ page
 });
 
 test("provider quick starts preserve or explicitly replace the draft without saving", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
   if (process.env.ARUVI_TEST_REMOTE_HTML_SOURCE === "1") {
     const html = await readFile("src-tauri/src/services/remote_app.html", "utf8");
     await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
@@ -2810,7 +2811,11 @@ test("provider quick starts preserve or explicitly replace the draft without sav
   await page.locator("#tokenInput").fill(token);
   await page.locator("#saveButton").click();
   await page.getByRole("button", { name: "Models", exact: true }).click();
-  await page.getByRole("button", { name: "Use Aruvi Model Host" }).click();
+  const presets = page.getByRole("group", { name: "Provider quick starts" });
+  await expect(presets.getByRole("button")).toHaveCount(3);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  await presets.getByRole("button", { name: "Use Aruvi Model Host" }).focus();
+  await page.keyboard.press("Enter");
   await expect(page.locator("#providerName")).toHaveValue("Aruvi Model Host");
   await expect(page.locator("#providerUrl")).toHaveValue("");
   await expect(page.locator("#providerProtocol")).toHaveValue("openai_compatible");
