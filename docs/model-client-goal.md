@@ -46,7 +46,10 @@ browser/MCP fixture covers product, area, capability and work actions, declined
 replacement and the outgoing scoped turn. The native server build and targeted
 tests passed. The configured native browser suite passed 51 tests with five
 fixture-dependent skips. Worktree deployment is pending; this does not prove
-real-model or native-window parity.
+real-model or native-window parity. These shortcuts currently identify catalog
+nodes and work items by prompt text rather than a validated catalog ID in the
+Planner turn. Duplicate names and model interpretation remain a correctness gap;
+do not treat the shortcuts as complete selected-context parity.
 
 ### Product hierarchy to work navigation
 

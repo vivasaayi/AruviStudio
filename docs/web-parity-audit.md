@@ -172,6 +172,12 @@ stories. Browser product, tree and work views now prepare corresponding requests
 with the product selected, and ask before replacing an unsent Planner draft.
 They clear the unrelated selected Planner draft node; the hierarchy context is
 included in the prompt. An unavailable product requires an explicit new scope.
+The Planner turn currently receives a product ID and an optional *draft* node
+ID, not the selected catalog area, capability or work-item ID. Consequently the
+new shortcuts identify those catalog items by name in prompt text; duplicate
+names or a model's interpretation can still target the wrong context. Preserving
+and validating catalog identity through the server and confirmation is an open
+parity and correctness item; review staged actions before confirming.
 See the goal checkpoint for validation and deployment status. Planner behavior
 with real models and native-window comparison still require broader acceptance.
 
