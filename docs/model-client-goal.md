@@ -44,7 +44,8 @@ native browser/MCP fixture stages an area, capability, story and task through
 voice transcripts and verifies that an ambiguous request preserves its text
 for correction. A separate real Piper/Whisper synthetic-speech round trip produced
 “Select existing product area Inventory” and staged the intended area in a
-disposable native server. The full native Rust suite passed 366 tests with eight
+disposable native server. A follow-up real coding-model proposal updated that
+same area after MCP confirmation without creating a duplicate. The full native Rust suite passed 366 tests with eight
 ignored. Physical microphone capture and clean image validation remain open.
 
 ### Current worktree deployment at `1215881`
