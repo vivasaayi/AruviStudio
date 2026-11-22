@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Stuck workflow recovery parity in progress
+### Stuck workflow recovery parity: branch validation
 
 Desktop and MCP could mark a workflow failed, but the browser lacked that
 recovery action. Those older paths also recorded stage, history and lifecycle
@@ -41,9 +41,37 @@ marked a separate synthetic paused workflow failed through MCP with an explicit
 stage and status, then verified the run and history. It also reconciled a
 synthetic failed-stage/running-status record without adding duplicate history.
 The full native Rust suite was rerun after that compatibility change and again
-passed 348 tests with eight ignored. The
-separate clean-image workflow test also exercises this control; its results and
-deployment of this change remain pending.
+passed 348 tests with eight ignored. Frontend tests passed 139 tests and the
+terminology check passed. Hosted test run `45013797807` at `c15bbb0` passed
+348 Rust tests (eight ignored), integration and UI checks; clean-image run
+`45013797946` passed on ARM64 and AMD64, including 62 workflow tests, 49
+browser tests (one skipped), PDF isolation/outage and simulated CI. The workflow
+suite includes browser cancellation and confirmed recovery.
+
+The branch candidate uses the ARM64 server from clean-image run `45013458898`
+at `6f05ba5`; changes through `c15bbb0` affect only tests and documentation.
+Its archive SHA-256 was
+`fca5a361916880b161c2025dfe01a433a7f773c293667fb7ab8008ee58c58dcc`,
+server layer was
+`5a1a93147d5d03e69ef5ba5412c748df7a5b774b5754c83a5bdce563665e3cb6`,
+and server binary was
+`6b1825f99908c4d2ed605fa3da102f526c7e6b2e159e0800c09918174708e6bf`.
+The verified server was added to the prior runtime, producing derived image
+`sha256:785c947c35fd7629f586872bbb85c2a6a70d2a2908fda3cbd1f71037da6c9f91`;
+the server hash and runtime configuration matched, and the separately packaged
+runtime inputs were unchanged. This is not a locally loaded full clean image.
+The local candidate passed workflow, browser, PDF outage/isolation and simulated
+CI suites, real Model Host quick start and stream cancellation, and simulated
+scoped-credential checks. The real host still uses a management-capable token.
+
+An active-job guard and verified database backup preceded the branch switch;
+the previous image remains tagged. After restart, product, MCP, mobile
+authorization, PDF, layout, published-port MCP origin, real coding, Piper/Whisper
+and synthetic-audio continuous voice passed. No real active run was failed during
+branch acceptance: recovery behavior was verified in disposable fixtures.
+Native-window and physical audio, live third-party services, real Aruvici,
+integration and staging remain unverified. Docker's writable filesystem had
+about 578 MiB free after validation.
 
 ### Agent workspace write confinement: branch validation
 

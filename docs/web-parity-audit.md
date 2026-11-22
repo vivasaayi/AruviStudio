@@ -151,6 +151,15 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+Work now offers the desktop's stuck-run recovery action. Browser, desktop and
+MCP record an operator failure and history atomically; the browser and MCP can
+reject a changed stage or status. Legacy partially recorded failures can be
+reconciled. The browser warns that the override does not stop an executor or
+undo external effects. Disposable browser and MCP fixtures cover the action,
+and hosted and branch validation are recorded in the goal checkpoint. A stage
+and status are not a unique revision, and physical desktop acceptance remains
+open.
+
 Shared agent workspace writes now reject symlinked path components and existing
 hard-linked destinations on Unix before modifying a file; tool-loop and legacy
 agent writes use the same guard. Native Rust regression coverage and hosted
