@@ -18,6 +18,8 @@ async fn staged_work_item_updates_identity_and_preserves_parent_and_scope() {
     let parent = work_item_write_repo::create_work_item(&state.db, input("work-parent", "Parent", None)).await.unwrap();
     let child = work_item_write_repo::create_work_item(&state.db, input("work-child", "Child", Some("work-parent"))).await.unwrap();
     let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let other = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"work-other", name:"Other product", description:"", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    assert!(stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), other.id.clone(), "work_item".into(), child.id.clone()).await.is_err());
     let staged = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "work_item".into(), child.id.clone()).await.unwrap();
     assert_eq!(staged.selected_draft_node_id.as_deref(), Some(child.id.as_str()));
     let loaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
@@ -32,6 +34,15 @@ async fn staged_work_item_updates_identity_and_preserves_parent_and_scope() {
     draft = apply_actions_to_draft(Some(draft), Some(&child.id), &actions).unwrap();
     let new_node = draft.nodes.iter().find(|node| node.name == "New task").unwrap();
     assert_eq!(new_node.parent_id.as_deref(), Some(child.id.as_str()));
+    let mut forged = draft.clone();
+    forged.nodes.iter_mut().find(|node| node.id == child.id).unwrap().details["_catalog_binding"]["snapshot"]["parent_work_item_id"] = json!("other-parent");
+    assert!(commit_draft_plan(&state, &forged).await.unwrap_err().to_string().contains("selected hierarchy or parent"));
+    sqlx::query("UPDATE work_items SET constraints='Parent changed' WHERE id=?").bind(&parent.id).execute(&state.db).await.unwrap();
+    assert!(commit_draft_plan(&state, &draft).await.unwrap_err().to_string().contains("changed"));
+    sqlx::query("UPDATE work_items SET constraints='Original constraints' WHERE id=?").bind(&parent.id).execute(&state.db).await.unwrap();
+    sqlx::query("INSERT INTO workflow_runs (id, work_item_id, status, current_stage) VALUES ('active-workflow', ?, 'running', 'draft')").bind(&child.id).execute(&state.db).await.unwrap();
+    assert!(commit_draft_plan(&state, &draft).await.unwrap_err().to_string().contains("active workflow or CLI"));
+    sqlx::query("UPDATE workflow_runs SET status='completed', current_stage='done' WHERE id='active-workflow'").execute(&state.db).await.unwrap();
     sqlx::query("INSERT INTO external_cli_runs (id, work_item_id, provider, label, command, status) VALUES ('active-run', ?, 'fixture', 'fixture', 'fixture', 'running')").bind(&child.id).execute(&state.db).await.unwrap();
     assert!(commit_draft_plan(&state, &draft).await.unwrap_err().to_string().contains("active workflow or CLI"));
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM work_items WHERE product_id=?").bind(&product.id).fetch_one(&state.db).await.unwrap();

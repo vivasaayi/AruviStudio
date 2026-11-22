@@ -49,7 +49,8 @@ task type. Existing work items are updated in place and stale edits roll back
 new work and other transaction changes.
 
 A disposable database test covers parent identity, new child placement, stale
-snapshot rejection, active CLI rejection and rollback. The native Rust suite
+snapshot rejection, stale parent and forged ancestry, cross-product staging,
+active workflow and CLI rejection, and rollback. The native Rust suite
 passed 362 tests with eight ignored; the final manual-child default was added
 after that suite. A disposable native server passed two focused browser/MCP
 checks: the work shortcut selected the existing story, and MCP renamed the same
