@@ -12,6 +12,22 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### macOS microphone bundle configuration
+
+The previously generated macOS application bundle lacked
+`NSMicrophoneUsageDescription`, while desktop voice capture uses
+`getUserMedia`. Apple requires this purpose string for apps accessing the
+microphone; [Tauri's bundle documentation](https://v2.tauri.app/distribute/macos-application-bundle/)
+describes merging `src-tauri/Info.plist` into the generated bundle. The file now
+provides an explanation covering voice transcription and the configured speech
+provider. A current ARM64 debug desktop and MCP executable were built with
+package debug information disabled and only the `rlib` crate type to fit disk;
+an unsigned debug app was generated in a separate temporary target directory.
+`plutil` verified that the resulting bundle contains the new string. This is
+not a signed production build or evidence of a successful macOS permission
+prompt, WebKit capture, physical microphone or audible playback. The console
+was locked, so native-window and hardware acceptance remain open.
+
 ### Historical desktop data startup upgrade
 
 `bash scripts/test legacy-migration NATIVE_SERVER --image IMAGE` reconstructs a

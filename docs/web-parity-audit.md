@@ -8,6 +8,11 @@ planner concurrency fixture. These are specific scenarios, not proof of full par
 Physical desktop interaction and audio devices, live third-party providers, and a
 real Aruvici connection remain unverified.
 
+The previously generated macOS bundle lacked the microphone purpose string
+required for microphone access. The new `src-tauri/Info.plist` supplies it, and
+an isolated unsigned debug bundle was checked for the merged value. A physical
+permission prompt and microphone capture still need native-window validation.
+
 An isolated startup fixture reconstructed a populated migration-42 database and
 verified product hierarchy, story, model and agent binding through the current
 native and Linux servers across restart. The browser product API rejected
