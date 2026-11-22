@@ -30,6 +30,13 @@ AMD64 emulation, it also passed real Model Host discovery, completion, streaming
 token-limit handling and synthetic speech. This does not establish native AMD64
 hardware behavior or live third-party provider compatibility.
 
+A native x86-64 VPS attempt verified the host's compatible glibc and the copied
+probe's checksum, but the SSH server rejected the requested loopback remote
+forward. The model probe therefore did not run successfully there. Temporary
+probe files were removed; no staging or production service was changed. A
+separately authorized reachable Model Host endpoint is still needed for native
+AMD64 real-host validation.
+
 ### Child-work details: branch validation
 
 The web parent-work list now displays each child's priority, complexity and
