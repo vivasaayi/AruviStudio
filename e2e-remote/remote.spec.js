@@ -2064,6 +2064,36 @@ test("browser creates work with its full draft details", async ({ page, request 
   }
 });
 
+test("browser renders work-item findings as text", async ({ page, request }) => {
+  test.skip(!token || !mcpToken, "Set mobile and MCP tokens for a running remote server");
+  async function mcp(name, action, arguments_) {
+    const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { action, arguments: arguments_ } } } });
+    const result = (await response.json()).result;
+    expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
+    return result.structuredContent.result;
+  }
+  const product = await mcp("aruvi_catalog", "create_product", { name: `Findings ${Date.now()}` });
+  let item;
+  try {
+    item = await mcp("aruvi_work_items", "create_work_item", { product_id: product.id, title: "Review finding fixture", work_item_type: "task" });
+    await page.route(`**/api/mobile/work-items/${item.id}/delivery`, async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.findings = [{ title:"Unsafe <img src=x onerror=alert(1)>", description:"Review the boundary", severity:"high", category:"security", status:"open", is_blocking:true }];
+      await route.fulfill({ response, json:body });
+    });
+    await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+    await page.getByRole("button", { name:"Work", exact:true }).click(); await page.locator("#workProductSelect").selectOption(product.id);
+    await page.getByText("Review finding fixture", { exact:false }).first().click();
+    await expect(page.getByText("Unsafe <img src=x onerror=alert(1)>", { exact:true })).toBeVisible();
+    await expect(page.locator("#deliveryDetails")).toContainText("high · security · open · blocking");
+    await expect(page.locator("#deliveryDetails img")).toHaveCount(0);
+  } finally {
+    if (item) await mcp("aruvi_work_items", "delete_work_item", { id:item.id });
+    await mcp("aruvi_catalog", "archive_product", { id:product.id });
+  }
+});
+
 test("browser places work in hierarchy and under a parent", async ({ page, request }) => {
   test.skip(!token || !mcpToken, "Set mobile and MCP tokens for a running remote server");
   const headers = { Authorization: `Bearer ${token}` };

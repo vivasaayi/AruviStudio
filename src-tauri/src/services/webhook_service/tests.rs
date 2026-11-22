@@ -979,6 +979,8 @@ async fn remote_work_api_auth_create_start_approve_and_delivery_flow() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(parse_json(&body)["workflow_run"]["id"], seeded_run.id);
 
+    sqlx::query("INSERT INTO findings(id,work_item_id,category,severity,title,description,status,is_blocking) VALUES(?,?,'security','high','Review fixture','Check isolation','open',1)")
+        .bind("remote-finding").bind(work_item_id).execute(&state.db).await.unwrap();
     let (status, body) = send_json(
         &router,
         Method::GET,
@@ -991,6 +993,10 @@ async fn remote_work_api_auth_create_start_approve_and_delivery_flow() {
     let delivery = parse_json(&body);
     assert_eq!(delivery["work_item"]["status"], "approved");
     assert_eq!(delivery["workflow_run"]["id"], seeded_run.id);
+    assert_eq!(delivery["findings"].as_array().unwrap().len(), 1);
+    assert_eq!(delivery["findings"][0]["title"], "Review fixture");
+    assert_eq!(delivery["findings"][0]["is_blocking"], true);
+    assert_eq!(send_json(&router, Method::GET, &format!("/api/mobile/work-items/{work_item_id}/delivery"), None, None).await.0, StatusCode::UNAUTHORIZED);
 
     let (status, body) = send_json(
         &router,

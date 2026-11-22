@@ -4047,6 +4047,12 @@
       } else {
         appendDetailCard("Workflow", "Not started");
       }
+      const findings = delivery.findings || [];
+      appendDetailCard("Findings", findings.length ? `${findings.length} logged` : "No findings recorded");
+      for (const finding of findings) {
+        const metadata = [finding.severity, finding.category, finding.status, finding.is_blocking ? "blocking" : "not blocking"].join(" · ");
+        appendDetailCard(finding.title || "Untitled finding", [metadata, finding.description, finding.linked_followup_work_item_id ? `Follow-up work item: ${finding.linked_followup_work_item_id}` : ""].filter(Boolean).join(" — "), finding.is_blocking ? "error" : "");
+      }
       const artifacts = delivery.artifacts || [];
       appendDetailCard("Artifacts", artifacts.length ? artifacts.map((artifact) => artifact.summary || artifact.artifact_type).join("\n") : "No artifacts yet");
       artifacts.filter((artifact) => artifact.artifact_type === "workflow_test_result").forEach((artifact) => {

@@ -1,7 +1,7 @@
 use crate::domain::work_item::WorkItemStatus;
 use crate::domain::workflow::WorkflowRun;
 use crate::error::AppError;
-use crate::persistence::{approval_repo, artifact_repo, work_item_repo, workflow_repo};
+use crate::persistence::{approval_repo, artifact_repo, finding_repo, work_item_repo, workflow_repo};
 use crate::services::webhook_bridge::ensure_mobile_api_authorized;
 use crate::services::webhook_service::WebhookState;
 use axum::extract::{Json, Path, Query, State};
@@ -484,6 +484,10 @@ pub(crate) async fn mobile_get_work_item_delivery(
         Ok(approvals) => approvals,
         Err(error) => return bad_request(error),
     };
+    let findings = match finding_repo::list_work_item_findings(&state.app_state.db, &work_item_id).await {
+        Ok(findings) => findings,
+        Err(error) => return bad_request(error),
+    };
     let retryable_git_delivery = match &workflow_run {
         Some(run) => match crate::services::workflow_git_push::is_retryable_git_delivery(&state.app_state.db, &run.id).await {
             Ok(value) => value, Err(error) => return bad_request(error),
@@ -496,6 +500,7 @@ pub(crate) async fn mobile_get_work_item_delivery(
         "retryable_git_delivery": retryable_git_delivery,
         "artifacts": artifacts,
         "approvals": approvals,
+        "findings": findings,
     }))
     .into_response()
 }

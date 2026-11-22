@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Work-item findings in web review: in progress
+
+Desktop review displays finding counts and severity, and MCP already returns
+the work item's findings, but browser delivery omitted them. The authenticated
+delivery response now uses the same Rust query, and browser review displays each
+finding's title, severity, category, status, blocking flag, description and any
+follow-up ID as text. It does not change or resolve findings. The query remains
+unbounded, like the desktop/MCP list, and the independently loaded delivery
+sections do not form a single database snapshot.
+
+The native HTTP fixture verifies authorization and returned findings. A
+disposable native server/browser fixture checks that the browser and MCP return
+the same work-item-scoped findings, excludes a second item's finding, and
+renders an HTML-looking title as text. A separate simulated-response browser
+test covers the rendering in the remote suite. The frontend suite passed 139
+tests, the frontend build passed, and the native Rust suite passed 348 tests
+with eight ignored. Clean-image and deployment checks remain pending.
+
 ### Nested work-item creation parity: branch validation
 
 The shared backend and MCP allow a work item under an existing child, inheriting
