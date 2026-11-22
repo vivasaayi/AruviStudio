@@ -22,7 +22,10 @@ screen-reader access. An optional focused view follows the selected runtime
 stage, including scrolling it into view at mobile widths. Current and recorded
 entry colors do not assert completion; planning branches still share one runtime
 stage, while their selected diagram node remains distinct; the visual topology is explanatory. The diagram's presentation data
-is presently maintained alongside the desktop definition, so the two can drift.
+is presently maintained alongside the desktop definition. A CI guard compares
+their 20 node positions, stage mappings, shapes and 27 connections, and was
+checked against an intentionally changed browser node; this detects drift but
+does not make the definitions a single source.
 
 A disposable native Studio server and Chromium fixture verified 27 connections,
 diagram and keyboard selection, focus behavior, unknown stages, stage history and

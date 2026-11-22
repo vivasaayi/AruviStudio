@@ -75,11 +75,11 @@ jobs:
       - name: Check CI worktree mount configuration
         run: bash scripts/test ci-shared-worktree
 
-      - name: Run terminology and performance guards
+      - name: Run terminology, performance and workflow topology guards
         id: terminology
         run: |
           set +e
-          npm run terminology-check
+          npm run terminology-check && node scripts/check-workflow-topology.mjs
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
