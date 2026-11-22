@@ -24,10 +24,12 @@ connection helpers. These reservations coordinate SQLite writers using the
 same database; they do not make a multi-step planner or template operation
 atomic as a whole.
 
-An initial Rust race fixture held a competing area move and verified that a
-browser request waited, rejected the changed scope and created no child. The
-fixture also covers simultaneous browser and MCP creation. The full native
-suite and branch validation are pending for the final shared-writer changes.
+A Rust race fixture held a competing area move and verified that a browser
+request waited, rejected the changed scope and created no child. Simultaneous
+browser and MCP area and capability creation produced distinct sibling sort
+positions. The full native Rust library suite passed 350 tests with eight
+ignored, and the native browser creation and ordering flows passed. Hosted
+clean-image checks and branch deployment remain pending.
 
 ### Hierarchy creation details parity: branch validation
 
