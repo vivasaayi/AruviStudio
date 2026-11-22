@@ -44,6 +44,8 @@ containing this change remain pending.
 An additional disposable native-server browser regression checked authenticated
 MCP and mobile Docs exports, rendering the returned HTML and verifying unsafe
 URLs are text while safe external and relative URLs remain links.
+The complete mocked desktop UI suite also passed 81 tests on this branch; it
+does not replace native-window interaction.
 
 ### Voice selection of existing catalog items (in validation)
 
