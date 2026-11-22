@@ -29,6 +29,25 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current worktree deployment at `1215881`
+
+Hosted clean ARM64/AMD64 images passed workflow, remote-browser and CI fixtures,
+and both hosted test runs passed. The Mac worktree runs a derived candidate
+containing the checksum-verified ARM64 server from that build on the matching
+existing runtime; it is not the identical clean image. Server SHA-256:
+`4d6cac85aac8e707b0df04373d6c741755a23f3f7da1abc0688c3f9b591cc3e1`.
+The branch tip at deployment differed only in checkpoint documentation.
+A verified SQLite backup was taken with no active workflows, CLI runs or imports.
+The candidate passed 62 local browser tests (one skip), 62 workflow tests, the
+CI fixture, packaged model quick starts and scoped credential checks. Separate
+packaged real Model Host fixtures updated a selected product and child work item
+and created one task under a selected story, all only after confirmation.
+After deployment, restart acceptance verified persistence, authenticated MCP,
+mobile and PDF; six focused Planner tests, 13-section phone/desktop layout,
+published-port MCP origin, real MCP coding and synthetic Piper/Whisper browser
+voice passed. The backup is `/private/tmp/aruvi-deploy-1215881/pre-deploy.db`.
+These are representative checks, not full parity or VPS staging acceptance.
+
 ### Nested product and hierarchy updates (in validation)
 
 A real local model placed an update to the selected product description in
@@ -52,7 +71,7 @@ concurrent edit, rollback and successful retry; native browser/MCP fixtures
 covered the product shortcut and a concurrent MCP edit. The desktop mocked
 browser test verifies the product ID is passed through to the next turn. The
 frontend build and 139 frontend tests passed. Broader tests and a clean image
-build are still running; this change is not yet in the deployed worktree image.
+build passed and this change is deployed to the Mac worktree as recorded above.
 
 ### Desktop Product Book selection binding (in validation)
 
