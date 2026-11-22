@@ -55,8 +55,12 @@ containers remained healthy on `227fde4`; no new deployment was made. The empty
 failed backup file was removed. Two unused, unreferenced candidate image leaves
 created during this work (`fa06a06` and `a2fcb8e`) were removed, but available
 space remained zero. Retained rollback images and other projects were not
-removed. Restore sufficient Docker disk space, then take and verify a new backup,
-recheck active work and deploy the already-tested candidate.
+removed. A later SQLite online backup through the container's memory-backed
+`/dev/shm` was streamed to `/private/tmp/aruvi-deploy-c518bca/pre-deploy.db`
+and passed `quick_check` in immutable read-only mode. `docker cp` could not
+access that temporary mount, so the successful transfer used `docker exec cat`.
+Docker's disk still reported zero available bytes; restore sufficient space,
+refresh the backup and recheck active work before deploying the tested image.
 
 ### Current worktree deployment at `227fde4`
 
