@@ -58,8 +58,10 @@ PDF isolation/outage checks and the simulated CI-service browser/MCP fixture.
 After deployment, restart persistence, product, MCP/mobile authorization, PDF
 and published-port MCP-origin checks passed. Real Model Host coding and
 Piper/Whisper round trips also passed, including manual and continuous browser
-voice with synthetic audio. These checks do not establish physical-device,
-external-provider, Mac integration or VPS staging acceptance. The newer
+voice with synthetic audio. Authenticated browser chat subsequently returned real
+`qwen25-coder-7b-q4` coding output in buffered and streaming modes. These checks
+do not establish physical-device, external-provider, Mac integration or VPS
+staging acceptance. The newer
 multi-architecture matrix passed as described below.
 
 ### Branch image architectures
