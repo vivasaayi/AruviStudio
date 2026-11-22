@@ -33,10 +33,31 @@ fn push_trace(
 async fn get_product_tree_tool(
     db: &SqlitePool,
     product_name: Option<&str>,
+    selected_product: Option<&Product>,
 ) -> Result<Value, AppError> {
-    let product = find_product(db, product_name).await?;
-    let tree = product_repo::get_product_tree(db, &product.id).await?;
+    let product_id = match resolve_tool_product_id(db, product_name, selected_product).await? {
+        Some(id) => id,
+        None => find_product(db, None).await?.id,
+    };
+    let tree = product_repo::get_product_tree(db, &product_id).await?;
     Ok(serde_json::to_value(tree)?)
+}
+
+async fn resolve_tool_product_id(
+    db: &SqlitePool,
+    product_name: Option<&str>,
+    selected_product: Option<&Product>,
+) -> Result<Option<String>, AppError> {
+    if let Some(product) = selected_product {
+        if product_name.is_some_and(|name| name.trim().to_lowercase() != product.name.trim().to_lowercase()) {
+            return Err(AppError::Validation("Planner tool request is outside the selected product.".into()));
+        }
+        return Ok(Some(product.id.clone()));
+    }
+    match product_name {
+        Some(name) => Ok(Some(find_product(db, Some(name)).await?.id)),
+        None => Ok(None),
+    }
 }
 
 fn resolve_work_item_page(limit: Option<i64>, offset: Option<i64>) -> (i64, i64) {
@@ -54,12 +75,9 @@ pub(crate) async fn list_work_items_tool(
     status: Option<&str>,
     limit: Option<i64>,
     offset: Option<i64>,
+    selected_product: Option<&Product>,
 ) -> Result<Value, AppError> {
-    let product_id = if let Some(name) = product_name {
-        Some(find_product(db, Some(name)).await?.id)
-    } else {
-        None
-    };
+    let product_id = resolve_tool_product_id(db, product_name, selected_product).await?;
     let (page_limit, page_offset) = resolve_work_item_page(limit, offset);
     let mut work_items = work_item_repo::list_work_items_page(
         db,
@@ -226,6 +244,7 @@ pub(crate) async fn run_tool_loop(
                         get_product_tree_tool(
                             input.db,
                             args.get("productName").and_then(Value::as_str),
+                            input.selected_product,
                         )
                         .await
                     }
@@ -236,6 +255,7 @@ pub(crate) async fn run_tool_loop(
                             args.get("status").and_then(Value::as_str),
                             args.get("limit").and_then(Value::as_i64),
                             args.get("offset").and_then(Value::as_i64),
+                            input.selected_product,
                         )
                         .await
                     }
@@ -384,6 +404,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn selected_product_limits_tool_reads_even_with_missing_or_duplicate_names() {
+        let pool = create_test_pool("selected_product_tool_scope").await;
+        create_test_product(&pool, "scope-a", "Same name").await;
+        create_test_product(&pool, "scope-b", "Same name").await;
+        create_test_product(&pool, "scope-other", "Other product").await;
+        create_test_work_item(&pool, "scope-a-item", "scope-a", "First story").await;
+        create_test_work_item(&pool, "scope-b-item", "scope-b", "Second story").await;
+        let selected = product_repo::get_product(&pool, "scope-b").await.unwrap();
+        for name in [None, Some("same NAME")] {
+            let tree = get_product_tree_tool(&pool, name, Some(&selected)).await.unwrap();
+            assert_eq!(tree["product"]["id"], "scope-b");
+            let work = list_work_items_tool(&pool, name, None, None, None, Some(&selected)).await.unwrap();
+            let ids: Vec<_> = work["workItems"].as_array().unwrap().iter().map(|item| item["id"].as_str().unwrap()).collect();
+            assert_eq!(ids, vec!["scope-b-item"]);
+        }
+        assert!(get_product_tree_tool(&pool, Some("Other product"), Some(&selected)).await.is_err());
+        assert!(list_work_items_tool(&pool, Some("Other product"), None, None, None, Some(&selected)).await.is_err());
+        let unscoped = list_work_items_tool(&pool, None, None, None, None, None).await.unwrap();
+        assert_eq!(unscoped["workItems"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn model_tool_loop_never_sends_other_product_work_to_scoped_provider() {
+        use crate::persistence::model_repo;
+        use axum::{extract::State, routing::post, Json, Router};
+        use std::sync::{atomic::{AtomicUsize, Ordering}, Arc, Mutex};
+        #[derive(Clone)]
+        struct Fixture { count: Arc<AtomicUsize>, requests: Arc<Mutex<Vec<Value>>> }
+        async fn complete(State(fixture): State<Fixture>, Json(request): Json<Value>) -> Json<Value> {
+            let count = fixture.count.fetch_add(1, Ordering::SeqCst);
+            fixture.requests.lock().unwrap().push(request);
+            let reply = match count {
+                0 => json!({"type":"tool_call","tool":"list_work_items","arguments":{}}),
+                1 => json!({"type":"tool_call","tool":"get_product_tree","arguments":{"productName":"Other product"}}),
+                _ => json!({"type":"final","assistant_response":"Reviewed", "needs_confirmation":false,"clarification_question":null,"actions":[]}),
+            };
+            Json(json!({"choices":[{"message":{"content":reply.to_string()},"finish_reason":"stop"}]}))
+        }
+        let fixture = Fixture { count: Arc::new(AtomicUsize::new(0)), requests: Arc::new(Mutex::new(Vec::new())) };
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server_fixture = fixture.clone();
+        let server = tokio::spawn(async move { axum::serve(listener, Router::new().route("/v1/chat/completions", post(complete)).with_state(server_fixture)).await.unwrap() });
+        let pool = create_test_pool("model_tool_scope").await;
+        create_test_product(&pool, "tool-a", "Selected product").await;
+        create_test_product(&pool, "tool-b", "Other product").await;
+        create_test_work_item(&pool, "tool-a-item", "tool-a", "Selected private story").await;
+        create_test_work_item(&pool, "tool-b-item", "tool-b", "Other private story").await;
+        model_repo::create_provider(&pool, "scope-provider", "Fixture", "openai_compatible", &format!("http://{address}/v1"), None).await.unwrap();
+        model_repo::create_model_definition(&pool, "scope-model", "scope-provider", "fixture", None, None, None).await.unwrap();
+        let selected = product_repo::get_product(&pool, "tool-a").await.unwrap();
+        let artifacts = make_temp_dir("model_tool_scope_artifacts"); std::fs::create_dir_all(&artifacts).unwrap();
+        let input = PlannerToolLoopInput { db:&pool, artifact_base_path:&artifacts, session_id:"fixture", provider_id:"scope-provider", model_name:"fixture", conversation:&[], pending_plan:None, draft_plan:None, selected_draft_node_id:None, selected_product:Some(&selected), user_input:"Review the selected product" };
+        run_tool_loop(input, &mut Vec::new()).await.unwrap();
+        let requests = fixture.requests.lock().unwrap();
+        assert_eq!(requests.len(), 3);
+        let after_work = requests[1].to_string();
+        assert!(after_work.contains("Selected private story"));
+        assert!(!after_work.contains("Other private story"));
+        assert!(requests[2].to_string().contains("outside the selected product"));
+        assert!(!requests[2].to_string().contains("Other private story"));
+        server.abort();
+    }
+
+    #[tokio::test]
     async fn list_work_items_tool_returns_pagination_metadata() {
         let pool = create_test_pool("list_work_items_pagination").await;
         create_test_product(&pool, "product-planner-tool", "Planner Product").await;
@@ -397,7 +482,7 @@ mod tests {
             .await;
         }
 
-        let result = list_work_items_tool(&pool, Some("Planner Product"), None, Some(2), Some(0))
+        let result = list_work_items_tool(&pool, Some("Planner Product"), None, Some(2), Some(0), None)
             .await
             .expect("tool should return work items");
 

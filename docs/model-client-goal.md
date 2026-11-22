@@ -12,6 +12,21 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Scoped Planner model tool reads (in validation)
+
+Planner model tool calls for a selected product now resolve its tree and work
+list by the selected product ID. An omitted tool argument stays within that
+product, and a different product name is rejected. This prevents a scoped
+model turn from receiving another product's data because of an omitted or
+incorrect tool argument, including when product names are duplicated. Explicitly
+unscoped sessions retain their existing behavior. This protects tool reads; it
+does not supply the separate selected catalog-node identity described below or
+eliminate the need to review model-generated actions. An isolated database test
+covered duplicate names, missing names, cross-product attempts and unscoped
+compatibility. A simulated provider made successive tool calls and received
+only the selected product's work and a rejection for another product. Full
+regression and deployment validation are in progress.
+
 ### Planner product-scope draft protection (in validation)
 
 Planner text, voice and repository-analysis turns now reject a selected product
