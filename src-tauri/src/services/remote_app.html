@@ -1263,6 +1263,7 @@
       latestPlannerActions: [],
       products: [],
       productSummary: null,
+      productSummaryProductId: "",
       workItems: [],
       delivery: null,
       chatMessages: [],
@@ -1638,8 +1639,9 @@
       if (tabId === "planner" && (el.tokenInput.value.trim() || localStorage.getItem(storageKeys.token))) {
         void loadPlannerProducts();
       }
-      if (tabId === "products" && !state.products.length) {
-        void loadProducts();
+      if (tabId === "products") {
+        if (!state.products.length || !state.productSummary || state.productSummaryProductId !== state.selectedProductId) void loadProducts();
+        else renderProducts();
       }
       if (tabId === "work") {
         void loadWorkItems();
@@ -3189,6 +3191,7 @@
       renderProducts();
       el.productStatus.textContent = "Loading";
       state.productSummary = null;
+      state.productSummaryProductId = "";
       el.productBookDownload.disabled = true;
       el.createAreaButton.disabled = true;
       el.resetPlanButton.disabled = true;
@@ -3197,6 +3200,7 @@
       const summary = await request("/api/mobile/products/" + encodeURIComponent(productId) + "/summary");
       if (state.selectedProductId !== productId) return;
       state.productSummary = summary;
+      state.productSummaryProductId = productId;
       renderProductSummary();
     }
 
@@ -3316,6 +3320,9 @@
             description.textContent = item.description;
             details.appendChild(description);
           }
+          const viewWork = document.createElement("button"); viewWork.type = "button"; viewWork.className = "secondary";
+          viewWork.textContent = "View work"; viewWork.setAttribute("aria-label", "View work for " + item.name);
+          viewWork.addEventListener("click", () => void openHierarchyWork(productId, item)); details.appendChild(viewWork);
           const index = siblingIds.indexOf(item.id);
           if (siblingIds.length > 1 && siblingIds.length <= 1000) {
             const controls = document.createElement("div");
@@ -3512,6 +3519,22 @@
         state.products = await request("/api/mobile/products");
       }
       renderWorkProductOptions();
+    }
+
+    async function openHierarchyWork(productId, item) {
+      if (state.busy || state.selectedProductId !== productId) return;
+      try {
+        await ensureWorkProducts();
+        if (state.busy || state.selectedProductId !== productId) return;
+        const type = item.node_kind === "product_area" ? "product_area" : "capability";
+        const value = JSON.stringify({id:item.id,type});
+        const select = document.getElementById("workHierarchyFilter");
+        select.replaceChildren(new Option("All product work", ""), new Option(item.name, value));
+        select.value = value;
+        document.getElementById("workStatusFilter").value = "";
+        document.getElementById("workHierarchyFilterStatus").textContent = "Showing direct top-level work for " + item.name + ". Load hierarchy filters to choose another node.";
+        switchTab("work");
+      } catch (error) { if (state.selectedProductId === productId) setStatus(error.message || String(error), "error"); }
     }
 
     let workPageRequestId = 0, workNextOffset = 0, workHasMore = false, workMoreLoading = 0, draggedWorkId = null;

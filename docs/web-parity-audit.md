@@ -162,7 +162,8 @@ records validation and pagination limits.
 
 Selected work-item details also show type, priority and complexity. The Work
 view can filter top-level work directly attached to an area or capability;
-MCP supports the same top-level query. The goal checkpoint records validation
+the product tree also links directly to that filtered view. MCP supports the
+same top-level query. The goal checkpoint records validation
 status and pagination limits.
 
 Refreshing the backlog retains an off-page selection after checking its product

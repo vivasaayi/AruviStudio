@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Product hierarchy to work navigation
+
+The web product tree now offers a direct action to view top-level work for an
+area or capability. It clears an existing status filter while preserving the
+unsubmitted work title. Returning to Products after Work now loads the selected
+product's summary, including when the product changed in Work. A disposable
+browser fixture covers both hierarchy levels, draft preservation, the filter,
+pagination, and product switching. The configured native browser suite passed
+49 tests with five fixture-dependent skips. This is a native validation checkpoint;
+the change is not yet deployed to the worktree or staging.
+
 ### Hierarchy-scoped work browsing: branch validation
 
 The desktop product view can show top-level stories for a selected feature;

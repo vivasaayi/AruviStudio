@@ -853,6 +853,8 @@ record and status update are committed together across browser, desktop and
 MCP task-decision paths.
 
 The Work view can filter by status and by an explicitly loaded hierarchy node.
+In the product tree, choose **View work** on an area or capability to open its
+work directly; this clears the status filter and retains an unsubmitted title.
 The hierarchy filter shows top-level work directly attached to the selected
 area or capability; it does not include descendants from nested nodes. A child
 opened from a matching parent can remain selected outside the filtered list.

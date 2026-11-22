@@ -2327,10 +2327,22 @@ test("browser filters top-level work by hierarchy with pagination", async ({ pag
     expect((await (await request.get(`/api/mobile/work-items?product_id=${other.id}&source_node_id=${first.id}&source_node_type=capability&top_level_only=true`,{headers})).json()).items).toEqual([]);
     await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
     await page.getByRole("button",{name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
-    await page.getByRole("button",{name:"Load hierarchy filters"}).click();
+    await page.locator("#workTitleInput").fill("Unsubmitted draft");
+    await page.locator("#workStatusFilter").selectOption("done");
+    await page.getByRole("button",{name:"Products",exact:true}).click();
+    await page.locator("#productList .product-card").filter({hasText:product.name}).click();
+    await page.getByRole("button",{name:"Load product tree"}).click();
+    await page.locator("#productTree summary").filter({hasText:"Scope area"}).click();
+    await page.locator("#productTree summary").filter({hasText:"First feature"}).click();
+    await page.getByRole("button",{name:"View work for First feature",exact:true}).click();
     const scope=JSON.stringify({id:first.id,type:"capability"});
+    await expect(page.locator("#workHierarchyFilter")).toHaveValue(scope);
+    await expect(page.locator("#workStatusFilter")).toHaveValue("");
+    await expect(page.locator("#workTitleInput")).toHaveValue("Unsubmitted draft");
+    await expect(page.locator("#workPageStatus")).toContainText("100 work item(s) loaded");
+    await page.getByRole("button",{name:"Load hierarchy filters"}).click();
     await expect(page.locator("#workHierarchyFilter option").filter({hasText:"First feature"})).toHaveCount(1);
-    await page.locator("#workHierarchyFilter").selectOption(scope);
+    await expect(page.locator("#workHierarchyFilter")).toHaveValue(scope);
     await expect(page.locator("#workPageStatus")).toContainText("100 work item(s) loaded");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
     await expect(page.locator("#workList")).not.toContainText("Other feature story");
@@ -2374,7 +2386,9 @@ test("browser filters top-level work by hierarchy with pagination", async ({ pag
     await expect(page.locator("#workList .work-card")).toHaveCount(1);
     await expect(page.locator("#workList")).toContainText("Other feature story");
     await expect(page.locator("#deliveryDetails")).not.toContainText("Scoped child");
-    await page.locator("#workHierarchyFilter").selectOption(JSON.stringify({id:area.id,type:"product_area"}));
+    await page.getByRole("button",{name:"Products",exact:true}).click();
+    await page.getByRole("button",{name:"View work for Scope area",exact:true}).click();
+    await expect(page.locator("#workHierarchyFilter")).toHaveValue(JSON.stringify({id:area.id,type:"product_area"}));
     await expect(page.locator("#workList .work-card")).toHaveCount(1);
     await expect(page.locator("#workList")).toContainText("Area story");
     await expect(page.locator("#workList")).not.toContainText("Other feature story");
@@ -2389,6 +2403,8 @@ test("browser filters top-level work by hierarchy with pagination", async ({ pag
     await treeResponse; await page.unroute(oldTree);
     await expect(page.locator("#workHierarchyFilter")).toHaveValue("");
     await expect(page.locator("#workHierarchyFilter option")).toHaveCount(1);
+    await page.getByRole("button",{name:"Products",exact:true}).click();
+    await expect(page.locator("#productStatus")).toHaveText(other.name);
   } finally {
     if(child) await mcp("aruvi_work_items","delete_work_item",{id:child.id});
     if(otherStory) await mcp("aruvi_work_items","delete_work_item",{id:otherStory.id});
