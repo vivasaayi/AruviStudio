@@ -26,7 +26,20 @@ permission, restart, transcription cancellation and page hiding. The frontend
 build and 128 frontend tests passed. A rebuilt native Studio server with a
 simulated provider passed the existing manual review/submission and continuous
 voice browser flows, as well as a navigation-and-discard check. Physical microphone and browser/device behavior remain
-unverified. The deployed branch image predates this checkpoint.
+unverified. At `ca879db`, the complete local browser suite passed 67 tests,
+the Rust library suite passed 333 with seven ignored, and the terminology check
+passed. Both hosted test runs and the clean ARM64 build passed. The archive
+checksum and revision were verified; its server binary (SHA-256
+`b2567de6b94c528aec1d2fc59d89f8a579b86a85800283a50fdf5f0318668aa8`)
+was layered onto the prior runtime to produce derived image
+`sha256:95a6e192fcfc6f86e8d578f3b18c1e5bcf209bbd167ba47235e0debe13608250`,
+not the full clean artifact. It passed 56 isolated workflow tests, 45 browser
+tests with one skipped, and the PDF outage check. A verified database backup and
+the prior image were retained. Product, MCP, mobile and PDF acceptance passed
+across restart, as did published-port origin checks, real 7B MCP coding, real
+MCP speech, synthetic browser transcription and continuous browser voice through
+real Model Host Whisper and the local coding model. The branch endpoint was
+`127.0.0.1:55288`; physical audio was not tested.
 
 ### Continuous browser voice conversation
 
