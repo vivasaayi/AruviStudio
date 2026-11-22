@@ -142,6 +142,19 @@
       text-overflow: ellipsis;
     }
 
+    .topbar .status {
+      white-space: normal;
+      overflow-wrap: anywhere;
+      max-height: 4.35em;
+      overflow-y: auto;
+    }
+
+    .status-hint {
+      color: var(--muted);
+      font-size: 11px;
+      line-height: 1.3;
+    }
+
     .ok {
       color: #68d8b5;
     }
@@ -434,7 +447,8 @@
         <header class="topbar">
           <div class="brand">
             <h1>Aruvi Studio</h1>
-            <div class="status" id="status">Disconnected</div>
+            <div class="status" id="status" role="status" aria-live="polite" tabindex="0">Disconnected</div>
+            <span class="status-hint" id="statusOverflowHint" hidden>Scroll for full message</span>
           </div>
           <button class="secondary" id="healthButton" type="button">Check</button>
         </header>
@@ -1260,6 +1274,7 @@
 
     const el = {
       status: document.getElementById("status"),
+      statusOverflowHint: document.getElementById("statusOverflowHint"),
       healthButton: document.getElementById("healthButton"),
       tabs: Array.from(document.querySelectorAll(".tab-button")),
       panels: Array.from(document.querySelectorAll(".tab-panel")),
@@ -1518,9 +1533,17 @@
       setStatus("Saved", "ok");
     }
 
+    function updateStatusOverflowHint() {
+      el.statusOverflowHint.hidden = el.status.scrollHeight <= el.status.clientHeight + 1;
+    }
+    window.addEventListener("resize", updateStatusOverflowHint);
+
     function setStatus(message, kind) {
       el.status.textContent = message;
+      el.status.title = message;
+      el.status.scrollTop = 0;
       el.status.className = "status" + (kind ? " " + kind : "");
+      requestAnimationFrame(updateStatusOverflowHint);
     }
 
     let externalCliBusy = false;

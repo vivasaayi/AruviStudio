@@ -2883,3 +2883,31 @@ test("sticky tabs stay below a resized header while scrolling", async ({ page })
     await expect(page.locator("#tab-work")).toBeVisible();
   }
 });
+
+test("long header status remains readable and keyboard-scrollable", async ({ page }) => {
+  if (process.env.ARUVI_TEST_REMOTE_HTML_SOURCE === "1") {
+    const html = await readFile("src-tauri/src/services/remote_app.html", "utf8");
+    await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
+  }
+  for (const width of [390, 1280]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto("/remote");
+    const message = "Provider connection failed; check the configured endpoint and try again. ".repeat(30) + "End of message.";
+    await page.evaluate((value) => setStatus(value, "error"), message);
+    const status = page.locator("#status");
+    await expect(status).toHaveText(message);
+    const before = await status.evaluate((element) => ({ width: element.clientWidth, contentWidth: element.scrollWidth, height: element.clientHeight, contentHeight: element.scrollHeight }));
+    expect(before.contentWidth).toBeLessThanOrEqual(before.width + 1);
+    expect(before.contentHeight).toBeGreaterThan(before.height);
+    await expect(status).toHaveAttribute("role", "status");
+    await expect(status).toHaveAttribute("title", message);
+    await expect(page.locator("#statusOverflowHint")).toBeVisible();
+    await status.focus();
+    await page.keyboard.press("End");
+    await expect.poll(() => status.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    const positions = await page.evaluate(() => ({ header: document.querySelector(".topbar").getBoundingClientRect().bottom, tabs: document.querySelector(".tabbar").getBoundingClientRect().top }));
+    expect(positions.tabs).toBeGreaterThanOrEqual(positions.header - 1);
+    await page.evaluate(() => setStatus("Connected", "ok"));
+    await expect(page.locator("#statusOverflowHint")).toBeHidden();
+  }
+});

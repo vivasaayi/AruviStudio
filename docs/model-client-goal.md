@@ -12,6 +12,21 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Readable browser status messages
+
+The header previously clipped long errors to a single line, including on touch
+screens. The updated status wraps into a bounded scrollable area, announces
+updates as a status region, provides a keyboard focus target and desktop title,
+and shows a scroll hint only when content overflows. It resets the scroll
+position when a new message arrives. A regression check failed on the previous
+single-line layout and passed in Chrome and Chromium at 390 and 1280 pixels,
+including keyboard scrolling and the tab/header alignment. A synthetic long
+error was visually inspected at mobile width. The 13-section source-HTML
+layout scan and isolated remote suite passed (49 passed, one skipped), with the
+PDF outage check. The two provider-setting workflow cases and simulated CI
+fixture also passed with the updated HTML; other workflow cases used the
+preceding server image. Packaged-image and branch deployment remain pending.
+
 ### Sticky browser navigation
 
 A read-only mobile and desktop check found that after scrolling, the prior
