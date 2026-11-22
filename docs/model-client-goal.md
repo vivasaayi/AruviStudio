@@ -60,8 +60,12 @@ project name was rejected before startup. The first hosted clean-image run passe
 when the work-item workspace editor did not appear; a subsequent routing test
 then found a policy left by the interrupted test. The remote suite and artifact
 export were not reached. A follow-up run now retains browser traces on failure;
-its result and root cause remain to be established. The fixture uses simulated
-providers and does not establish staging, physical audio or real-provider behavior.
+its result and root cause remain to be established. The workflow fixture now
+removes its temporary coding policy in a `finally` block. All 60 workflow tests
+passed locally, and a separate deliberate failure immediately after policy
+creation left the later routing test passing (59 passed, one deliberately
+failed). The fixture uses simulated providers and does not establish staging,
+physical audio or real-provider behavior.
 
 ### Planner voice submission lifecycle
 
