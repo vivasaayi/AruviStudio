@@ -372,7 +372,8 @@ The browser portfolio now also offers an all-products or strategy-scope view,
 including products linked to descendant nodes and an unlinked-product count.
 Selecting a displayed product loads its summary. A disposable native-server
 browser test covered parent and child scopes, selection and removing a selected
-scope; clean-image and worktree deployment checks remain pending.
+scope. Clean-image and deployed-worktree validation are recorded in the goal
+checkpoint.
 
 #### Settings and outbound contact comparison — 2026-11-14
 

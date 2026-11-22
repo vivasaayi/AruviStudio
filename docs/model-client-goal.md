@@ -12,9 +12,9 @@ provider hosting into the model-host service as part of this work.
 
 ## Remaining acceptance work
 
-- [ ] Build and check the latest runtime revision on ARM64 and AMD64, and
-  validate and deploy the Mac worktree candidate. Repeat for the eventual merged
-  revision; the previous `227fde4` runtime passed these checks.
+- [x] Build and check the current runtime revision on ARM64 and AMD64, and
+  validate and deploy the Mac worktree candidate. Repeat for later runtime
+  changes and for the eventual merged revision.
 - [ ] Complete the action-by-action desktop/web/MCP parity inventory, including
   direct voice selection edge cases, native dialogs and deliberately platform-specific
   behavior. Validate actual native-window and physical audio interaction when
@@ -29,6 +29,28 @@ provider hosting into the model-host service as part of this work.
   connectivity checks. Production promotion and release require separate work.
 
 ## Checkpoints
+
+### Current worktree deployment at `38d0acb`
+
+Clean ARM64 and AMD64 images and both hosted test runs passed for `38d0acb`.
+The checksum-verified ARM64 archive was imported with local image ID
+`sha256:01f881adb4d706640cffb7b2da9f16580221aa4879ed3be09e81755b96c04587`;
+its configuration and filesystem layer diff IDs matched the exported image,
+whose hosted ID was
+`sha256:5a5864a257dc54de767cf76f1a90a0d6bd55f84ce2506616ed6f26aef5e9c2b8`.
+Only checkpoint documentation differed from the tested runtime at deployment.
+Local isolated remote (64 passed, one skipped), workflow (62 passed), CI and
+PDF isolation/outage fixtures passed. A fresh database backup passed
+`quick_check` at `/private/tmp/aruvi-deploy-38d0acb/pre-deploy.db`; active
+workflow, CLI and import checks were clear before deployment. The previous
+image remains tagged `aruvi-studio-worktree-backup:pre-38d0acb`.
+Restart acceptance passed persistence, MCP/mobile authorization and PDF;
+published-port MCP origin and 13-section phone/desktop layout passed. Real
+local coding and synthetic Piper/Whisper speech passed through MCP. The
+deployed portfolio browser/MCP fixture passed scope filtering, descendant
+links, deduplication, navigation, refresh and narrow-screen checks. Physical
+audio, native-window interaction, full parity, integration and staging remain
+open.
 
 ### Dependency audit after interim deployment
 
@@ -96,8 +118,9 @@ The broader disposable native-server browser suite passed 43 tests
 and skipped 22 requiring additional fixtures. The frontend suite passed 140
 tests, the terminology check passed, and the native Rust library suite passed
 366 tests with eight ignored. The locked Rust `--tests` target also passed 366
-tests with eight ignored; the binary targets contained no tests. This covers a desktop portfolio action but is not
-a complete portfolio audit. Clean images and worktree deployment remain pending.
+tests with eight ignored; the binary targets contained no tests. This covers a
+desktop portfolio action but is not a complete portfolio audit. Clean-image
+and worktree deployment evidence is recorded above.
 
 ### Workflow-stage artifact paging
 
