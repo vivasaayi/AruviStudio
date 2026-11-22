@@ -28,8 +28,12 @@ A Rust race fixture held a competing area move and verified that a browser
 request waited, rejected the changed scope and created no child. Simultaneous
 browser and MCP area and capability creation produced distinct sibling sort
 positions. The full native Rust library suite passed 350 tests with eight
-ignored, and the native browser creation and ordering flows passed. Hosted
-clean-image checks and branch deployment remain pending.
+ignored, and the native browser creation and ordering flows passed. A separate
+two-container Linux fixture reproduced an incorrect cross-product creation on
+the prior worktree image, then rejected it on the fixed candidate. It also
+verified distinct sort positions from concurrent browser and MCP creation
+across the two servers. The fixture uses its own disposable volume and tokens.
+Hosted clean-image checks and branch deployment remain pending.
 
 ### Hierarchy creation details parity: branch validation
 
