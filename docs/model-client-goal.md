@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Interim worktree deployment at `24ef166`
+
+The earlier clean ARM64/AMD64 image build and browser fixtures passed. The Mac
+worktree now runs a derived candidate containing the checksum-verified ARM64
+server from that build, layered onto the existing runtime with matching runtime
+configuration. This is not the identical clean image. Before restart, a SQLite
+backup passed `quick_check` and active workflow, CLI and import counts were zero.
+After restart, environment acceptance verified persistence, authenticated
+mobile/MCP access and PDF export. The derived candidate passed 59 isolated
+remote browser tests (one skip; two newer work-item tests excluded), workflow
+and CI fixtures, a real Model Host Planner proposal and confirmation, and the
+packaged management/scoped model quick starts. The deployed stack passed three
+existing-catalog browser/MCP tests, 13-section phone/desktop layout, published
+port MCP origin checks, real coding through MCP and synthetic Piper/Whisper and
+browser voice. The worktree runs source `24ef166`, not the later work-item
+changes; the clean image build and deployed checks for those changes remain open.
+The backup is in `/private/tmp/aruvi-deploy-24ef166/pre-deploy.db`.
+
 ### Nested model-generated work-item updates (in validation)
 
 A real `qwen25-coder-7b-q4` proposal put the requested acceptance criteria
