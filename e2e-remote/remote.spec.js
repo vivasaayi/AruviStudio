@@ -3366,6 +3366,7 @@ test("browser manages portfolio strategy and product dependencies", async ({ pag
     const child = await call('create_strategy_node',{parent_node_id:node.id,node_kind:'domain',name:`Portfolio child ${suffix}`});
     await call('link_product_to_strategy',{product_id:b.id,strategy_node_id:child.id,is_primary:false});
     await page.getByRole('button',{name:'Refresh portfolio'}).click();
+    await expect(page.getByLabel('View products in strategy').locator(`option[value="${child.id}"]`)).toHaveText(`${node.name} › ${child.name}`);
     await page.getByLabel('View products in strategy').selectOption(node.id);
     await expect(page.locator('#portfolioScopeSummary')).toContainText('2 product(s) in scope');
     await expect(page.locator('#portfolioScopeProducts')).toContainText(a.name);

@@ -2995,7 +2995,13 @@
         const nodeNames = new Map(nodes.map((n) => [n.id, n.name]));
         portfolioSelect(portfolioElement("strategyParent"), nodes, "No parent (root)");
         portfolioSelect(portfolioElement("strategyNode"), nodes, "Select strategy");
-        portfolioSelect(portfolioElement("portfolioScope"), nodes, "All products"); renderPortfolioScope();
+        const byId = new Map(nodes.map((node) => [node.id, node]));
+        const scopeOptions = nodes.map((node) => {
+          const names = [], seen = new Set(); let current = node;
+          while (current && !seen.has(current.id)) { seen.add(current.id); names.unshift(current.name); current = byId.get(current.parent_node_id); }
+          return { id: node.id, name: names.join(" › ") };
+        });
+        portfolioSelect(portfolioElement("portfolioScope"), scopeOptions, "All products"); renderPortfolioScope();
         for (const id of ["strategyProduct", "dependencyProduct", "dependencyTarget"]) portfolioSelect(portfolioElement(id), state.products, "Select product");
         await Promise.all([loadDependencyCapabilities("source"), loadDependencyCapabilities("target")]);
         const list = portfolioElement("strategyList"); list.replaceChildren();

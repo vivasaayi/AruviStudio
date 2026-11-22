@@ -52,7 +52,8 @@ guarantee for other prompts, physical audio or deployed Docker behavior.
 ### Portfolio strategy scope
 
 Browser Products now displays all products or those linked within a selected
-strategy subtree, and shows the unlinked count. Clicking a result loads its
+strategy subtree, and shows the unlinked count. Scope choices include ancestor
+names to distinguish identically named nodes. Clicking a result loads its
 product summary. A disposable native-server browser/MCP fixture passed parent
 and child scope filtering, navigation, and refresh after the selected strategy
 was deleted; the fixture also verifies empty scope messaging, counts,
