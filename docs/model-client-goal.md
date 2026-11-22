@@ -22,6 +22,12 @@ legacy children remain disabled. A native server build and disposable browser
 tests passed edit/save, cancelled deletion, a concurrent MCP edit rejected by
 the delete endpoint, confirmed deletion and 101-child paging. Clean image and
 deployment checks remain pending. Physical desktop acceptance remains open.
+The broader native browser run passed 31 tests and skipped 22 fixture-dependent
+cases. An earlier attempt enabled all disposable-container cases against the
+native fixture: 44 passed, five skipped and four failed because that fixture
+lacked the packaged Monaco assets, repository paths and configured proxy origin.
+Those cases require the configured container suite; they are not counted as
+passing for this change until that suite runs.
 
 ### Independent model-client revalidation
 
