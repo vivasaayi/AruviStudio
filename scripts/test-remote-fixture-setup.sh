@@ -8,7 +8,7 @@ docker exec "$name" sh -c '
   git -C "$d" -c user.name=Fixture -c user.email=fixture@example.invalid commit -q -m fixture &&
   printf "staged line\n" > "$d/git-diff.txt" && git -C "$d" add git-diff.txt && printf "working line\n" > "$d/git-diff.txt" &&
   mkdir "$d/second" "$d/node_modules" "$d/nested" && git init -q "$d/second" && printf "nested fixture\n" > "$d/nested/target-file.txt" && : > "$d/patch-safety-fixture.txt" && ln "$d/patch-safety-fixture.txt" "$d/patch-alias.txt" &&
-  printf "workspace inspection fixture\n" > "$d/inspection.txt" && printf "windows line\r\n" > "$d/windows.txt" && printf "\000\377\021\200\001" > "$d/nested/binary.bin" &&
+  printf "workspace inspection fixture\n" > "$d/inspection.txt" && printf "windows line\r\n" > "$d/windows.txt" && printf "\000\377\021\200\001" > "$d/nested/binary.bin" && truncate -s 8388608 "$d/nested/boundary.bin" && truncate -s 8388609 "$d/nested/too-large.bin" &&
   printf "one\r\ntwo\n" > "$d/mixed.txt" && printf "hidden fixture\n" > "$d/node_modules/excluded.txt" &&
   ln -s /etc/passwd "$d/outside-link" && truncate -s 2097153 "$d/oversized.txt" && yes é | head -c 3000 > "$d/aaa_unicode.txt"
 '

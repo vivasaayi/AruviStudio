@@ -986,6 +986,15 @@ test("browser registers and attaches a container workspace", async ({ page, requ
       expect(downloaded.suggestedFilename()).toBe("binary.bin");
       const chunks = []; for await (const chunk of await downloaded.createReadStream()) chunks.push(chunk);
       expect(Buffer.concat(chunks)).toEqual(Buffer.from([0, 255, 17, 128, 1]));
+      await page.getByLabel("Filter workspace files").fill("nested/boundary.bin");
+      const boundaryEvent = page.waitForEvent("download");
+      await page.getByRole("button", { name: "Download saved nested/boundary.bin" }).click();
+      const boundary = await boundaryEvent, boundaryChunks = [];
+      for await (const chunk of await boundary.createReadStream()) boundaryChunks.push(chunk);
+      expect(Buffer.concat(boundaryChunks)).toEqual(Buffer.alloc(8 * 1024 * 1024));
+      await page.getByLabel("Filter workspace files").fill("nested/too-large.bin");
+      await page.getByRole("button", { name: "Download saved nested/too-large.bin" }).click();
+      await expect(page.locator("#status")).toContainText("8 MiB");
       const binaryArgs = { repository_id:repositoryId, relative_path:"nested/binary.bin", expected_root:process.env.ARUVI_TEST_REPOSITORY_PATH };
       const binary = await call("aruvi_repositories", "read_repository_binary", binaryArgs);
       expect(Buffer.from(binary.content_base64, "base64")).toEqual(Buffer.from([0, 255, 17, 128, 1]));

@@ -43,6 +43,11 @@ try {
   await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
   await page.getByRole("button", { name:"Workspaces", exact:true }).click();
   await page.locator("#repositoryList .tool-card").filter({hasText:"Binary fixture"}).getByRole("button", {name:"Browse workspace"}).click();
+  await page.getByRole("button", {name:"Download saved fixture.bin"}).waitFor();
+  await page.getByLabel("Filter workspace files").fill("boundary.bin");
+  assert.equal(await page.getByRole("button", {name:"Download saved fixture.bin", includeHidden:true}).isVisible(), false);
+  assert.equal(await page.getByRole("button", {name:"Download saved boundary.bin"}).isVisible(), true);
+  await page.getByLabel("Filter workspace files").fill("");
   const event = page.waitForEvent("download"); await page.getByRole("button", {name:"Download saved fixture.bin"}).click();
   const download = await event; assert.equal(download.suggestedFilename(), "fixture.bin");
   assert.deepEqual(await readFile(await download.path()), bytes);

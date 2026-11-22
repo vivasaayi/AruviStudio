@@ -28,6 +28,10 @@ tests, the frontend production build and terminology check passed. A disposable 
 binary bytes, both MCP names, authorization, stale root and the 8 MiB boundary.
 The native workspace-edit and code-editor fixtures passed. Linux container validation and
 deployment remain pending; physical desktop and complete parity remain open.
+The first Linux browser regression run found that the new flex rows stayed
+visible after filtering. A scoped CSS rule corrected their hidden state; a
+native browser fixture confirmed matching and nonmatching rows after the tree
+loaded. The Linux suite must be rerun on a new candidate containing the fix.
 
 ### Short continuous voice turns
 
