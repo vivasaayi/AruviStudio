@@ -67,6 +67,8 @@ limitations and validation items below are not complete.
   Desktop HTML, EPUB and PDF exports call this same backend renderer and retain
   their native file writers. Browser and MCP HTML/EPUB/PDF exports use it as well;
   image-resource packaging and broad visual comparison remain open.
+  Docs and Book HTML share the same reference URL scheme checks; unsafe URLs
+  remain visible as text rather than clickable links.
   For a local worktree, request a rendered book with:
 
   ```sh

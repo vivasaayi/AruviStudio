@@ -267,406 +267,6 @@ var AruviProductBook = (() => {
     return options.plural ? labels.plural : labels.singular;
   }
 
-  // src/features/products/lib/productOverviewRenderHelpers.ts
-  function groupTocItems(items) {
-    const groups = [];
-    items.forEach((item) => {
-      if (item.level === 0) {
-        groups.push({ item, children: [] });
-        return;
-      }
-      const currentGroup = groups[groups.length - 1];
-      if (currentGroup) {
-        currentGroup.children.push(item);
-      }
-    });
-    return groups;
-  }
-  function collectCapabilityIds(capabilities) {
-    const ids = /* @__PURE__ */ new Set();
-    capabilities.forEach((capabilityTree) => {
-      ids.add(capabilityTree.capability.id);
-      collectCapabilityIds(capabilityTree.children).forEach((id) => ids.add(id));
-    });
-    return ids;
-  }
-  function getProductAreaScopedWorkItems(productAreaTree, allWorkItems) {
-    const capabilityIds = collectCapabilityIds(productAreaTree.features);
-    return allWorkItems.filter(
-      (workItem) => workItem.product_area_id === productAreaTree.product_area.id || (workItem.capability_id ? capabilityIds.has(workItem.capability_id) : false)
-    );
-  }
-  function getCapabilityScopedWorkItems(capabilityTree, allWorkItems) {
-    const capabilityIds = collectCapabilityIds([capabilityTree]);
-    return allWorkItems.filter((workItem) => workItem.capability_id ? capabilityIds.has(workItem.capability_id) : false);
-  }
-  function renderProductAreaHtml(productAreaTree, chapterNumber, allWorkItems, references) {
-    const productAreaScopedItems = getProductAreaScopedWorkItems(productAreaTree, allWorkItems);
-    const productAreaMetrics = buildWorkItemMetrics(productAreaScopedItems);
-    const directProductAreaWorkItems = buildScopedWorkItemTree(
-      allWorkItems.filter((workItem) => workItem.product_area_id === productAreaTree.product_area.id && !workItem.capability_id)
-    );
-    const rootKindLabel = getHierarchyNodeKindLabel(productAreaTree.product_area.node_kind);
-    const productAreaReferences = filterReferencesForScope(references, getProductAreaReferenceScope(productAreaTree.product_area.id));
-    return `
-    <section class="chapter" id="${getProductAreaSectionId(productAreaTree.product_area)}">
-      <details open>
-        <summary>
-          <div class="chapter-header">
-            <div>
-              <div class="chapter-kicker">${escapeHtml(rootKindLabel)} ${chapterNumber}</div>
-              <h3>${escapeHtml(productAreaTree.product_area.name)}</h3>
-              <p>${toHtmlParagraph(productAreaTree.product_area.description || productAreaTree.product_area.purpose || "Document this product area so the product architecture remains readable.")}</p>
-            </div>
-            <div class="count-row">
-              <span class="count-pill">${productAreaTree.features.length} ${productAreaTree.features.length === 1 ? "child node" : "child nodes"}</span>
-              ${renderMetricSummaryPills(productAreaMetrics)}
-            </div>
-          </div>
-        </summary>
-        <div class="chapter-body">
-          <div class="info-grid">
-            ${renderNoteCardHtml("Purpose", productAreaTree.product_area.purpose)}
-            ${renderNoteCardHtml("Explanation", productAreaTree.product_area.explanation)}
-            ${renderNoteCardHtml("Examples", productAreaTree.product_area.examples)}
-            ${renderNoteCardHtml("Implementation Notes", productAreaTree.product_area.implementation_notes)}
-            ${renderNoteCardHtml("Test Guidance", productAreaTree.product_area.test_guidance)}
-          </div>
-          ${renderReferenceListHtml(productAreaReferences)}
-          ${directProductAreaWorkItems.length > 0 ? `
-            <div class="section-header" style="margin-bottom: 12px;">
-              <div class="eyebrow">Direct Work</div>
-              <h3 style="font-size: 20px;">Chapter Delivery</h3>
-            </div>
-            ${renderWorkItemTreeHtml(directProductAreaWorkItems)}
-          ` : ""}
-          ${productAreaTree.features.length > 0 ? productAreaTree.features.map((capabilityTree, index) => renderCapabilityHtml(capabilityTree, `${chapterNumber}.${index + 1}`, allWorkItems, references)).join("") : `<p class="muted-line">No capabilities defined for this product area yet.</p>`}
-        </div>
-      </details>
-    </section>
-  `;
-  }
-  function renderCapabilityHtml(capabilityTree, numbering, allWorkItems, references) {
-    const capabilityType = getHierarchyNodeKindLabel(capabilityTree.capability.node_kind);
-    const scopedItems = getCapabilityScopedWorkItems(capabilityTree, allWorkItems);
-    const directWorkItems = buildScopedWorkItemTree(
-      allWorkItems.filter((workItem) => workItem.capability_id === capabilityTree.capability.id)
-    );
-    const metrics = buildWorkItemMetrics(scopedItems);
-    const capabilityReferences = filterReferencesForScope(references, getCapabilityReferenceScope(capabilityTree.capability));
-    return `
-    <section class="capability" id="${getCapabilitySectionId(capabilityTree.capability)}">
-      <details>
-        <summary>
-          <div class="capability-header">
-            <div>
-              <div class="chapter-kicker">${capabilityType} ${escapeHtml(numbering)}</div>
-              <h4 class="capability-title">${escapeHtml(capabilityTree.capability.name)}</h4>
-              <p>${toHtmlParagraph(capabilityTree.capability.description || `Document what this ${capabilityType.toLowerCase()} is responsible for.`)}</p>
-            </div>
-            <div class="count-row">
-              <span class="meta-pill">${escapeHtml(capabilityTree.capability.status.replace(/_/g, " "))}</span>
-              <span class="meta-pill">${escapeHtml(capabilityTree.capability.priority)} priority</span>
-              <span class="meta-pill">${escapeHtml(capabilityTree.capability.risk)} risk</span>
-              ${renderMetricSummaryPills(metrics)}
-            </div>
-          </div>
-        </summary>
-        <div class="capability-body">
-          <div class="info-grid">
-            ${renderNoteCardHtml("Acceptance Criteria", capabilityTree.capability.acceptance_criteria)}
-            ${renderNoteCardHtml("Explanation", capabilityTree.capability.explanation)}
-            ${renderNoteCardHtml("Examples", capabilityTree.capability.examples)}
-            ${renderNoteCardHtml("Technical Notes", capabilityTree.capability.technical_notes)}
-            ${renderNoteCardHtml("Implementation Notes", capabilityTree.capability.implementation_notes)}
-            ${renderNoteCardHtml("Test Guidance", capabilityTree.capability.test_guidance)}
-          </div>
-          ${renderReferenceListHtml(capabilityReferences)}
-
-          ${directWorkItems.length > 0 ? `
-            <div class="section-header" style="margin: 18px 0 12px;">
-              <div class="eyebrow">Delivery</div>
-              <h3 style="font-size: 20px;">Stories</h3>
-            </div>
-            ${renderWorkItemTreeHtml(directWorkItems)}
-          ` : `<p class="muted-line" style="margin-top: 16px;">No stories attached to this ${capabilityType.toLowerCase()} yet.</p>`}
-
-          ${capabilityTree.children.length > 0 ? capabilityTree.children.map((child, index) => renderCapabilityHtml(child, `${numbering}.${index + 1}`, allWorkItems, references)).join("") : ""}
-        </div>
-      </details>
-    </section>
-  `;
-  }
-  function renderNoteCardHtml(label, value) {
-    if (!value.trim()) {
-      return "";
-    }
-    return `
-    <div class="note-card">
-      <h4>${escapeHtml(label)}</h4>
-      <p>${toHtmlParagraph(value)}</p>
-    </div>
-  `;
-  }
-  function renderReferenceListHtml(references) {
-    if (references.length === 0) {
-      return "";
-    }
-    return `
-    <div class="reference-grid">
-      ${references.map((reference) => `
-        <div class="note-card reference-card">
-          <h4>${escapeHtml(getReferenceKindLabel(reference.reference_kind))}</h4>
-          <p><strong>${escapeHtml(reference.title)}</strong></p>
-          ${reference.content ? `<p>${toHtmlParagraph(reference.content)}</p>` : ""}
-          ${reference.uri ? `<a href="${escapeHtml(reference.uri)}">${escapeHtml(reference.uri)}</a>` : ""}
-        </div>
-      `).join("")}
-    </div>
-  `;
-  }
-  function renderWorkItemTreeHtml(nodes) {
-    return `<div class="work-item-list">${nodes.map((node) => renderWorkItemNodeHtml(node)).join("")}</div>`;
-  }
-  function renderWorkItemNodeHtml(node) {
-    const presentation = getWorkItemPresentation(node.workItem.status);
-    const excerpt = summarizeText(node.workItem.description || node.workItem.problem_statement || node.workItem.acceptance_criteria || "No delivery notes captured yet.");
-    return `
-    <article class="work-item ${presentation.toneClass}">
-      <div class="work-item-header">
-        <div>
-          <h5>${escapeHtml(node.workItem.title)}</h5>
-          <div class="meta-row" style="margin-top: 8px;">
-            <span class="status-pill ${presentation.toneClass}">${presentation.label}</span>
-            <span class="meta-pill">${escapeHtml(node.workItem.work_item_type.replace(/_/g, " "))}</span>
-            <span class="meta-pill">${escapeHtml(node.workItem.priority)} priority</span>
-            <span class="meta-pill">${escapeHtml(node.workItem.complexity.replace(/_/g, " "))}</span>
-            ${node.children.length > 0 ? `<span class="count-pill">${node.children.length} sub-item${node.children.length === 1 ? "" : "s"}</span>` : ""}
-          </div>
-        </div>
-      </div>
-      <p>${escapeHtml(excerpt)}</p>
-      ${node.children.length > 0 ? `<div class="work-item-children">${renderWorkItemTreeHtml(node.children)}</div>` : ""}
-    </article>
-  `;
-  }
-  function renderMetricHtml(label, value) {
-    return `
-    <div class="metric">
-      <div class="metric-label">${escapeHtml(label)}</div>
-      <div class="metric-value">${value}</div>
-    </div>
-  `;
-  }
-  function renderTocGroupHtml(group) {
-    if (group.children.length === 0) {
-      return `<a href="#${group.item.id}" data-level="${group.item.level}">${escapeHtml(group.item.title)}</a>`;
-    }
-    return `
-    <details class="toc-group" open>
-      <summary>
-        <span>${escapeHtml(group.item.title)}</span>
-        <span>${group.children.length}</span>
-      </summary>
-      <div class="toc-group-children">
-        <a href="#${group.item.id}" data-level="0">Section overview</a>
-        ${group.children.map((item) => `<a href="#${item.id}" data-level="${item.level}">${escapeHtml(item.title)}</a>`).join("")}
-      </div>
-    </details>
-  `;
-  }
-  function renderMetricSummaryPills(metrics) {
-    if (metrics.total === 0) {
-      return `<span class="count-pill">No stories</span>`;
-    }
-    return [
-      metrics.done > 0 ? `<span class="status-pill is-done">${metrics.done} done</span>` : "",
-      metrics.wip > 0 ? `<span class="status-pill is-wip">${metrics.wip} WIP</span>` : "",
-      metrics.tbd > 0 ? `<span class="status-pill is-tbd">${metrics.tbd} TBD</span>` : "",
-      metrics.blocked > 0 ? `<span class="status-pill is-blocked">${metrics.blocked} blocked</span>` : ""
-    ].filter(Boolean).join("");
-  }
-  function renderLegendRow(label, color) {
-    return `<div class="legend-row"><span class="legend-dot" style="background: ${color};"></span>${escapeHtml(label)}</div>`;
-  }
-  function summarizeText(text, maxLength = 220) {
-    const normalized = text.replace(/\s+/g, " ").trim();
-    if (normalized.length <= maxLength) {
-      return normalized;
-    }
-    return `${normalized.slice(0, maxLength - 1).trimEnd()}\u2026`;
-  }
-  function toHtmlParagraph(text) {
-    return escapeHtml(text).replace(/\n/g, "<br />");
-  }
-  function escapeHtml(value) {
-    return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
-  }
-
-  // src/features/products/lib/productOverview.ts
-  function buildProductOverviewHtml({
-    product,
-    tree,
-    workItems = [],
-    references = []
-  }) {
-    const allWorkItems = sortWorkItems(workItems);
-    const metrics = buildWorkItemMetrics(allWorkItems);
-    const rootSectionCount = tree?.roots.length ?? 0;
-    const totalNodeCount = tree ? countHierarchyNodes(tree.roots) : 0;
-    const leafNodeCount = tree ? countLeafNodes(tree.roots) : 0;
-    const activeWorkItemCount = allWorkItems.filter((workItem) => workItem.status !== "done" && workItem.status !== "cancelled").length;
-    const productLevelWorkItems = buildScopedWorkItemTree(getProductDirectWorkItems(allWorkItems));
-    const bookReferences = filterReferencesForProductBook(product.id, tree, references);
-    const productReferences = filterReferencesForScope(bookReferences, { scopeType: "product", scopeId: product.id });
-    const tocItems = buildProductOverviewToc(tree, productLevelWorkItems.length > 0);
-    const tocGroups = groupTocItems(tocItems);
-    const generatedAt = (/* @__PURE__ */ new Date()).toLocaleString();
-    return `<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${escapeHtml(product.name)} - Product Overview</title>
-    <style>
-      ${PRODUCT_OVERVIEW_DOCUMENT_STYLES}
-    </style>
-  </head>
-  <body>
-    <div class="page">
-      <aside class="sidebar">
-        <div class="sidebar-panel">
-          <div class="brand">
-            <div class="eyebrow">Aruvi Studio</div>
-            <h1>${escapeHtml(product.name)}</h1>
-            <p>Generated product documentation with product areas, capabilities, features, stories, and tasks in one readable view.</p>
-          </div>
-          <div class="toc">
-            <div class="toc-title">On this page</div>
-            <div class="toc-scroll">
-              ${tocGroups.map((group) => renderTocGroupHtml(group)).join("")}
-            </div>
-          </div>
-          <div class="legend">
-            <div class="toc-title">Work status</div>
-            ${renderLegendRow("Done", "var(--done)")}
-            ${renderLegendRow("WIP", "var(--wip)")}
-            ${renderLegendRow("TBD", "var(--tbd)")}
-            ${renderLegendRow("Blocked", "var(--blocked)")}
-          </div>
-        </div>
-      </aside>
-      <main class="content">
-        <div class="topbar">
-          <button type="button" class="sidebar-toggle" id="sidebar-toggle">Hide Sidebar</button>
-        </div>
-        <section class="hero" id="${PRODUCT_OVERVIEW_TOP_ID}">
-          <div class="eyebrow">Product Book</div>
-          <div class="hero-header">
-            <div>
-              <h2>${escapeHtml(product.name)}</h2>
-              <p>${toHtmlParagraph(product.description || "Add a product description in Aruvi Studio to anchor the book before coding starts.")}</p>
-            </div>
-            <div class="hero-chip">${escapeHtml(product.status)}</div>
-          </div>
-          ${renderReferenceListHtml(productReferences)}
-          <div class="progress-panel">
-            <div class="progress-label">
-              <span>${metrics.done} of ${metrics.total} stories complete</span>
-              <strong>${metrics.completion}% complete</strong>
-            </div>
-            <div class="progress-track"><span style="width: ${metrics.completion}%"></span></div>
-          </div>
-          <div class="metric-grid">
-            ${renderMetricHtml("Product Areas", rootSectionCount)}
-            ${renderMetricHtml("Total Nodes", totalNodeCount)}
-            ${renderMetricHtml("Leaf Nodes", leafNodeCount)}
-            ${renderMetricHtml("Active Stories", activeWorkItemCount)}
-            ${renderMetricHtml("Done", metrics.done)}
-            ${renderMetricHtml("Blocked", metrics.blocked)}
-          </div>
-        </section>
-
-        <div class="summary-grid">
-          <section class="summary-card">
-            <div class="section-header">
-              <div class="eyebrow">Direction</div>
-              <h3>Vision</h3>
-            </div>
-            <p>${toHtmlParagraph(product.vision || "No product vision recorded yet.")}</p>
-          </section>
-          <section class="summary-card">
-            <div class="section-header">
-              <div class="eyebrow">Intent</div>
-              <h3>Goals</h3>
-            </div>
-            ${product.goals.length > 0 ? `<ul>${product.goals.map((goal) => `<li>${escapeHtml(goal)}</li>`).join("")}</ul>` : `<p>No goals recorded yet.</p>`}
-          </section>
-          <section class="summary-card">
-            <div class="section-header">
-              <div class="eyebrow">Metadata</div>
-              <h3>Tags</h3>
-            </div>
-            ${product.tags.length > 0 ? `<div class="tag-row">${product.tags.map((tag) => `<span class="tag">${escapeHtml(tag)}</span>`).join("")}</div>` : `<p>No product tags recorded yet.</p>`}
-          </section>
-          <section class="summary-card">
-            <div class="section-header">
-              <div class="eyebrow">Evidence</div>
-              <h3>References</h3>
-            </div>
-            <p>${bookReferences.length} scoped ${bookReferences.length === 1 ? "reference" : "references"} attached to this product book.</p>
-          </section>
-        </div>
-
-        ${productLevelWorkItems.length > 0 ? `
-          <section class="section" id="${PRODUCT_DELIVERY_ID}">
-            <div class="section-header">
-              <div class="eyebrow">Product</div>
-              <h3>Product Delivery</h3>
-              <p>Cross-cutting work attached directly to the book rather than a single chapter or feature.</p>
-            </div>
-            <div class="section-body">
-              ${renderWorkItemTreeHtml(productLevelWorkItems)}
-            </div>
-          </section>
-        ` : ""}
-
-        ${(tree?.product_areas ?? []).length > 0 ? (tree?.product_areas ?? []).map((productAreaTree, index) => renderProductAreaHtml(productAreaTree, index + 1, allWorkItems, bookReferences)).join("") : `
-            <section class="section">
-              <div class="section-header">
-                <div class="eyebrow">Product</div>
-                <h3>No Product Areas Yet</h3>
-                <p>Create the first product area in Aruvi Studio to turn the product into a navigable system map.</p>
-              </div>
-            </section>
-          `}
-
-        <div class="export-note">Generated by Aruvi Studio on ${escapeHtml(generatedAt)}.</div>
-      </main>
-    </div>
-    <script>
-      (function () {
-        const button = document.getElementById("sidebar-toggle");
-        if (!button) return;
-
-        const syncLabel = function () {
-          button.textContent = document.body.classList.contains("sidebar-collapsed")
-            ? "Show Sidebar"
-            : "Hide Sidebar";
-        };
-
-        button.addEventListener("click", function () {
-          document.body.classList.toggle("sidebar-collapsed");
-          syncLabel();
-        });
-
-        syncLabel();
-      })();
-    </script>
-  </body>
-</html>`;
-  }
-
   // src/features/products/lib/bookExportTextRendering.ts
   function renderRichTextHtml(text) {
     const normalized = text.replace(/\r\n/g, "\n").trim();
@@ -696,8 +296,8 @@ var AruviProductBook = (() => {
         }
         blocks.push(`
         <figure class="book-code">
-          <pre><code>${escapeHtml2(codeLines.join("\n"))}</code></pre>
-          ${language ? `<figcaption>${escapeHtml2(language)} snippet</figcaption>` : ""}
+          <pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>
+          ${language ? `<figcaption>${escapeHtml(language)} snippet</figcaption>` : ""}
         </figure>
       `);
         continue;
@@ -753,7 +353,7 @@ var AruviProductBook = (() => {
     return blocks.join("");
   }
   function renderInlineRichText(text) {
-    return escapeHtml2(text).replace(/`([^`]+)`/g, (_match, code) => `<code class="book-inline-code">${escapeHtml2(code)}</code>`);
+    return escapeHtml(text).replace(/`([^`]+)`/g, (_match, code) => `<code class="book-inline-code">${escapeHtml(code)}</code>`);
   }
   function renderFigureBlock(line) {
     const match = line.match(/^!\[(.*?)\]\((\S+?)(?:\s+"(.*)")?\)$/);
@@ -764,8 +364,8 @@ var AruviProductBook = (() => {
     const caption = title || alt || "Figure";
     return `
     <figure class="book-figure">
-      <img src="${escapeHtml2(src)}" alt="${escapeHtml2(alt || caption)}" />
-      <figcaption>${escapeHtml2(caption)}</figcaption>
+      <img src="${escapeHtml(src)}" alt="${escapeHtml(alt || caption)}" />
+      <figcaption>${escapeHtml(caption)}</figcaption>
     </figure>
   `;
   }
@@ -799,6 +399,298 @@ var AruviProductBook = (() => {
   function isTableLine(line) {
     return line.startsWith("|") && line.endsWith("|");
   }
+  function summarizeText(text, maxLength = 220) {
+    const normalized = text.replace(/\s+/g, " ").trim();
+    if (normalized.length <= maxLength) {
+      return normalized;
+    }
+    return `${normalized.slice(0, maxLength - 1).trimEnd()}\u2026`;
+  }
+  function escapeHtml(value) {
+    return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "\uFFFD").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+  }
+
+  // src/features/products/lib/bookExportReferences.ts
+  function renderReferenceUri(uri, renderMode) {
+    if (!uri) return "";
+    const escaped = escapeHtml(uri);
+    const safeExternal = /^(?:https?:\/\/|mailto:|tel:)/i.test(uri) && !/[\u0000-\u0020\u007f]/.test(uri);
+    const safeRelative = !/^(?:[a-z][a-z0-9+.-]*:|\/\/|\\)/i.test(uri) && !/[\u0000-\u0020\u007f]/.test(uri);
+    return safeExternal || renderMode !== "epub" && safeRelative ? `<a class="reference-uri" href="${escaped}">${escaped}</a>` : `<span class="reference-uri">${escaped}</span>`;
+  }
+  function renderBookReferencesHtml(references, renderMode) {
+    if (references.length === 0) {
+      return "";
+    }
+    return `
+    <div class="reference-list">
+      ${references.map((reference) => `
+        <div class="reference-item">
+          <div class="meta-label">${escapeHtml(getReferenceKindLabel(reference.reference_kind))}</div>
+          <h3 style="margin-top: 6px;">${escapeHtml(reference.title)}</h3>
+          ${reference.content ? `<div class="note-copy">${renderRichTextHtml(reference.content)}</div>` : ""}
+          ${renderReferenceUri(reference.uri, renderMode)}
+        </div>
+      `).join("")}
+    </div>
+  `;
+  }
+  function filterBookReferences(product, tree, references) {
+    const scopeLabels = buildReferenceScopeLabels(product, tree);
+    return references.filter((reference) => scopeLabels.has(getReferenceScopeKey(reference)));
+  }
+  function buildReferenceAtlas(product, tree, references) {
+    const scopeLabels = buildReferenceScopeLabels(product, tree);
+    return references.map((reference) => ({
+      id: reference.id,
+      kindLabel: getReferenceKindLabel(reference.reference_kind),
+      pathLabel: scopeLabels.get(getReferenceScopeKey(reference)) ?? `${reference.scope_type} / ${reference.scope_id}`,
+      title: reference.title,
+      summary: reference.content,
+      uri: reference.uri
+    }));
+  }
+  function buildReferenceScopeLabels(product, tree) {
+    const scopeLabels = /* @__PURE__ */ new Map();
+    scopeLabels.set(`product:${product.id}`, product.name);
+    const visit = (node) => {
+      if (node.node_type === "product_area") {
+        scopeLabels.set(`product_area:${node.id}`, node.path.join(" / "));
+      } else if (node.capability_id) {
+        const scopeType = node.node_kind === "feature" ? "feature" : "capability";
+        scopeLabels.set(`${scopeType}:${node.capability_id}`, node.path.join(" / "));
+      }
+      node.children.forEach(visit);
+    };
+    (tree?.roots ?? []).forEach(visit);
+    return scopeLabels;
+  }
+  function getReferenceScopeKey(reference) {
+    return `${reference.scope_type}:${reference.scope_id}`;
+  }
+
+  // src/features/products/lib/productOverviewRenderHelpers.ts
+  function groupTocItems(items) {
+    const groups = [];
+    items.forEach((item) => {
+      if (item.level === 0) {
+        groups.push({ item, children: [] });
+        return;
+      }
+      const currentGroup = groups[groups.length - 1];
+      if (currentGroup) {
+        currentGroup.children.push(item);
+      }
+    });
+    return groups;
+  }
+  function collectCapabilityIds(capabilities) {
+    const ids = /* @__PURE__ */ new Set();
+    capabilities.forEach((capabilityTree) => {
+      ids.add(capabilityTree.capability.id);
+      collectCapabilityIds(capabilityTree.children).forEach((id) => ids.add(id));
+    });
+    return ids;
+  }
+  function getProductAreaScopedWorkItems(productAreaTree, allWorkItems) {
+    const capabilityIds = collectCapabilityIds(productAreaTree.features);
+    return allWorkItems.filter(
+      (workItem) => workItem.product_area_id === productAreaTree.product_area.id || (workItem.capability_id ? capabilityIds.has(workItem.capability_id) : false)
+    );
+  }
+  function getCapabilityScopedWorkItems(capabilityTree, allWorkItems) {
+    const capabilityIds = collectCapabilityIds([capabilityTree]);
+    return allWorkItems.filter((workItem) => workItem.capability_id ? capabilityIds.has(workItem.capability_id) : false);
+  }
+  function renderProductAreaHtml(productAreaTree, chapterNumber, allWorkItems, references) {
+    const productAreaScopedItems = getProductAreaScopedWorkItems(productAreaTree, allWorkItems);
+    const productAreaMetrics = buildWorkItemMetrics(productAreaScopedItems);
+    const directProductAreaWorkItems = buildScopedWorkItemTree(
+      allWorkItems.filter((workItem) => workItem.product_area_id === productAreaTree.product_area.id && !workItem.capability_id)
+    );
+    const rootKindLabel = getHierarchyNodeKindLabel(productAreaTree.product_area.node_kind);
+    const productAreaReferences = filterReferencesForScope(references, getProductAreaReferenceScope(productAreaTree.product_area.id));
+    return `
+    <section class="chapter" id="${getProductAreaSectionId(productAreaTree.product_area)}">
+      <details open>
+        <summary>
+          <div class="chapter-header">
+            <div>
+              <div class="chapter-kicker">${escapeHtml2(rootKindLabel)} ${chapterNumber}</div>
+              <h3>${escapeHtml2(productAreaTree.product_area.name)}</h3>
+              <p>${toHtmlParagraph(productAreaTree.product_area.description || productAreaTree.product_area.purpose || "Document this product area so the product architecture remains readable.")}</p>
+            </div>
+            <div class="count-row">
+              <span class="count-pill">${productAreaTree.features.length} ${productAreaTree.features.length === 1 ? "child node" : "child nodes"}</span>
+              ${renderMetricSummaryPills(productAreaMetrics)}
+            </div>
+          </div>
+        </summary>
+        <div class="chapter-body">
+          <div class="info-grid">
+            ${renderNoteCardHtml("Purpose", productAreaTree.product_area.purpose)}
+            ${renderNoteCardHtml("Explanation", productAreaTree.product_area.explanation)}
+            ${renderNoteCardHtml("Examples", productAreaTree.product_area.examples)}
+            ${renderNoteCardHtml("Implementation Notes", productAreaTree.product_area.implementation_notes)}
+            ${renderNoteCardHtml("Test Guidance", productAreaTree.product_area.test_guidance)}
+          </div>
+          ${renderReferenceListHtml(productAreaReferences)}
+          ${directProductAreaWorkItems.length > 0 ? `
+            <div class="section-header" style="margin-bottom: 12px;">
+              <div class="eyebrow">Direct Work</div>
+              <h3 style="font-size: 20px;">Chapter Delivery</h3>
+            </div>
+            ${renderWorkItemTreeHtml(directProductAreaWorkItems)}
+          ` : ""}
+          ${productAreaTree.features.length > 0 ? productAreaTree.features.map((capabilityTree, index) => renderCapabilityHtml(capabilityTree, `${chapterNumber}.${index + 1}`, allWorkItems, references)).join("") : `<p class="muted-line">No capabilities defined for this product area yet.</p>`}
+        </div>
+      </details>
+    </section>
+  `;
+  }
+  function renderCapabilityHtml(capabilityTree, numbering, allWorkItems, references) {
+    const capabilityType = getHierarchyNodeKindLabel(capabilityTree.capability.node_kind);
+    const scopedItems = getCapabilityScopedWorkItems(capabilityTree, allWorkItems);
+    const directWorkItems = buildScopedWorkItemTree(
+      allWorkItems.filter((workItem) => workItem.capability_id === capabilityTree.capability.id)
+    );
+    const metrics = buildWorkItemMetrics(scopedItems);
+    const capabilityReferences = filterReferencesForScope(references, getCapabilityReferenceScope(capabilityTree.capability));
+    return `
+    <section class="capability" id="${getCapabilitySectionId(capabilityTree.capability)}">
+      <details>
+        <summary>
+          <div class="capability-header">
+            <div>
+              <div class="chapter-kicker">${capabilityType} ${escapeHtml2(numbering)}</div>
+              <h4 class="capability-title">${escapeHtml2(capabilityTree.capability.name)}</h4>
+              <p>${toHtmlParagraph(capabilityTree.capability.description || `Document what this ${capabilityType.toLowerCase()} is responsible for.`)}</p>
+            </div>
+            <div class="count-row">
+              <span class="meta-pill">${escapeHtml2(capabilityTree.capability.status.replace(/_/g, " "))}</span>
+              <span class="meta-pill">${escapeHtml2(capabilityTree.capability.priority)} priority</span>
+              <span class="meta-pill">${escapeHtml2(capabilityTree.capability.risk)} risk</span>
+              ${renderMetricSummaryPills(metrics)}
+            </div>
+          </div>
+        </summary>
+        <div class="capability-body">
+          <div class="info-grid">
+            ${renderNoteCardHtml("Acceptance Criteria", capabilityTree.capability.acceptance_criteria)}
+            ${renderNoteCardHtml("Explanation", capabilityTree.capability.explanation)}
+            ${renderNoteCardHtml("Examples", capabilityTree.capability.examples)}
+            ${renderNoteCardHtml("Technical Notes", capabilityTree.capability.technical_notes)}
+            ${renderNoteCardHtml("Implementation Notes", capabilityTree.capability.implementation_notes)}
+            ${renderNoteCardHtml("Test Guidance", capabilityTree.capability.test_guidance)}
+          </div>
+          ${renderReferenceListHtml(capabilityReferences)}
+
+          ${directWorkItems.length > 0 ? `
+            <div class="section-header" style="margin: 18px 0 12px;">
+              <div class="eyebrow">Delivery</div>
+              <h3 style="font-size: 20px;">Stories</h3>
+            </div>
+            ${renderWorkItemTreeHtml(directWorkItems)}
+          ` : `<p class="muted-line" style="margin-top: 16px;">No stories attached to this ${capabilityType.toLowerCase()} yet.</p>`}
+
+          ${capabilityTree.children.length > 0 ? capabilityTree.children.map((child, index) => renderCapabilityHtml(child, `${numbering}.${index + 1}`, allWorkItems, references)).join("") : ""}
+        </div>
+      </details>
+    </section>
+  `;
+  }
+  function renderNoteCardHtml(label, value) {
+    if (!value.trim()) {
+      return "";
+    }
+    return `
+    <div class="note-card">
+      <h4>${escapeHtml2(label)}</h4>
+      <p>${toHtmlParagraph(value)}</p>
+    </div>
+  `;
+  }
+  function renderReferenceListHtml(references) {
+    if (references.length === 0) {
+      return "";
+    }
+    return `
+    <div class="reference-grid">
+      ${references.map((reference) => `
+        <div class="note-card reference-card">
+          <h4>${escapeHtml2(getReferenceKindLabel(reference.reference_kind))}</h4>
+          <p><strong>${escapeHtml2(reference.title)}</strong></p>
+          ${reference.content ? `<p>${toHtmlParagraph(reference.content)}</p>` : ""}
+          ${renderReferenceUri(reference.uri, "web")}
+        </div>
+      `).join("")}
+    </div>
+  `;
+  }
+  function renderWorkItemTreeHtml(nodes) {
+    return `<div class="work-item-list">${nodes.map((node) => renderWorkItemNodeHtml(node)).join("")}</div>`;
+  }
+  function renderWorkItemNodeHtml(node) {
+    const presentation = getWorkItemPresentation(node.workItem.status);
+    const excerpt = summarizeText2(node.workItem.description || node.workItem.problem_statement || node.workItem.acceptance_criteria || "No delivery notes captured yet.");
+    return `
+    <article class="work-item ${presentation.toneClass}">
+      <div class="work-item-header">
+        <div>
+          <h5>${escapeHtml2(node.workItem.title)}</h5>
+          <div class="meta-row" style="margin-top: 8px;">
+            <span class="status-pill ${presentation.toneClass}">${presentation.label}</span>
+            <span class="meta-pill">${escapeHtml2(node.workItem.work_item_type.replace(/_/g, " "))}</span>
+            <span class="meta-pill">${escapeHtml2(node.workItem.priority)} priority</span>
+            <span class="meta-pill">${escapeHtml2(node.workItem.complexity.replace(/_/g, " "))}</span>
+            ${node.children.length > 0 ? `<span class="count-pill">${node.children.length} sub-item${node.children.length === 1 ? "" : "s"}</span>` : ""}
+          </div>
+        </div>
+      </div>
+      <p>${escapeHtml2(excerpt)}</p>
+      ${node.children.length > 0 ? `<div class="work-item-children">${renderWorkItemTreeHtml(node.children)}</div>` : ""}
+    </article>
+  `;
+  }
+  function renderMetricHtml(label, value) {
+    return `
+    <div class="metric">
+      <div class="metric-label">${escapeHtml2(label)}</div>
+      <div class="metric-value">${value}</div>
+    </div>
+  `;
+  }
+  function renderTocGroupHtml(group) {
+    if (group.children.length === 0) {
+      return `<a href="#${group.item.id}" data-level="${group.item.level}">${escapeHtml2(group.item.title)}</a>`;
+    }
+    return `
+    <details class="toc-group" open>
+      <summary>
+        <span>${escapeHtml2(group.item.title)}</span>
+        <span>${group.children.length}</span>
+      </summary>
+      <div class="toc-group-children">
+        <a href="#${group.item.id}" data-level="0">Section overview</a>
+        ${group.children.map((item) => `<a href="#${item.id}" data-level="${item.level}">${escapeHtml2(item.title)}</a>`).join("")}
+      </div>
+    </details>
+  `;
+  }
+  function renderMetricSummaryPills(metrics) {
+    if (metrics.total === 0) {
+      return `<span class="count-pill">No stories</span>`;
+    }
+    return [
+      metrics.done > 0 ? `<span class="status-pill is-done">${metrics.done} done</span>` : "",
+      metrics.wip > 0 ? `<span class="status-pill is-wip">${metrics.wip} WIP</span>` : "",
+      metrics.tbd > 0 ? `<span class="status-pill is-tbd">${metrics.tbd} TBD</span>` : "",
+      metrics.blocked > 0 ? `<span class="status-pill is-blocked">${metrics.blocked} blocked</span>` : ""
+    ].filter(Boolean).join("");
+  }
+  function renderLegendRow(label, color) {
+    return `<div class="legend-row"><span class="legend-dot" style="background: ${color};"></span>${escapeHtml2(label)}</div>`;
+  }
   function summarizeText2(text, maxLength = 220) {
     const normalized = text.replace(/\s+/g, " ").trim();
     if (normalized.length <= maxLength) {
@@ -806,8 +698,175 @@ var AruviProductBook = (() => {
     }
     return `${normalized.slice(0, maxLength - 1).trimEnd()}\u2026`;
   }
+  function toHtmlParagraph(text) {
+    return escapeHtml2(text).replace(/\n/g, "<br />");
+  }
   function escapeHtml2(value) {
-    return value.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "\uFFFD").replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+    return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;");
+  }
+
+  // src/features/products/lib/productOverview.ts
+  function buildProductOverviewHtml({
+    product,
+    tree,
+    workItems = [],
+    references = []
+  }) {
+    const allWorkItems = sortWorkItems(workItems);
+    const metrics = buildWorkItemMetrics(allWorkItems);
+    const rootSectionCount = tree?.roots.length ?? 0;
+    const totalNodeCount = tree ? countHierarchyNodes(tree.roots) : 0;
+    const leafNodeCount = tree ? countLeafNodes(tree.roots) : 0;
+    const activeWorkItemCount = allWorkItems.filter((workItem) => workItem.status !== "done" && workItem.status !== "cancelled").length;
+    const productLevelWorkItems = buildScopedWorkItemTree(getProductDirectWorkItems(allWorkItems));
+    const bookReferences = filterReferencesForProductBook(product.id, tree, references);
+    const productReferences = filterReferencesForScope(bookReferences, { scopeType: "product", scopeId: product.id });
+    const tocItems = buildProductOverviewToc(tree, productLevelWorkItems.length > 0);
+    const tocGroups = groupTocItems(tocItems);
+    const generatedAt = (/* @__PURE__ */ new Date()).toLocaleString();
+    return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${escapeHtml2(product.name)} - Product Overview</title>
+    <style>
+      ${PRODUCT_OVERVIEW_DOCUMENT_STYLES}
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <aside class="sidebar">
+        <div class="sidebar-panel">
+          <div class="brand">
+            <div class="eyebrow">Aruvi Studio</div>
+            <h1>${escapeHtml2(product.name)}</h1>
+            <p>Generated product documentation with product areas, capabilities, features, stories, and tasks in one readable view.</p>
+          </div>
+          <div class="toc">
+            <div class="toc-title">On this page</div>
+            <div class="toc-scroll">
+              ${tocGroups.map((group) => renderTocGroupHtml(group)).join("")}
+            </div>
+          </div>
+          <div class="legend">
+            <div class="toc-title">Work status</div>
+            ${renderLegendRow("Done", "var(--done)")}
+            ${renderLegendRow("WIP", "var(--wip)")}
+            ${renderLegendRow("TBD", "var(--tbd)")}
+            ${renderLegendRow("Blocked", "var(--blocked)")}
+          </div>
+        </div>
+      </aside>
+      <main class="content">
+        <div class="topbar">
+          <button type="button" class="sidebar-toggle" id="sidebar-toggle">Hide Sidebar</button>
+        </div>
+        <section class="hero" id="${PRODUCT_OVERVIEW_TOP_ID}">
+          <div class="eyebrow">Product Book</div>
+          <div class="hero-header">
+            <div>
+              <h2>${escapeHtml2(product.name)}</h2>
+              <p>${toHtmlParagraph(product.description || "Add a product description in Aruvi Studio to anchor the book before coding starts.")}</p>
+            </div>
+            <div class="hero-chip">${escapeHtml2(product.status)}</div>
+          </div>
+          ${renderReferenceListHtml(productReferences)}
+          <div class="progress-panel">
+            <div class="progress-label">
+              <span>${metrics.done} of ${metrics.total} stories complete</span>
+              <strong>${metrics.completion}% complete</strong>
+            </div>
+            <div class="progress-track"><span style="width: ${metrics.completion}%"></span></div>
+          </div>
+          <div class="metric-grid">
+            ${renderMetricHtml("Product Areas", rootSectionCount)}
+            ${renderMetricHtml("Total Nodes", totalNodeCount)}
+            ${renderMetricHtml("Leaf Nodes", leafNodeCount)}
+            ${renderMetricHtml("Active Stories", activeWorkItemCount)}
+            ${renderMetricHtml("Done", metrics.done)}
+            ${renderMetricHtml("Blocked", metrics.blocked)}
+          </div>
+        </section>
+
+        <div class="summary-grid">
+          <section class="summary-card">
+            <div class="section-header">
+              <div class="eyebrow">Direction</div>
+              <h3>Vision</h3>
+            </div>
+            <p>${toHtmlParagraph(product.vision || "No product vision recorded yet.")}</p>
+          </section>
+          <section class="summary-card">
+            <div class="section-header">
+              <div class="eyebrow">Intent</div>
+              <h3>Goals</h3>
+            </div>
+            ${product.goals.length > 0 ? `<ul>${product.goals.map((goal) => `<li>${escapeHtml2(goal)}</li>`).join("")}</ul>` : `<p>No goals recorded yet.</p>`}
+          </section>
+          <section class="summary-card">
+            <div class="section-header">
+              <div class="eyebrow">Metadata</div>
+              <h3>Tags</h3>
+            </div>
+            ${product.tags.length > 0 ? `<div class="tag-row">${product.tags.map((tag) => `<span class="tag">${escapeHtml2(tag)}</span>`).join("")}</div>` : `<p>No product tags recorded yet.</p>`}
+          </section>
+          <section class="summary-card">
+            <div class="section-header">
+              <div class="eyebrow">Evidence</div>
+              <h3>References</h3>
+            </div>
+            <p>${bookReferences.length} scoped ${bookReferences.length === 1 ? "reference" : "references"} attached to this product book.</p>
+          </section>
+        </div>
+
+        ${productLevelWorkItems.length > 0 ? `
+          <section class="section" id="${PRODUCT_DELIVERY_ID}">
+            <div class="section-header">
+              <div class="eyebrow">Product</div>
+              <h3>Product Delivery</h3>
+              <p>Cross-cutting work attached directly to the book rather than a single chapter or feature.</p>
+            </div>
+            <div class="section-body">
+              ${renderWorkItemTreeHtml(productLevelWorkItems)}
+            </div>
+          </section>
+        ` : ""}
+
+        ${(tree?.product_areas ?? []).length > 0 ? (tree?.product_areas ?? []).map((productAreaTree, index) => renderProductAreaHtml(productAreaTree, index + 1, allWorkItems, bookReferences)).join("") : `
+            <section class="section">
+              <div class="section-header">
+                <div class="eyebrow">Product</div>
+                <h3>No Product Areas Yet</h3>
+                <p>Create the first product area in Aruvi Studio to turn the product into a navigable system map.</p>
+              </div>
+            </section>
+          `}
+
+        <div class="export-note">Generated by Aruvi Studio on ${escapeHtml2(generatedAt)}.</div>
+      </main>
+    </div>
+    <script>
+      (function () {
+        const button = document.getElementById("sidebar-toggle");
+        if (!button) return;
+
+        const syncLabel = function () {
+          button.textContent = document.body.classList.contains("sidebar-collapsed")
+            ? "Show Sidebar"
+            : "Hide Sidebar";
+        };
+
+        button.addEventListener("click", function () {
+          document.body.classList.toggle("sidebar-collapsed");
+          syncLabel();
+        });
+
+        syncLabel();
+      })();
+    </script>
+  </body>
+</html>`;
   }
 
   // src/features/products/lib/bookExportContentStyles.ts
@@ -1514,7 +1573,7 @@ var AruviProductBook = (() => {
     return `
     <div class="toc-group">
       <div class="toc-${node.level === 0 ? "product_area" : "capability"}">
-        <a class="inline-link" href="#${node.id}">${escapeHtml2(node.title)}</a>
+        <a class="inline-link" href="#${node.id}">${escapeHtml(node.title)}</a>
         <span>${node.children.length > 0 ? `${node.children.length} sections` : ""}</span>
       </div>
       ${node.children.length > 0 ? `<div class="toc-children">${node.children.map((child) => renderBookContentsNode(child)).join("")}</div>` : ""}
@@ -1588,7 +1647,7 @@ var AruviProductBook = (() => {
     <aside class="book-sidebar">
       <div class="book-sidebar-inner">
         <div class="book-sidebar-kicker">Book Navigation</div>
-        <div class="book-sidebar-title">${escapeHtml2(productName)}</div>
+        <div class="book-sidebar-title">${escapeHtml(productName)}</div>
         <div class="book-sidebar-note">Jump through front matter, chapters, and back matter from a persistent outline rather than a centered single-column preview.</div>
         <nav class="book-sidebar-nav">
           ${tocTree.map((node) => renderWebSidebarNode(node)).join("")}
@@ -1600,69 +1659,10 @@ var AruviProductBook = (() => {
   function renderWebSidebarNode(node) {
     return `
     <div class="book-sidebar-node">
-      <a class="book-sidebar-link" href="#${node.id}">${escapeHtml2(node.title)}</a>
+      <a class="book-sidebar-link" href="#${node.id}">${escapeHtml(node.title)}</a>
       ${node.children.length > 0 ? `<div class="book-sidebar-children">${node.children.map((child) => renderWebSidebarNode(child)).join("")}</div>` : ""}
     </div>
   `;
-  }
-
-  // src/features/products/lib/bookExportReferences.ts
-  function renderReferenceUri(uri, renderMode) {
-    if (!uri) return "";
-    const escaped = escapeHtml2(uri);
-    const safeExternal = /^(?:https?:\/\/|mailto:|tel:)/i.test(uri) && !/[\u0000-\u0020\u007f]/.test(uri);
-    const safeRelative = !/^(?:[a-z][a-z0-9+.-]*:|\/\/|\\)/i.test(uri) && !/[\u0000-\u0020\u007f]/.test(uri);
-    return safeExternal || renderMode !== "epub" && safeRelative ? `<a class="reference-uri" href="${escaped}">${escaped}</a>` : `<span class="reference-uri">${escaped}</span>`;
-  }
-  function renderBookReferencesHtml(references, renderMode) {
-    if (references.length === 0) {
-      return "";
-    }
-    return `
-    <div class="reference-list">
-      ${references.map((reference) => `
-        <div class="reference-item">
-          <div class="meta-label">${escapeHtml2(getReferenceKindLabel(reference.reference_kind))}</div>
-          <h3 style="margin-top: 6px;">${escapeHtml2(reference.title)}</h3>
-          ${reference.content ? `<div class="note-copy">${renderRichTextHtml(reference.content)}</div>` : ""}
-          ${renderReferenceUri(reference.uri, renderMode)}
-        </div>
-      `).join("")}
-    </div>
-  `;
-  }
-  function filterBookReferences(product, tree, references) {
-    const scopeLabels = buildReferenceScopeLabels(product, tree);
-    return references.filter((reference) => scopeLabels.has(getReferenceScopeKey(reference)));
-  }
-  function buildReferenceAtlas(product, tree, references) {
-    const scopeLabels = buildReferenceScopeLabels(product, tree);
-    return references.map((reference) => ({
-      id: reference.id,
-      kindLabel: getReferenceKindLabel(reference.reference_kind),
-      pathLabel: scopeLabels.get(getReferenceScopeKey(reference)) ?? `${reference.scope_type} / ${reference.scope_id}`,
-      title: reference.title,
-      summary: reference.content,
-      uri: reference.uri
-    }));
-  }
-  function buildReferenceScopeLabels(product, tree) {
-    const scopeLabels = /* @__PURE__ */ new Map();
-    scopeLabels.set(`product:${product.id}`, product.name);
-    const visit = (node) => {
-      if (node.node_type === "product_area") {
-        scopeLabels.set(`product_area:${node.id}`, node.path.join(" / "));
-      } else if (node.capability_id) {
-        const scopeType = node.node_kind === "feature" ? "feature" : "capability";
-        scopeLabels.set(`${scopeType}:${node.capability_id}`, node.path.join(" / "));
-      }
-      node.children.forEach(visit);
-    };
-    (tree?.roots ?? []).forEach(visit);
-    return scopeLabels;
-  }
-  function getReferenceScopeKey(reference) {
-    return `${reference.scope_type}:${reference.scope_id}`;
   }
 
   // src/features/products/lib/bookExportChapters.ts
@@ -1677,8 +1677,8 @@ var AruviProductBook = (() => {
     const productAreaReferences = filterReferencesForScope(references, getProductAreaReferenceScope(productAreaTree.product_area.id));
     return `
     <section class="page" id="${getProductAreaSectionId(productAreaTree.product_area)}">
-      <div class="chapter-kicker">${escapeHtml2(rootKindLabel)} ${chapterNumber}</div>
-      <h2 class="chapter-title">${escapeHtml2(productAreaTree.product_area.name)}</h2>
+      <div class="chapter-kicker">${escapeHtml(rootKindLabel)} ${chapterNumber}</div>
+      <h2 class="chapter-title">${escapeHtml(productAreaTree.product_area.name)}</h2>
       <div class="chapter-intro">${renderRichTextHtml(productAreaTree.product_area.description || productAreaTree.product_area.purpose || "This chapter describes the product area's role inside the product.")}</div>
       <div class="chapter-stats">
         <span class="stat-pill">${productAreaTree.features.length} ${childCountLabel}</span>
@@ -1711,13 +1711,13 @@ var AruviProductBook = (() => {
     const capabilityReferences = filterReferencesForScope(references, getCapabilityReferenceScope(capabilityTree.capability));
     return `
     <section class="capability" id="${getCapabilitySectionId(capabilityTree.capability)}">
-      <div class="section-kicker">${escapeHtml2(capabilityType)} ${escapeHtml2(numbering)}</div>
-      <h3 class="capability-title">${escapeHtml2(capabilityTree.capability.name)}</h3>
+      <div class="section-kicker">${escapeHtml(capabilityType)} ${escapeHtml(numbering)}</div>
+      <h3 class="capability-title">${escapeHtml(capabilityTree.capability.name)}</h3>
       <div class="body-copy" style="margin-top: 10px;">${renderRichTextHtml(capabilityTree.capability.description || `This ${capabilityType.toLowerCase()} needs a fuller narrative in Aruvi Studio.`)}</div>
       <div class="capability-meta">
-        <span class="meta-chip">${escapeHtml2(capabilityTree.capability.status.replace(/_/g, " "))}</span>
-        <span class="meta-chip">${escapeHtml2(capabilityTree.capability.priority)} priority</span>
-        <span class="meta-chip">${escapeHtml2(capabilityTree.capability.risk)} risk</span>
+        <span class="meta-chip">${escapeHtml(capabilityTree.capability.status.replace(/_/g, " "))}</span>
+        <span class="meta-chip">${escapeHtml(capabilityTree.capability.priority)} priority</span>
+        <span class="meta-chip">${escapeHtml(capabilityTree.capability.risk)} risk</span>
       </div>
       ${renderNoteBlock("Acceptance", capabilityTree.capability.acceptance_criteria)}
       ${renderNoteBlock("Explanation", capabilityTree.capability.explanation)}
@@ -1741,17 +1741,17 @@ var AruviProductBook = (() => {
   }
   function renderBookWorkItem(node) {
     const presentation = getWorkItemPresentation(node.workItem.status);
-    const excerpt = summarizeText2(
+    const excerpt = summarizeText(
       node.workItem.description || node.workItem.problem_statement || node.workItem.acceptance_criteria || "No delivery notes captured yet.",
       280
     );
     return `
     <div class="work-item">
       <div class="work-head">
-        <div class="work-title">${escapeHtml2(node.workItem.title)}</div>
+        <div class="work-title">${escapeHtml(node.workItem.title)}</div>
         <div class="work-status ${presentation.toneClass}">${presentation.label}</div>
       </div>
-      <div class="work-copy">${escapeHtml2(excerpt)}</div>
+      <div class="work-copy">${escapeHtml(excerpt)}</div>
       ${node.children.length > 0 ? `<div class="child-work">${renderBookWorkItemList2(node.children)}</div>` : ""}
     </div>
   `;
@@ -1762,7 +1762,7 @@ var AruviProductBook = (() => {
     }
     return `
     <div class="note-block">
-      <div class="note-label">${escapeHtml2(label)}</div>
+      <div class="note-label">${escapeHtml(label)}</div>
       <div class="note-copy">${renderRichTextHtml(text)}</div>
     </div>
   `;
@@ -1802,7 +1802,7 @@ var AruviProductBook = (() => {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>${escapeHtml2(product.name)} - Book</title>
+    <title>${escapeHtml(product.name)} - Book</title>
     <style>
 ${renderBookExportStyles({ trimPreset, renderMode })}
     </style>
@@ -1872,14 +1872,14 @@ ${renderBookExportStyles({ trimPreset, renderMode })}
     return `
     <section class="page title-page" id="${PRODUCT_OVERVIEW_TOP_ID}">
       <div class="kicker">Aruvi Studio Book</div>
-      <h1>${escapeHtml2(product.name)}</h1>
+      <h1>${escapeHtml(product.name)}</h1>
       <div class="deck">${renderRichTextHtml(product.description || "A durable product narrative generated from Aruvi Studio.")}</div>
       <div class="book-meta">
         <div class="meta-item"><strong>Product Areas</strong>${rootSectionCount}</div>
         <div class="meta-item"><strong>Total Nodes</strong>${totalNodeCount}</div>
         <div class="meta-item"><strong>References</strong>${references.length}</div>
         <div class="meta-item"><strong>Delivery</strong>${metrics.done} done, ${metrics.wip} active, ${metrics.tbd} planned</div>
-        <div class="meta-item"><strong>Generated</strong>${escapeHtml2(generatedAt)}</div>
+        <div class="meta-item"><strong>Generated</strong>${escapeHtml(generatedAt)}</div>
       </div>
     </section>
 
@@ -1893,7 +1893,7 @@ ${renderBookExportStyles({ trimPreset, renderMode })}
         </div>
         <div class="panel">
           <h3>Edition</h3>
-          <div class="index-copy">Prepared on ${escapeHtml2(generatedAt)} from the current live product structure and attached delivery stories.</div>
+          <div class="index-copy">Prepared on ${escapeHtml(generatedAt)} from the current live product structure and attached delivery stories.</div>
         </div>
         <div class="panel">
           <h3>Catalog Shape</h3>
@@ -1945,9 +1945,9 @@ ${renderBookExportStyles({ trimPreset, renderMode })}
         <div class="reference-list">
           ${referenceAtlas.map((entry) => `
             <div class="reference-item" id="reference-${entry.id}">
-              <div class="meta-label">${escapeHtml2(entry.kindLabel)}</div>
-              <h3 style="margin-top: 6px;">${escapeHtml2(entry.title)}</h3>
-              <div class="reference-path">${escapeHtml2(entry.pathLabel)}</div>
+              <div class="meta-label">${escapeHtml(entry.kindLabel)}</div>
+              <h3 style="margin-top: 6px;">${escapeHtml(entry.title)}</h3>
+              <div class="reference-path">${escapeHtml(entry.pathLabel)}</div>
               <div class="note-copy">${renderRichTextHtml(entry.summary || "No summary recorded yet.")}</div>
               ${renderReferenceUri(entry.uri, renderMode)}
             </div>
@@ -1963,8 +1963,8 @@ ${renderBookExportStyles({ trimPreset, renderMode })}
       <div class="index-list">
         ${nodeIndex.map((entry) => `
           <div class="index-item">
-            <a href="#${entry.id}" class="inline-link"><strong>${escapeHtml2(entry.title)}</strong></a>
-            <div class="index-path">${escapeHtml2(entry.kindLabel)} \xB7 ${escapeHtml2(entry.pathLabel)}</div>
+            <a href="#${entry.id}" class="inline-link"><strong>${escapeHtml(entry.title)}</strong></a>
+            <div class="index-path">${escapeHtml(entry.kindLabel)} \xB7 ${escapeHtml(entry.pathLabel)}</div>
           </div>
         `).join("")}
       </div>
@@ -1976,7 +1976,7 @@ ${renderBookExportStyles({ trimPreset, renderMode })}
       <div class="back-grid">
         <div class="panel">
           <h3>Trim Preset</h3>
-          <div class="index-copy">${escapeHtml2(trimPreset.label)}. ${escapeHtml2(trimPreset.description)}</div>
+          <div class="index-copy">${escapeHtml(trimPreset.label)}. ${escapeHtml(trimPreset.description)}</div>
         </div>
         <div class="panel">
           <h3>Delivery Snapshot</h3>
@@ -1984,7 +1984,7 @@ ${renderBookExportStyles({ trimPreset, renderMode })}
         </div>
         <div class="panel">
           <h3>Catalog Snapshot</h3>
-          <div class="index-copy">${escapeHtml2(product.name)} exported with ${totalNodeCount} semantic nodes on ${escapeHtml2(generatedAt)}.</div>
+          <div class="index-copy">${escapeHtml(product.name)} exported with ${totalNodeCount} semantic nodes on ${escapeHtml(generatedAt)}.</div>
         </div>
       </div>
     </section>

@@ -1,5 +1,6 @@
 import type { CapabilityTree, ProductAreaTree, ProductReference, WorkItem } from "../../../lib/types";
 import { getHierarchyNodeKindLabel } from "../../../lib/hierarchyLabels";
+import { renderReferenceUri } from "./bookExportReferences";
 import {
   filterReferencesForScope,
   getCapabilityReferenceScope,
@@ -191,7 +192,7 @@ export function renderReferenceListHtml(references: ProductReference[]): string 
           <h4>${escapeHtml(getReferenceKindLabel(reference.reference_kind))}</h4>
           <p><strong>${escapeHtml(reference.title)}</strong></p>
           ${reference.content ? `<p>${toHtmlParagraph(reference.content)}</p>` : ""}
-          ${reference.uri ? `<a href="${escapeHtml(reference.uri)}">${escapeHtml(reference.uri)}</a>` : ""}
+          ${renderReferenceUri(reference.uri, "web")}
         </div>
       `).join("")}
     </div>

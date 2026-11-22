@@ -12,9 +12,9 @@ provider hosting into the model-host service as part of this work.
 
 ## Remaining acceptance work
 
-- [x] Build and check the current runtime revision on ARM64 and AMD64, and
-  validate and deploy the derived Mac worktree candidate. Repeat these checks
-  for any subsequent runtime changes and for the eventual merged revision.
+- [ ] Build and check the latest runtime revision on ARM64 and AMD64, and
+  validate and deploy the Mac worktree candidate. Repeat for the eventual
+  merged revision; the previous `f736e10` runtime passed these checks.
 - [ ] Complete the action-by-action desktop/web/MCP parity inventory, including
   direct voice selection edge cases, native dialogs and deliberately platform-specific
   behavior. Validate actual native-window and physical audio interaction when
@@ -29,6 +29,16 @@ provider hosting into the model-host service as part of this work.
   connectivity checks. Production promotion and release require separate work.
 
 ## Checkpoints
+
+### Docs export reference URLs
+
+Docs HTML previously escaped reference text but allowed unsafe URL schemes in
+links. It now shares Book HTML's reference URL policy: unsafe or malformed
+URLs remain visible as text, while supported external and relative links remain
+clickable. Focused frontend tests (11), the production frontend build, three
+mocked desktop export tests and the embedded Rust renderer's desktop-fixture
+comparison passed, including an unsafe URL in the backend-rendered output.
+Clean images and a worktree deployment containing this change remain pending.
 
 ### Voice selection of existing catalog items (in validation)
 

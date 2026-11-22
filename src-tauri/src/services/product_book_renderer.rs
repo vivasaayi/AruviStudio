@@ -140,6 +140,18 @@ mod tests {
             let actual_html = actual["html"].as_str().unwrap();
             assert_eq!(remove_generation_time(actual_html, format), remove_generation_time(expected_html, format), "{label} differs from desktop");
         }
+        let mut source = fixture["source"].clone();
+        let product_id = source["tree"]["product"]["id"].as_str().unwrap().to_owned();
+        source["references"].as_array_mut().unwrap().push(serde_json::json!({
+            "id": "unsafe-reference", "scope_type": "product", "scope_id": product_id,
+            "title": "Unsafe reference", "reference_kind": "external_doc",
+            "uri": "javascript:alert(1)", "content": "", "created_at": "", "updated_at": ""
+        }));
+        let request = serde_json::json!({ "source": source, "format": "docs", "renderMode": "web", "trimPreset": "trade-6x9" });
+        let rendered = render_request(&request.to_string()).unwrap();
+        let html = rendered["html"].as_str().unwrap();
+        assert!(html.contains("javascript:alert(1)"));
+        assert!(!html.contains("href=\"javascript:alert(1)\""));
     }
 
     fn remove_generation_time(html: &str, format: &str) -> String {
