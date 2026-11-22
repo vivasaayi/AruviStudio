@@ -123,7 +123,9 @@ real Model Host run updated a selected child task, left its parent unchanged and
 created no duplicates. A bound selected work item also rejects an explicit model
 target naming a different work item; a focused test covers that conflict. A model-created
 child with no explicit work type defaults to a task under the selected work
-item; a database test verifies its persisted type and parent.
+item; a database test verifies its persisted type and parent. A native real
+Model Host proposal also created one task under the original selected story
+after confirmation, with no additional items.
 
 ### Existing work-item Planner binding (in validation)
 
