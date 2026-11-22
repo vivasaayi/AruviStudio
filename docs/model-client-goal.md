@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### URL dependency security update in progress
+### URL dependency security update: branch validation
 
 The refreshed RustSec database at `d1fe6ac3eba823a3515e849045f36dc34543885d`
 reports [RUSTSEC-2026-0592](https://rustsec.org/advisories/RUSTSEC-2026-0592.html)
@@ -39,8 +39,29 @@ manifest; its 32 offline tests and lockfile scan passed. The pinned client also
 passed real 7B coding-host discovery, completion, streaming and token-limit
 checks, and the native integration host passed those checks with
 `qwen-05b-comparison` plus synthetic Piper/Whisper. Both hosts used
-management-capable credentials. Clean images and branch deployment remain
-pending.
+management-capable credentials.
+
+Hosted test run `45020572278` passed, as did the clean ARM64 and AMD64 image
+checks in run `45020572317`, for source `a72b06e63d15847f3f0492af39cc1e33eb26e725`.
+The later `da57b86` adds only a test and checkpoint documentation. The local
+worktree candidate used the hash-verified ARM64 server from that clean image
+on the existing runtime image; it is a derived image, not the complete clean
+image. Its image ID is
+`sha256:62f6b86206c231d9f6057749f901e8df483bac3ef03d344a80895958efa9341e`.
+The server SHA-256 is
+`10f5254bffcfc61fdf443c6332bb6ee700d59d8c4c5dd35596995fb22055d3fb`.
+
+The derived candidate passed 62 workflow tests, 50 browser tests (one skipped),
+the simulated CI fixture, PDF isolation and outage checks, real-host packaged
+model quick start and stream cancellation, and a scoped-credential fixture.
+After checking for active jobs and backing up the database, the worktree app
+and PDF containers were updated. Product persistence, MCP, mobile
+authorization and PDF checks passed after restart. Host Chrome checked all 13
+sections at phone and desktop widths and verified browser-origin MCP checks.
+Real local-model coding, MCP speech with synthetic audio, and continuous browser
+voice with synthetic audio passed. The prior image remains tagged for rollback.
+These checks do not establish physical desktop or microphone parity, live
+third-party provider behavior, real Aruvici, Mac integration or VPS staging.
 
 ### Native Model Host watcher and Studio outages
 
