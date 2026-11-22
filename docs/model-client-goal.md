@@ -68,6 +68,19 @@ published-port MCP origin, real MCP coding and synthetic Piper/Whisper browser
 voice passed. The backup is `/private/tmp/aruvi-deploy-1215881/pre-deploy.db`.
 These are representative checks, not full parity or VPS staging acceptance.
 
+### Real CI relay revalidation
+
+Using the deployed worktree's `f736e10` candidate and the separate Aruvici
+protocol branch `33e5a08`, a disposable native service and Docker Studio fixture
+passed authenticated relay health, target binding, browser cancellation of a
+running test, retry, a separate browser-queued build and OCI artifact integrity
+checks. Invalid relay credentials and deployment requests were rejected. This
+used a synthetic repository and the unmerged protocol candidate; it does not
+establish live product CI, a deployed Aruvici service or staging integration.
+The first fixture attempt failed at browser startup because the Chrome path was
+supplied under the wrong option; the corrected repeat passed. Gitleaks 8.30.1
+was downloaded from its release and checked against its published checksum.
+
 ### Current worktree deployment at `f736e10`
 
 Hosted clean ARM64/AMD64 images and both hosted test runs passed. The Mac
