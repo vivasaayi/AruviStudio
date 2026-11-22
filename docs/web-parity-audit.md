@@ -178,6 +178,12 @@ new shortcuts identify those catalog items by name in prompt text; duplicate
 names or a model's interpretation can still target the wrong context. Preserving
 and validating catalog identity through the server and confirmation is an open
 parity and correctness item; review staged actions before confirming.
+The current draft commit implementation creates product areas and capabilities
+from staged nodes; it does not bind those nodes to existing catalog IDs. A
+prepared request to improve an existing branch therefore does not establish an
+in-place update, and a proposed create can duplicate an existing node. The
+shortcut's draft must be reviewed as a proposed change; linking and guarded
+updates of existing nodes remain open.
 See the goal checkpoint for validation and deployment status. Planner behavior
 with real models and native-window comparison still require broader acceptance.
 

@@ -24,8 +24,9 @@ does not supply the separate selected catalog-node identity described below or
 eliminate the need to review model-generated actions. An isolated database test
 covered duplicate names, missing names, cross-product attempts and unscoped
 compatibility. A simulated provider made successive tool calls and received
-only the selected product's work and a rejection for another product. Full
-regression and deployment validation are in progress.
+only the selected product's work and a rejection for another product. The Rust
+library suite passed 354 tests with eight ignored. Deployment validation remains
+pending.
 
 ### Planner product-scope draft protection (in validation)
 

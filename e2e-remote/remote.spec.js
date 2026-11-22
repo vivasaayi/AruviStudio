@@ -569,6 +569,7 @@ test("planner requires an explicit scope when its selected product disappears", 
   await page.route("**/api/mobile/products", route => route.fulfill({json:[]}));
   await page.goto("/remote");
   await expect(page.locator("#plannerProductSelect")).toHaveValue("__choose__");
+  await expect(page.getByText("Proposed product areas and capabilities may be created as new nodes", {exact:false})).toBeVisible();
   await page.locator("#composer").fill("Must stay scoped");
   await page.locator("#sendButton").click();
   await expect(page.locator("#status")).toContainText("Choose a planner product scope");
