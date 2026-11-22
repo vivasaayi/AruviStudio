@@ -179,6 +179,24 @@ pub(crate) struct MobileWorkflowActionRequest {
     notes: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct MobileWorkflowFailureRequest {
+    expected_stage: String,
+    expected_status: String,
+    reason: String,
+}
+
+pub(crate) async fn mobile_mark_workflow_failed(
+    State(state): State<WebhookState>, headers: HeaderMap, Path(id): Path<String>, Json(body): Json<MobileWorkflowFailureRequest>,
+) -> impl IntoResponse {
+    if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await { return response; }
+    match crate::services::workflow_failure::mark_workflow_failed_by_operator(&state.app_state.db, &id, &body.expected_stage, &body.expected_status, &body.reason).await {
+        Ok(()) => Json(json!({"status":"ok", "workflow_run_id":id})).into_response(),
+        Err(AppError::Validation(message)) => (StatusCode::CONFLICT, message).into_response(),
+        Err(error) => bad_request(error),
+    }
+}
+
 fn bad_request(error: impl ToString) -> axum::response::Response {
     (StatusCode::BAD_REQUEST, error.to_string()).into_response()
 }

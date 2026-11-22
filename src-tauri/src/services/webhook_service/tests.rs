@@ -1001,6 +1001,26 @@ async fn remote_work_api_auth_create_start_approve_and_delivery_flow() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let failure_url = format!("/api/mobile/workflows/{}/mark-failed", seeded_run.id);
+    let failure = json!({"expected_stage":"pending_plan_approval", "expected_status":"running", "reason":"Recovery after confirming executor stopped"});
+    assert_eq!(send_json(&router, Method::POST, &failure_url, None, Some(failure.clone())).await.0, StatusCode::UNAUTHORIZED);
+    let stale = json!({"expected_stage":"draft", "expected_status":"running", "reason":"stale"});
+    assert_eq!(send_json(&router, Method::POST, &failure_url, Some(token), Some(stale)).await.0, StatusCode::CONFLICT);
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_workflows", json!({"action":"mark_workflow_run_failed", "arguments":{"workflow_run_id":seeded_run.id,"expected_stage":"draft","expected_status":"running"}})).await.is_err());
+    sqlx::query("CREATE TRIGGER reject_override_history BEFORE INSERT ON workflow_stage_history WHEN NEW.trigger='user_override' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END").execute(&state.db).await.unwrap();
+    assert_ne!(send_json(&router, Method::POST, &failure_url, Some(token), Some(failure.clone())).await.0, StatusCode::OK);
+    let unchanged = workflow_repo::get_workflow_run(&state.db, &seeded_run.id).await.unwrap();
+    assert_eq!((unchanged.current_stage.as_str(), unchanged.status.as_str()), ("pending_plan_approval", "running"));
+    sqlx::query("DROP TRIGGER reject_override_history").execute(&state.db).await.unwrap();
+    let (status, body) = send_json(&router, Method::POST, &failure_url, Some(token), Some(failure.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let failed = workflow_repo::get_workflow_run(&state.db, &seeded_run.id).await.unwrap();
+    assert_eq!((failed.current_stage.as_str(), failed.status.as_str()), ("failed", "failed"));
+    assert_eq!(failed.error_message.as_deref(), Some("Recovery after confirming executor stopped"));
+    let history = workflow_repo::get_workflow_history(&state.db, &seeded_run.id).await.unwrap();
+    assert_eq!(history.iter().filter(|entry| entry.trigger == "user_override" && entry.to_stage == "failed").count(), 1);
+    assert_eq!(send_json(&router, Method::POST, &failure_url, Some(token), Some(failure)).await.0, StatusCode::CONFLICT);
 }
 
 #[tokio::test]

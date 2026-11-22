@@ -3895,6 +3895,25 @@
             (workflow.error_message ? " · " + workflow.error_message : ""),
           workflow.status === "failed" ? "error" : ""
         );
+        if (["running", "paused"].includes(workflow.status) && !["done", "failed", "cancelled"].includes(workflow.current_stage)) {
+          const recovery = document.createElement("div"), fail = document.createElement("button"), explanation = document.createElement("p");
+          recovery.className = "tool-card";
+          explanation.textContent = "For a stuck run, mark its record failed only after checking the executor. This does not stop running processes or undo external actions.";
+          fail.type = "button"; fail.className = "secondary"; fail.textContent = "Mark workflow failed";
+          fail.addEventListener("click", async () => {
+            const reason = window.prompt("Why should this workflow be marked failed?");
+            if (reason === null) return;
+            if (!reason.trim() || new TextEncoder().encode(reason).length > 4000) { setStatus("Enter a reason of at most 4000 bytes", "error"); return; }
+            if (!window.confirm("Mark this workflow failed? This does not stop any running process or undo external actions.")) return;
+            fail.disabled = true;
+            try {
+              await request("/api/mobile/workflows/" + encodeURIComponent(workflow.id) + "/mark-failed", { method:"POST", body:{expected_stage:workflow.current_stage, expected_status:workflow.status, reason} });
+              if (state.selectedWorkItemId === workItem.id) { await loadDelivery(false); setStatus("Workflow marked failed", "ok"); }
+            } catch (error) { if (state.selectedWorkItemId === workItem.id) setStatus(error.message || String(error), "error"); }
+            finally { fail.disabled = false; }
+          });
+          recovery.append(explanation, fail); el.deliveryDetails.appendChild(recovery);
+        }
         if (workflow.current_stage === "pending_test_review") {
           appendDetailCard("Test review", "Review the generated changes and the test result against the acceptance criteria. A passing command covers only the checks it runs; syntax checks alone do not verify behavior.");
         }

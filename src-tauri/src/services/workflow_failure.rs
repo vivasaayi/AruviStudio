@@ -3,6 +3,36 @@ use crate::error::AppError;
 use crate::persistence::workflow_repo;
 use sqlx::SqlitePool;
 
+/// Record an operator override atomically. This changes database state only; it
+/// cannot cancel an already-running executor or undo its external effects.
+pub async fn mark_workflow_failed_by_operator(
+    db: &SqlitePool,
+    workflow_run_id: &str,
+    expected_stage: &str,
+    expected_status: &str,
+    reason: &str,
+) -> Result<(), AppError> {
+    if !matches!(expected_status, "running" | "paused")
+        || matches!(expected_stage, "done" | "failed" | "cancelled")
+        || expected_stage.trim().is_empty()
+        || reason.trim().is_empty() || reason.len() > 4000
+    {
+        return Err(AppError::Validation("A nonterminal workflow and a reason of at most 4000 bytes are required".into()));
+    }
+    let mut tx = db.begin().await?;
+    let updated = sqlx::query("UPDATE workflow_runs SET current_stage='failed',status='failed',error_message=?,ended_at=datetime('now'),updated_at=datetime('now') WHERE id=? AND current_stage=? AND status=?")
+        .bind(reason).bind(workflow_run_id).bind(expected_stage).bind(expected_status)
+        .execute(&mut *tx).await?;
+    if updated.rows_affected() != 1 {
+        return Err(AppError::Validation("Workflow changed or is no longer active; refresh before continuing".into()));
+    }
+    sqlx::query("INSERT INTO workflow_stage_history (id,workflow_run_id,from_stage,to_stage,trigger,notes,transitioned_at) VALUES (?,?,?,'failed','user_override',?,datetime('now'))")
+        .bind(uuid::Uuid::new_v4().to_string()).bind(workflow_run_id).bind(expected_stage).bind(reason)
+        .execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn mark_workflow_failed(
     db: &SqlitePool,
     workflow_run_id: &str,

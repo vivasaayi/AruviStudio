@@ -548,6 +548,24 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
     const untouched = await request.post("/api/mcp", { headers: { Authorization:`Bearer ${mcpToken}` }, data: { jsonrpc:"2.0", id:92, method:"tools/call", params:{name:"aruvi_repositories", arguments:{action:"read_repository_file", arguments:{repository_id:repository.id, relative_path:"src/generated.txt"}}} } });
     expect((await untouched.json()).result.isError).toBeTruthy();
   }
+  if (scenario === "skipped") {
+    const button = page.getByRole("button", { name: "Mark workflow failed", exact: true });
+    await expect(page.locator("#deliveryDetails")).toContainText("does not stop running processes");
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await button.click();
+    expect((await (await request.get(`/api/mobile/work-items/${workItem.id}/delivery`, { headers })).json()).workflow_run.status).toBe("running");
+    const onDialog = async (dialog) => { if (dialog.type() === "prompt") await dialog.accept("Fixture recovery"); else await dialog.accept(); };
+    page.on("dialog", onDialog);
+    const result = page.waitForResponse((response) => response.url().endsWith(`/workflows/${delivery.workflow_run.id}/mark-failed`));
+    await button.click();
+    expect((await result).status()).toBe(200);
+    page.off("dialog", onDialog);
+    await expect(page.locator("#deliveryStatus")).toHaveText("failed");
+    const updated = await (await request.get(`/api/mobile/work-items/${workItem.id}/delivery`, { headers })).json();
+    expect(updated.workflow_run).toMatchObject({ current_stage:"failed", status:"failed", error_message:"Fixture recovery" });
+    expect((await mcp("aruvi_workflows", "get_workflow_history", { workflow_run_id:delivery.workflow_run.id })).filter((entry) => entry.trigger === "user_override")).toHaveLength(1);
+    await expect(button).toHaveCount(0);
+  }
   } finally {
     if (codingPolicy) {
       const { id: policyId, primary_roles, fallback_roles, coordinator_required } = codingPolicy;

@@ -12,6 +12,28 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Stuck workflow recovery parity in progress
+
+Desktop and MCP could mark a workflow failed, but the browser lacked that
+recovery action. Those older paths also recorded stage, history and lifecycle
+in separate writes. The current source adds an authenticated browser action
+and routes all three clients through one atomic override. It rejects terminal
+or changed runs and records the reason and `user_override` history in the same
+transaction. Browser requests carry the displayed stage and status; MCP may
+provide both as `expected_stage` and `expected_status`, while legacy callers
+use a freshly loaded baseline. The desktop command retains its existing
+already-failed no-op. Stage and status are not a unique revision: a run that
+changes away and back between reads may still match. Most importantly, this
+database override does not stop an executor or undo external effects; the
+browser explicitly warns the operator to check the executor first.
+
+The native HTTP fixture rejects unauthenticated and stale requests, verifies
+rollback when history insertion fails, and checks the result and history. The
+full native Rust library suite passed 348 tests (eight ignored), and the
+frontend build passed. A browser fixture was added for cancelling and confirming
+recovery but has not yet run against the new code. Clean images and deployment
+of this change remain pending.
+
 ### Agent workspace write confinement: branch validation
 
 An agent's workspace `write_file` previously rejected relative-path traversal

@@ -124,32 +124,13 @@ pub async fn mark_workflow_run_failed(
     let workflow_run_id = workflow_run_id
         .ok_or_else(|| AppError::Validation("missing workflow run id".to_string()))?;
     let run = workflow_repo::get_workflow_run(&state.db, &workflow_run_id).await?;
-    if run.current_stage != "failed" {
-        workflow_repo::update_workflow_stage(&state.db, &workflow_run_id, "failed").await?;
-        let transition_id = uuid::Uuid::new_v4().to_string();
-        workflow_repo::record_stage_transition(
-            &state.db,
-            &transition_id,
-            &workflow_run_id,
-            &run.current_stage,
-            "failed",
-            "user_override",
-            reason
-                .as_deref()
-                .unwrap_or("Marked failed by operator from UI"),
-        )
-        .await?;
-    }
-    workflow_repo::update_workflow_lifecycle(
+    if run.current_stage == "failed" && run.status == "failed" { return Ok(()); }
+    crate::services::workflow_failure::mark_workflow_failed_by_operator(
         &state.db,
         &workflow_run_id,
-        "failed",
-        Some(
-            reason
-                .as_deref()
-                .unwrap_or("Marked failed by operator from UI"),
-        ),
-        true,
+        &run.current_stage,
+        &run.status,
+        reason.as_deref().unwrap_or("Marked failed by operator from UI"),
     )
     .await?;
     Ok(())
