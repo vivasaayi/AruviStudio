@@ -224,6 +224,29 @@ pub(crate) fn normalize_planner_action(action: Value) -> Option<Value> {
             }
         }
     }
+    if action_type == "update_work_item" {
+        // Accept the supported update payload in `fields`, `details`, or at
+        // top level, but never silently choose between conflicting values.
+        let object = action.as_object_mut()?;
+        let fields = match object.get("fields") { None | Some(Value::Null) => serde_json::Map::new(), Some(Value::Object(map)) => map.clone(), Some(_) => return None };
+        let details = match object.get("details") { None | Some(Value::Null) => serde_json::Map::new(), Some(Value::Object(map)) => map.clone(), Some(_) => return None };
+        let mut normalized = fields.clone();
+        let mut found = false;
+        for aliases in [&["title"][..], &["description"], &["problemStatement", "problem_statement"], &["acceptanceCriteria", "acceptance_criteria"], &["constraints"], &["status"]] {
+            let mut chosen: Option<Value> = None;
+            for key in aliases {
+                for value in [object.get(*key), fields.get(*key), details.get(*key)].into_iter().flatten() {
+                    if value.is_null() { continue; }
+                    if !value.is_string() { return None; }
+                    if chosen.as_ref().is_some_and(|existing| existing != value) { return None; }
+                    chosen = Some(value.clone());
+                }
+            }
+            if let Some(value) = chosen { found = true; normalized.insert(aliases[0].into(), value); }
+        }
+        if !found { return None; }
+        object.insert("fields".into(), Value::Object(normalized));
+    }
     let raw_target_name = target_as_string(&action);
     let target_product_name = normalized_target_string(&action, "productName");
     let target_product_area_name = normalized_target_string(&action, "productAreaName")
@@ -349,6 +372,17 @@ mod malformed_response_tests {
         ] {
             let raw = json!({"assistant_response":"Ready", "needs_confirmation":true, "actions":[action]}).to_string();
             assert!(parse_final_response(&raw).is_err());
+        }
+    }
+
+    #[test]
+    fn normalizes_nested_work_item_updates_and_rejects_empty_or_conflicting_updates() {
+        let response = |action: Value| json!({"assistant_response":"Ready", "needs_confirmation":true, "actions":[action]}).to_string();
+        let plan = parse_final_response(&response(json!({"type":"update_work_item", "details":{"acceptanceCriteria":"Notify staff", "id":"untrusted"}}))).unwrap();
+        assert_eq!(plan.actions[0]["fields"]["acceptanceCriteria"], "Notify staff");
+        assert!(plan.actions[0]["fields"].get("id").is_none());
+        for action in [json!({"type":"update_work_item", "details":{}}), json!({"type":"update_work_item", "fields":{"acceptanceCriteria":"One"}, "details":{"acceptance_criteria":"Other"}}), json!({"type":"update_work_item", "details":{"constraints":123}})] {
+            assert!(parse_final_response(&response(action)).is_err());
         }
     }
 

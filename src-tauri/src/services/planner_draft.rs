@@ -237,8 +237,8 @@ pub(crate) fn infer_selected_draft_context(
         match node.node_type.as_str() {
             "product" => product_name = Some(node.name.clone()),
             "product_area" => product_area_name = Some(node.name.clone()),
-            "capability" => capability_name = Some(node.name.clone()),
-            "work_item" => work_item_title = Some(node.name.clone()),
+            "capability" if capability_name.is_none() => capability_name = Some(node.name.clone()),
+            "work_item" if work_item_title.is_none() => work_item_title = Some(node.name.clone()),
             _ => {}
         }
         current = node

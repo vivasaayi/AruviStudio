@@ -12,6 +12,22 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Nested model-generated work-item updates (in validation)
+
+A real `qwen25-coder-7b-q4` proposal put the requested acceptance criteria
+inside `details`. Before this fix, confirmation reported success but left the
+criteria unchanged in the disposable database. Work-item update normalization
+now accepts supported fields from `fields`, `details` or the top level, rejects
+conflicting or malformed values, and rejects empty updates instead of silently
+doing nothing. Parser and draft tests cover the nested shape. Repeating the same
+real Model Host and MCP scenario with a rebuilt native server updated the
+original story after confirmation, with no duplicate. This is one successful
+sample; packaged-image and broader real-model reliability validation remain.
+A deeper parent/child test then exposed selection inference walking past the
+selected child to its parent. The inference now keeps the closest work item and
+capability; the database regression confirms the selected child, active-run
+guard and new descendant all use the intended identity.
+
 ### Existing work-item Planner binding (in validation)
 
 The web work-item shortcut and MCP `stage_catalog_node` can stage an existing
@@ -29,8 +45,9 @@ passed 362 tests with eight ignored; the final manual-child default was added
 after that suite. A disposable native server passed two focused browser/MCP
 checks: the work shortcut selected the existing story, and MCP renamed the same
 story and created a task under it. This has not yet been tested in a packaged
-image or with a real model, nor have all stale/deleted parent, duplicate-title,
-active-workflow and cross-product cases been exercised end to end. Desktop
+image; a single real-model work-item update is recorded above. Not all
+stale/deleted parent, duplicate-title, active-workflow and cross-product cases
+have been exercised end to end. Desktop
 product-overview and voice shortcuts still need ID binding. Full desktop parity,
 branch-image deployment, integration validation and staging remain open.
 
