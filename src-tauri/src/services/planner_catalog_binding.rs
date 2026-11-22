@@ -65,8 +65,8 @@ pub(crate) async fn stage_catalog_node(
 ) -> Result<PlannerTurnResponse, AppError> {
     let _guard = lock_planner_session(&planner_service, db, &session_id).await?;
     let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
-    if !matches!(node_type.as_str(), "product_area" | "capability" | "feature" | "work_item") {
-        return Err(AppError::Validation("Select a product area, capability, feature or work item.".into()));
+    if !matches!(node_type.as_str(), "product" | "product_area" | "capability" | "feature" | "work_item") {
+        return Err(AppError::Validation("Select a product, product area, capability, feature or work item.".into()));
     }
     let mut tx = db.begin_with("BEGIN IMMEDIATE").await?;
     let product = product_core_repo::get_product_in_conn(&mut tx, &product_id).await?;
@@ -96,6 +96,7 @@ pub(crate) async fn stage_catalog_node(
         root.details["_catalog_binding"] = json!({"kind":"product", "snapshot":product});
     }
     let missing = || AppError::Validation("Catalog node was not found in the selected product.".into());
+    if node_type == "product" && node_id != product.id { return Err(missing()); }
     let mut work_path: Vec<WorkItem> = Vec::new();
     if node_type == "work_item" {
         let mut next = Some(node_id.clone());
@@ -113,7 +114,7 @@ pub(crate) async fn stage_catalog_node(
         }
         work_path.reverse();
     }
-    let hierarchy_id = if node_type == "work_item" { work_path.last().and_then(|item| item.capability_id.clone().or_else(|| item.product_area_id.clone())) } else { Some(node_id.clone()) };
+    let hierarchy_id = if node_type == "product" { None } else if node_type == "work_item" { work_path.last().and_then(|item| item.capability_id.clone().or_else(|| item.product_area_id.clone())) } else { Some(node_id.clone()) };
     let hierarchy_is_area = node_type == "product_area" || (node_type == "work_item" && work_path.last().is_some_and(|item| item.capability_id.is_none()));
     let mut parent_id = product.id.clone();
     if let Some(hierarchy_id) = hierarchy_id {

@@ -625,7 +625,7 @@ test("product and work actions prepare scoped planner requests without losing dr
     await expect(page.locator("#composer")).toHaveValue(new RegExp(product.name));
     await page.getByRole("button",{name:"Send",exact:true}).first().click();
     await expect.poll(() => turns.length).toBe(1);
-    expect(turns[0]).toMatchObject({product_id:product.id,selected_draft_node_id:null});
+    expect(turns[0]).toMatchObject({product_id:product.id,selected_draft_node_id:product.id});
     expect(turns[0].user_input).toContain(product.name);
     await page.getByRole("button",{name:"Products",exact:true}).click();
     await page.getByRole("button",{name:"Load product tree"}).click();
@@ -809,6 +809,26 @@ test("planner shows selected node evidence and honors server-cleared selection",
   await send("Continue");
   await expect.poll(() => requests.length).toBe(3);
   expect(requests[2].selected_draft_node_id).toBeNull();
+});
+
+test("MCP product-root staging rejects a concurrent product edit", async ({ request }) => {
+  test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
+  async function mcp(name, action, arguments_) {
+    const response=await request.post("/api/mcp",{headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:{action,arguments:arguments_}}}});
+    const result=(await response.json()).result; expect(result.isError,JSON.stringify(result)).not.toBeTruthy(); return result.structuredContent?.result;
+  }
+  const product=await mcp("aruvi_catalog","create_product",{name:`Bound product ${Date.now()}`});
+  try {
+    const session=await mcp("aruvi_planner","create_planner_session",{});
+    const staged=await mcp("aruvi_planner","stage_catalog_node",{session_id:session.session_id,product_id:product.id,node_type:"product",node_id:product.id});
+    expect(staged.selected_draft_node_id).toBe(product.id);
+    await mcp("aruvi_planner","rename_planner_draft_node",{session_id:session.session_id,node_id:product.id,name:"Must not overwrite"});
+    await mcp("aruvi_catalog","update_product",{id:product.id,description:"Concurrent edit"});
+    const result=await mcp("aruvi_planner","confirm_planner_plan",{session_id:session.session_id,product_id:product.id});
+    expect(result.status).toBe("error"); expect(JSON.stringify(result)).toContain("staged product changed");
+    const current=await mcp("aruvi_catalog","get_product",{id:product.id});
+    expect(current).toMatchObject({id:product.id,name:product.name,description:"Concurrent edit"});
+  } finally { await mcp("aruvi_catalog","archive_product",{id:product.id}); }
 });
 
 test("MCP stages an existing work item and creates its child", async ({ request }) => {

@@ -3303,7 +3303,7 @@
             setBusy(true);
             const sessionId = await ensureSession();
             const response = await request("/api/mobile/planner/sessions/" + encodeURIComponent(sessionId) + "/catalog-node", {
-              method:"POST", body:{product_id:productId, node_type:catalogNode.node_kind === "work_item" ? "work_item" : catalogNode.node_kind === "product_area" ? "product_area" : "capability", node_id:catalogNode.id}
+              method:"POST", body:{product_id:productId, node_type:catalogNode.node_kind === "product" ? "product" : catalogNode.node_kind === "work_item" ? "work_item" : catalogNode.node_kind === "product_area" ? "product_area" : "capability", node_id:catalogNode.id}
             });
             applyPlannerResponse(response, el.conversation);
             if (state.selectedProductId !== productId || state.activeTab !== originalTab || el.composer.value !== originalDraft) {
@@ -3342,8 +3342,8 @@
       el.productMetrics.appendChild(renderMetric(product && product.status ? product.status : "active", "Status"));
 
       if (product) {
-        appendPlannerAction(plannerActions, "Improve product", product.id, `Enhance product "${product.name}". Review the current product management tree, identify missing product areas, capabilities, features, stories, and tasks, then stage a concrete improvement plan.`);
-        appendPlannerAction(plannerActions, "Plan a product area", product.id, `Add a useful product area under product "${product.name}". Stage the new product area with its initial capabilities and starter stories.`);
+        appendPlannerAction(plannerActions, "Improve product", product.id, `Enhance product "${product.name}". Review the current product management tree, identify missing product areas, capabilities, features, stories, and tasks, then stage a concrete improvement plan.`, {id:product.id, node_kind:"product"});
+        appendPlannerAction(plannerActions, "Plan a product area", product.id, `Add a useful product area under product "${product.name}". Stage the new product area with its initial capabilities and starter stories.`, {id:product.id, node_kind:"product"});
       }
 
       const button = document.createElement("button");

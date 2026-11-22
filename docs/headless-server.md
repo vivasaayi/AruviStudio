@@ -859,12 +859,14 @@ Product, hierarchy and selected work views can also prepare a contextual
 Planner request. Review it before sending; replacing an unsent Planner draft
 requires confirmation. If the chosen product is no longer available, Planner
 requires a new explicit scope instead of silently sending an unscoped request.
-Hierarchy actions stage the selected existing area or capability and its
-ancestors by ID with snapshots. Applying a changed design updates those bound
-nodes in place; a concurrent edit or move rejects the transaction. MCP can
-stage the same context with `aruvi_planner` / `stage_catalog_node` using
-`session_id`, `product_id`, `node_type` and `node_id`. Existing work-item
-shortcuts remain name-based, and newly proposed unbound nodes are created.
+Product, hierarchy and work-item shortcuts stage the selected existing node
+and its ancestors by ID with snapshots. Applying a changed design updates bound
+nodes in place; a concurrent edit or move rejects the transaction. Work-item
+updates are also rejected while their workflow or CLI run is active. New
+children of a staged work item retain that parent. MCP can stage the same
+context with `aruvi_planner` / `stage_catalog_node` using `session_id`,
+`product_id`, `node_type` (`product`, `product_area`, `capability`, `feature`,
+or `work_item`) and `node_id`. Newly proposed unbound nodes are created.
 If a Planner session contains another product's staged design, a scoped turn or
 confirmation is rejected. Review and clear that design or start a new session
 before switching. MCP `confirm_planner_plan` and the mobile confirmation endpoint

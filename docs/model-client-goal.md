@@ -12,6 +12,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Product-root Planner binding (in validation)
+
+The shared `stage_catalog_node` operation now accepts a product root by its
+exact ID and snapshots it before planning. Web and desktop product-level
+shortcuts use this path, as can MCP. A changed or mismatched product is rejected
+without applying the staged update. An isolated database test covered wrong ID,
+concurrent edit, rollback and successful retry; native browser/MCP fixtures
+covered the product shortcut and a concurrent MCP edit. The desktop mocked
+browser test verifies the product ID is passed through to the next turn. The
+frontend build and 139 frontend tests passed. Broader tests and a clean image
+build are still running; this change is not yet in the deployed worktree image.
+
 ### Desktop Product Book selection binding (in validation)
 
 Desktop Product Book area, capability and work-item shortcuts now carry the

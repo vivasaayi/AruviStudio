@@ -3,6 +3,29 @@ use crate::persistence::{product_repo, work_item_repo};
 use serde_json::json;
 
 #[tokio::test]
+async fn staged_product_root_checks_identity_and_concurrent_edits() {
+    use crate::services::planner_catalog_binding::stage_catalog_node;
+    use crate::services::planner_session::load_session_from_db;
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("stage_product_root").await;
+    let product = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"bound-product", name:"Bound product", description:"Original", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    assert!(stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "product".into(), "another-product".into()).await.is_err());
+    let staged = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "product".into(), product.id.clone()).await.unwrap();
+    assert_eq!(staged.selected_draft_node_id.as_deref(), Some(product.id.as_str()));
+    let loaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    let mut draft = loaded.draft_plan.unwrap();
+    draft.nodes[0].name = "Improved product".into();
+    sqlx::query("UPDATE products SET description='Concurrent edit' WHERE id=?").bind(&product.id).execute(&state.db).await.unwrap();
+    assert!(commit_draft_plan(&state, &draft).await.unwrap_err().to_string().contains("staged product changed"));
+    let current = product_repo::get_product(&state.db, &product.id).await.unwrap();
+    assert_eq!(current.name, "Bound product");
+    sqlx::query("UPDATE products SET description='Original' WHERE id=?").bind(&product.id).execute(&state.db).await.unwrap();
+    commit_draft_plan(&state, &draft).await.unwrap();
+    assert_eq!(product_repo::get_product(&state.db, &product.id).await.unwrap().name, "Improved product");
+}
+
+#[tokio::test]
 async fn staged_work_item_updates_identity_and_preserves_parent_and_scope() {
     use crate::services::planner_catalog_binding::stage_catalog_node;
     use crate::services::planner_session::load_session_from_db;

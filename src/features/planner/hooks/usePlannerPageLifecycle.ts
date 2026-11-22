@@ -13,7 +13,7 @@ import {
 } from "../lib/plannerPageModel";
 
 type PlannerView = "conversation" | "draft" | "trace";
-type PlannerRouteState = { plannerPrompt?: string; plannerView?: PlannerView; plannerCatalogNode?: { productId: string; nodeType: "product_area" | "capability" | "work_item"; nodeId: string } | null };
+type PlannerRouteState = { plannerPrompt?: string; plannerView?: PlannerView; plannerCatalogNode?: { productId: string; nodeType: "product" | "product_area" | "capability" | "work_item"; nodeId: string } | null };
 
 type PlannerPageLifecycleInput = {
   selectedProductId: string | null;

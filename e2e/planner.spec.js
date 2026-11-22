@@ -280,3 +280,25 @@ test("failed desktop Planner session creation does not leave staging locked", as
   await expect(page.getByLabel("Planner product")).toBeEnabled();
   await expect(page.getByTestId("planner-input")).toHaveValue("");
 });
+
+test("product overview stages the product root before preparing its Planner request", async ({ page }) => {
+  await page.goto("/products");
+  await page.getByRole("button", { name: "Product Overview", exact: true }).click();
+  await page.evaluate(() => {
+    const bridge = window.__ARUVI_E2E__, original = bridge.invoke;
+    window.__stageCalls = [];
+    bridge.invoke = (command, args) => {
+      if (command !== "stage_planner_catalog_node_command") return original(command, args);
+      window.__stageCalls.push(args);
+      return Promise.resolve({status:"session_update", assistant_message:"Staged", selected_draft_node_id:args.nodeId, draft_tree_nodes:[{id:args.nodeId,label:"Calculator",node_type:"product",children:[]}], execution_lines:[],execution_errors:[],trace_events:[]});
+    };
+  });
+  await page.getByRole("button", { name: "Improve Book", exact: true }).click();
+  await expect(page.getByTestId("planner-input")).toHaveValue(/Enhance product/);
+  const staged=await page.evaluate(() => window.__stageCalls[0]);
+  expect(staged).toMatchObject({productId:"example-product-calculator",nodeType:"product",nodeId:"example-product-calculator"});
+  await page.getByTestId("planner-send").click();
+  await expect.poll(() => page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("submit_planner_turn_command").length)).toBe(1);
+  const turn=await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("submit_planner_turn_command")[0].args);
+  expect(turn.selectedDraftNodeId).toBe(staged.nodeId);
+});
