@@ -15,7 +15,10 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-model-host-studio-validation")
 parser.add_argument("--repository", action="store_true", help="Analyze a disposable workspace rather than submit a text turn")
 parser.add_argument("--browser", action="store_true", help="Drive the planner turn or repository analysis through a real browser")
+parser.add_argument("--selected-node", action="store_true", help="Add a capability beneath a browser-selected draft area")
 args = parser.parse_args()
+if args.selected_node and (not args.browser or args.repository):
+    parser.error("--selected-node requires --browser and cannot be combined with --repository")
 host = args.host.expanduser().resolve()
 container = None
 volume = None
@@ -101,9 +104,9 @@ try:
             except urllib.error.HTTPError as error:
                 raise ValueError(f"Repository analysis HTTP {error.code}: {error.read(1000).decode(errors='replace')}") from error
     elif args.browser:
-        browser = subprocess.run(["node", str(root / "scripts/test-host-planner-browser.mjs")], cwd=root, input=json.dumps({"address": address, "session": session["session_id"], "product": product["id"]}), text=True, capture_output=True, timeout=300)
+        browser = subprocess.run(["node", str(root / "scripts/test-host-planner-browser.mjs")], cwd=root, input=json.dumps({"address": address, "session": session["session_id"], "product": product["id"], "selected_node": args.selected_node}), text=True, capture_output=True, timeout=600)
         if browser.returncode:
-            raise ValueError("Browser fixture failed: " + browser.stderr[-1500:])
+            raise ValueError("Browser fixture failed: " + browser.stderr[-6500:])
         result = json.loads(browser.stdout)
     else:
         result = call("aruvi_planner", "submit_planner_turn", {
@@ -127,6 +130,10 @@ try:
     if not any(node.get("node_type") == "product_area" and "inventory" in node.get("label", "").lower() for node in nodes):
         print("Model output:", json.dumps(model_events, ensure_ascii=False)[:6000], flush=True)
         raise ValueError("Expected an inventory-related product area in the staged draft; response: " + json.dumps(result, ensure_ascii=False)[:3000])
+    if args.selected_node:
+        inventory = next(node for node in nodes if node.get("node_type") == "product_area" and "inventory" in node.get("label", "").lower())
+        if not any(node.get("node_type") == "capability" and "stock" in node.get("label", "").lower() for node in flatten(inventory.get("children"))):
+            raise ValueError("Expected a stock-related capability beneath the selected inventory area: " + json.dumps(result, ensure_ascii=False)[:3000])
     before = call("aruvi_catalog", "list_product_areas", {"product_id": product["id"]})
     if before:
         raise ValueError("Draft was persisted before confirmation")
@@ -136,7 +143,12 @@ try:
     areas = call("aruvi_catalog", "list_product_areas", {"product_id": product["id"]})
     if not any("inventory" in area.get("name", "").lower() for area in areas):
         raise ValueError("Confirmed product area was not saved")
-    interface = ('browser repository analysis' if args.repository else 'browser planner turn') if args.browser else ('repository analysis API' if args.repository else 'MCP')
+    if args.selected_node:
+        inventory_area = next(area for area in areas if "inventory" in area.get("name", "").lower())
+        capabilities = call("aruvi_catalog", "list_capabilities", {"product_area_id": inventory_area["id"]})
+        if not any("stock" in capability.get("name", "").lower() for capability in capabilities):
+            raise ValueError("Confirmed capability was not saved under the selected inventory area")
+    interface = ('browser repository analysis' if args.repository else 'browser selected-node planner turn' if args.selected_node else 'browser planner turn') if args.browser else ('repository analysis API' if args.repository else 'MCP')
     print(f"Real model {model_name} created and confirmed a planner draft through {interface}", flush=True)
 except (OSError, KeyError, TypeError, ValueError, subprocess.SubprocessError) as error:
     print(f"Real planner workflow failed: {type(error).__name__}: {error if not isinstance(error, subprocess.CalledProcessError) else 'fixture command failed'}", file=sys.stderr)

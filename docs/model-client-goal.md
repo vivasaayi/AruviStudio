@@ -12,6 +12,20 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Real-model selected-node planner revalidation
+
+The disposable real-model planner fixture now supports `--browser
+--selected-node`. It creates an inventory area, selects it in the browser,
+checks that the next request carries that node and product, requires a stock
+capability underneath the area in the draft, and verifies the area and child
+through MCP only after confirmation. The first `qwen25-coder-7b-q4` attempt
+did not show the expected capability and stopped before confirmation; the
+fixture did not retain the detailed response for that attempt. A second
+attempt passed, with three model calls and two format retries on the selected
+turn. The disposable container and volumes were removed. This is one successful
+sample, not a guarantee of model reliability, physical desktop parity or
+staging readiness.
+
 ### Branch runtime revalidation at c48ee96
 
 GitHub Actions run `44996261243` built and tested clean ARM64 and AMD64

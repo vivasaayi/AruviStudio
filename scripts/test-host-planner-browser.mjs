@@ -32,8 +32,27 @@ try {
   assert.equal(response.request().postDataJSON().product_id, fixture.product);
   const payload = await response.text();
   assert.equal(response.ok(), true, `Planner HTTP ${response.status()}: ${payload.slice(0, 1000)}`);
-  const result = JSON.parse(payload);
+  let result = JSON.parse(payload);
   await page.locator("#draftTree").getByText(/inventory/i).first().waitFor({ timeout: 10000 });
+  if (fixture.selected_node) {
+    await page.locator("#draftTree button").filter({ hasText: /inventory/i }).first().click();
+    const selectedNode = await page.evaluate(() => localStorage.getItem("aruvi.remote.selected_node"));
+    assert.ok(selectedNode, "Expected an inventory draft node to be selected");
+    await page.locator("#composer").fill("Add one capability named Stock Tracking under the selected Inventory Management product area to track stock levels.");
+    const turn = page.waitForResponse((response) => response.url().endsWith("/turn") && response.request().method() === "POST", { timeout: 240000 });
+    await page.locator("#sendButton").click();
+    const selectedResponse = await turn;
+    assert.equal(selectedResponse.request().postDataJSON().selected_draft_node_id, selectedNode);
+    assert.equal(selectedResponse.request().postDataJSON().product_id, fixture.product);
+    const selectedPayload = await selectedResponse.text();
+    assert.equal(selectedResponse.ok(), true, `Selected-node planner HTTP ${selectedResponse.status()}: ${selectedPayload.slice(0, 1000)}`);
+    result = JSON.parse(selectedPayload);
+    try {
+      await page.locator("#draftTree").getByText(/stock/i).first().waitFor({ timeout: 10000 });
+    } catch {
+      throw new Error(`Selected-node response did not show Stock: ${JSON.stringify(result).slice(0, 5000)}`);
+    }
+  }
   const downloadReady = page.waitForEvent("download");
   await page.getByRole("button", { name: "Download review packet" }).click();
   const download = await downloadReady;
