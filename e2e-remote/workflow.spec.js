@@ -1,6 +1,41 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
+test("MCP discovers and invokes catalog read parity tools", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  const invoke = async (name, arguments_) => {
+    const response = await request.post("/api/mcp", { headers, data: {
+      jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: arguments_ },
+    } });
+    expect(response.ok()).toBeTruthy();
+    const rpc = (await response.json()).result;
+    expect(rpc.isError).not.toBeTruthy();
+    return rpc.structuredContent.result;
+  };
+  const unauthorized = await request.post("/api/mcp", { data: {
+    jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "catalog.capabilities.get", arguments: { id: "missing" } },
+  } });
+  expect(unauthorized.status()).toBe(401);
+  const discovery = await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} } });
+  expect(discovery.ok()).toBeTruthy();
+  const names = (await discovery.json()).result.tools.map((tool) => tool.name);
+  for (const name of ["catalog.capabilities.get", "catalog.capabilities.list_for_product", "catalog.products.summarize_tree"]) expect(names).toContain(name);
+
+  const product = await invoke("catalog.products.create", { name: "Catalog parity fixture" });
+  const other = await invoke("catalog.products.create", { name: "Other catalog fixture" });
+  const area = await invoke("catalog.product_areas.create", { productId: product.id, name: "Inventory" });
+  const capability = await invoke("catalog.capabilities.create", { productAreaId: area.id, name: "Stock", nodeKind: "capability" });
+  const feature = await invoke("catalog.capabilities.create", { productAreaId: area.id, parentCapabilityId: capability.id, name: "Updates", nodeKind: "feature" });
+  expect((await invoke("catalog.capabilities.get", { id: feature.id })).id).toBe(feature.id);
+  expect((await invoke("catalog.capabilities.list_for_product", { productId: product.id })).map((item) => item.id)).toEqual([capability.id, feature.id]);
+  expect(await invoke("catalog.capabilities.list_for_product", { productId: other.id })).toEqual([]);
+  const summary = await invoke("catalog.products.summarize_tree", { productId: product.id });
+  expect(summary).toMatchObject({ product_id: product.id, product_area_count: 1, capability_count: 2, leaf_node_count: 1 });
+  const legacy = await invoke("aruvi_catalog", { action: "summarize_product_tree", arguments: { product_id: product.id } });
+  expect(legacy).toEqual(summary);
+});
+
 test("quiet hours block a voice fallback when WhatsApp is unavailable", async ({ request, page }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires the disposable fixture with blocked HTTPS egress");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
