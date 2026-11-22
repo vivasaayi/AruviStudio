@@ -1029,6 +1029,17 @@ async fn remote_work_api_auth_create_start_approve_and_delivery_flow() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(workflow_repo::get_workflow_run(&state.db, &legacy.id).await.unwrap().status, "failed");
     assert!(workflow_repo::get_workflow_history(&state.db, &legacy.id).await.unwrap().is_empty());
+
+    let concurrent = workflow_repo::create_workflow_run(&state.db, "concurrent-recovery-run", work_item_id).await.unwrap();
+    let concurrent_url = format!("/api/mobile/workflows/{}/mark-failed", concurrent.id);
+    let expected = json!({"expected_stage":"draft", "expected_status":"running", "reason":"Concurrent fixture"});
+    let (one, two) = tokio::join!(
+        send_json(&router, Method::POST, &concurrent_url, Some(token), Some(expected.clone())),
+        send_json(&router, Method::POST, &concurrent_url, Some(token), Some(expected)),
+    );
+    let mut statuses = [one.0.as_u16(), two.0.as_u16()]; statuses.sort();
+    assert_eq!(statuses, [200, 409]);
+    assert_eq!(workflow_repo::get_workflow_history(&state.db, &concurrent.id).await.unwrap().len(), 1);
 }
 
 #[tokio::test]
