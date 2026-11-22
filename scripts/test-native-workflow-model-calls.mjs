@@ -48,6 +48,7 @@ c.commit()`,db,task.id,join(root,'artifacts','stage.txt')]);
   await page.getByRole('button',{name:'Show stage artifact: '+delivery.workflow_run.id+' artifact'}).click();await page.getByText('Recorded stage artifact.',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Show stage artifact: '+(delivery.workflow_run.id==='first'?'second':'first')+' artifact'}).count(),0);
   await page.getByText('Show workflow diagram',{exact:true}).click();
   const graph=map.locator('svg[aria-hidden="true"]');assert.equal(await graph.locator('line').count(),27);assert.equal(await graph.locator('[data-graph-stage="coding"]').count(),1);
+  assert.equal(await graph.locator('line[x1="492"]').count(),4);assert.equal(await graph.locator('line[x2="838"]').count(),4);assert.equal(await graph.locator('line[x1="1282"]').count(),6);assert.equal(await graph.locator('line[x2="1838"]').count(),6);
   if(process.env.ARUVI_WORKFLOW_MAP_CAPTURE_DIR){await page.getByText('Show workflow diagram',{exact:true}).scrollIntoViewIfNeeded();await page.screenshot({path:join(process.env.ARUVI_WORKFLOW_MAP_CAPTURE_DIR,'desktop.png')});}
   await map.getByRole('button',{name:'Integration plan',exact:true}).click();assert.equal(await graph.locator('[data-graph-node="integration_plan"] rect').getAttribute('stroke'),'#8ecbff');assert.notEqual(await graph.locator('[data-graph-node="architecture"] rect').getAttribute('stroke'),'#8ecbff');
   await graph.locator('[data-graph-stage="coding"]').click();assert.equal(await page.getByLabel('Workflow stage').inputValue(),'coding');

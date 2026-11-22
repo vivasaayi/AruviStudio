@@ -2112,6 +2112,10 @@ test("workflow replaces a disabled coordinator before the next review", async ({
   await page.getByText("Show workflow diagram", { exact: true }).click();
   const diagram = page.locator("#deliveryDetails svg[aria-hidden=true]");
   await expect(diagram.locator("line")).toHaveCount(27);
+  await expect(diagram.locator('line[x1="492"]')).toHaveCount(4);
+  await expect(diagram.locator('line[x2="838"]')).toHaveCount(4);
+  await expect(diagram.locator('line[x1="1282"]')).toHaveCount(6);
+  await expect(diagram.locator('line[x2="1838"]')).toHaveCount(6);
   await page.locator("#deliveryDetails").getByRole("button", { name: "Integration plan", exact: true }).click();
   await expect(diagram.locator('[data-graph-node="integration_plan"] rect')).toHaveAttribute("stroke", "#8ecbff");
   await page.locator("#deliveryDetails").getByRole("button", { name: "Coding", exact: true }).click();
