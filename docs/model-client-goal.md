@@ -59,6 +59,8 @@ passed persistence, MCP and mobile authorization, and PDF; published-port MCP
 origin checks and 13-section phone/desktop layout passed. Real Model Host coding
 and a synthetic Piper/Whisper speech round trip passed through MCP. This does
 not establish physical audio, native-window parity, integration or VPS staging.
+Subsequent authenticated browser checks also passed real coding-model streaming
+chat and continuous synthetic Piper audio through Whisper and a local model.
 
 ### Shared client packaging recheck
 
