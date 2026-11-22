@@ -50,7 +50,13 @@ try {
     try {
       await page.locator("#draftTree").getByText(/stock/i).first().waitFor({ timeout: 10000 });
     } catch {
-      throw new Error(`Selected-node response did not show Stock: ${JSON.stringify(result).slice(0, 5000)}`);
+      const diagnostic = {
+        status: result.status,
+        assistant_message: result.assistant_message,
+        execution_errors: result.execution_errors,
+        trace_events: (result.trace_events || []).filter((event) => ["model", "format_retry", "draft_retry", "error"].includes(event.stage)),
+      };
+      throw new Error(`Selected-node response did not show Stock: ${JSON.stringify(diagnostic).slice(0, 5000)}`);
     }
   }
   const downloadReady = page.waitForEvent("download");
