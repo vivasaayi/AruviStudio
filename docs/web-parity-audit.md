@@ -151,6 +151,12 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+The branch now exposes desktop work-item scope summaries and the complete
+repository attachment inventory through MCP. Hosted and disposable local
+fixtures verified discovery, filtering and nonempty attachments; the live
+branch also checked a scoped summary and compared the two MCP naming styles.
+See the goal checkpoint for limits and deployment evidence.
+
 The current source adds MCP direct capability lookup, product-wide capability
 listing and product-tree summary actions corresponding to the desktop Rust
 queries. Definitions, dispatch and HTTP discovery passed hosted checks, and the

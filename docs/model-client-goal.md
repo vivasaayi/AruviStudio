@@ -12,6 +12,38 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### MCP scoped work and attachment parity: branch validation
+
+Hosted test run `45005749461` passed 345 Rust unit tests (eight ignored),
+including the new discovery and dispatch tests. Clean image run `45005749463`
+passed on ARM64 and AMD64: each exercised the new MCP HTTP scenario with a
+nonempty attachment, 62 workflow tests, 49 browser tests (one skipped), PDF
+isolation/outage and simulated CI. The streamed ARM64 archive SHA-256 was
+`3974ee36211c46ff964a46f20b91394b480889336368132f1313311f4eec625e`,
+the server layer SHA-256 was
+`ebabe6b387e9b9ebccd65566cac14b2815360b522832989df6a7be0f33eb67d6`,
+and the server binary SHA-256 was
+`efcc4c2a20a3e1dc51258f8a20ffe039f910d0f93dd179ee26a39f5d473b3d4a`.
+
+A stopped disposable container based on the preceding branch runtime received
+the verified server and was committed as
+`sha256:54c2f48deee11ec2913ee0afc7983c94b3db614e42b3a2eb73b2d64b05801609`.
+Its runtime configuration and binary hash matched; this derived image is not
+a locally loaded full clean image. The local workflow, browser, PDF and
+simulated CI suites passed, as did real Model Host packaged setup and browser
+stream cancellation, and simulated scoped-credential checks.
+
+The active-job guard and a checked database backup preceded the worktree
+switch; the prior image remains tagged for rollback. After restart, product,
+MCP/mobile authorization and PDF acceptance passed. A temporary product and
+work item exercised the live scoped summary through both MCP names and was
+archived; attachment inventory results also agreed across names, while nonempty
+attachment coverage came from the disposable hosted and local fixtures.
+Thirteen-section layout, MCP origin, real coding and Piper/Whisper, and
+continuous voice with synthetic audio passed. The live host still uses a
+management-capable credential. Physical devices, full desktop parity, live
+external providers, deployed Aruvici, Mac integration and staging remain open.
+
 ### MCP work-summary and attachment read parity in progress
 
 Desktop work-item scope summaries and the complete workspace attachment list
@@ -21,8 +53,8 @@ source adds `aruvi_work_items.summarize_work_items_by_scope` and
 `work_items.summarize_by_scope` and `repositories.attachments.list_all` tools.
 The optional product filter retains the desktop query's behavior. Discovery,
 legacy and first-class dispatch, filtering, and disposable HTTP workflow
-coverage are included. These changes have not yet passed hosted checks or been
-deployed; the broader parity audit remains open.
+coverage are included. The later branch-validation checkpoint above records hosted and deployed
+checks; the broader parity audit remains open.
 
 ### MCP catalog read parity: branch validation
 
