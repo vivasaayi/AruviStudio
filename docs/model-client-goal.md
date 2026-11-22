@@ -116,8 +116,10 @@ passed against the same binary: existing authentication when no inference token
 is configured, and inference-token streaming and media with simulated workers.
 These do not establish that the deployed host uses scoped credentials. An attempted full offline Cargo rerun started a
 fresh dependency compilation; it was stopped to avoid exhausting the Mac's disk,
-and only files created by that interrupted attempt were removed. The earlier
-full-suite results remain historical evidence rather than a new full-suite pass.
+and only files created by that interrupted attempt were removed. A subsequent
+direct run of all 18 simulated lifecycle tests against the existing binary
+passed. It did not rebuild the binary or rerun the Rust unit tests; the earlier
+Cargo results remain historical evidence.
 
 ### Browser provider quick starts
 
