@@ -40,7 +40,8 @@ All four subsequently passed against the native server with the required assets,
 temporary repository paths and origin configuration. The workspace-choice test
 now accepts fixture paths while retaining its container defaults. A subsequent
 combined native run with those settings passed 48 browser tests and skipped five
-that need additional fixtures. Full clean-image validation remains pending.
+that need additional fixtures. The full native Rust library suite passed 351
+tests with eight ignored. Full clean-image validation remains pending.
 
 ### Independent model-client revalidation
 
