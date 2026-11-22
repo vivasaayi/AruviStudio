@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### File Copilot workspace-root guard in progress
+### File Copilot workspace-root guard: branch validation
 
 File Copilot previously checked the opened file's SHA-256 but did not bind
 the request to the opened repository root. If a repository was redirected to
@@ -35,8 +35,28 @@ existing editor test also passed. The full native Rust library suite passed
 348 tests with eight ignored. The server guide now describes current
 unsaved-file, streaming and patch behavior. The fixture also sent a buffered
 request while another process held the SQLite reservation and changed the root;
-the request waited and rejected the newly stale root. Hosted checks and updated branch
-deployment remain pending at this checkpoint.
+the request waited and rejected the newly stale root.
+
+Hosted test workflows `45022991016` and `45022996086` passed; clean ARM64 and
+AMD64 image validation in run `45022990959` passed for source `3dde299`. Later
+commits add only test and checkpoint material. The local branch candidate used
+the hash-verified ARM64 server from the clean image on the existing runtime
+image, so it is derived rather than the complete clean image. Its image ID is
+`sha256:6ebaa34f24792d4fd51c8ba20cca5e17ecb112ec7de6eed735d465fc50fd73ab`;
+the server SHA-256 is
+`16f93f8ab99cc2dd550891292394e0c754730f4545a4ce1a51a7a855c90ccc78`.
+It passed 62 workflow tests, 50 browser tests (one skipped), simulated CI,
+PDF isolation and outage checks, and real-host packaged model quick start and
+stream cancellation. A separate scoped-credential fixture passed.
+
+After checking active jobs and backing up the database, the worktree app and
+PDF containers were updated. Product persistence, MCP, mobile authorization
+and PDF checks passed after restart; Chrome checked all 13 sections at phone
+and desktop widths and the published-port MCP origin. Real local coding and
+synthetic Piper/Whisper speech passed through MCP, as did continuous browser
+voice with synthetic audio. The previous image remains tagged for rollback.
+Physical desktop and microphone parity, live third-party providers, real
+Aruvici, Mac integration and VPS staging remain unverified.
 
 ### Real-model delivery revalidation after URL update
 
