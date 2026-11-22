@@ -647,6 +647,7 @@ test("product and work actions prepare scoped planner requests without losing dr
     await page.getByRole("button",{name:"Improve Planning story in Planner",exact:true}).click();
     await expect(page.locator("#composer")).toHaveValue(/Planning story/);
     await expect(page.locator("#plannerProductSelect")).toHaveValue(product.id);
+    await expect.poll(() => page.evaluate(() => localStorage.getItem("aruvi.remote.selected_node"))).toBe(story.id);
   } finally {
     if (story) await mcp("aruvi_work_items", "delete_work_item", {id:story.id});
     await mcp("aruvi_catalog", "archive_product", {id:product.id});
@@ -808,6 +809,31 @@ test("planner shows selected node evidence and honors server-cleared selection",
   await send("Continue");
   await expect.poll(() => requests.length).toBe(3);
   expect(requests[2].selected_draft_node_id).toBeNull();
+});
+
+test("MCP stages an existing work item and creates its child", async ({ request }) => {
+  test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
+  async function mcp(name, action, arguments_) {
+    const response=await request.post("/api/mcp",{headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:{action,arguments:arguments_}}}});
+    const result=(await response.json()).result; expect(result.isError,JSON.stringify(result)).not.toBeTruthy(); return result.structuredContent?.result;
+  }
+  const product=await mcp("aruvi_catalog","create_product",{name:`Bound work ${Date.now()}`});
+  try {
+    const area=await mcp("aruvi_catalog","create_product_area",{product_id:product.id,name:"Work area"});
+    const story=await mcp("aruvi_work_items","create_story",{product_id:product.id,product_area_id:area.id,title:"Existing story",priority:"high"});
+    const session=await mcp("aruvi_planner","create_planner_session",{});
+    const staged=await mcp("aruvi_planner","stage_catalog_node",{session_id:session.session_id,product_id:product.id,node_type:"work_item",node_id:story.id});
+    expect(staged.selected_draft_node_id).toBe(story.id);
+    await mcp("aruvi_planner","rename_planner_draft_node",{session_id:session.session_id,node_id:story.id,name:"Improved story"});
+    await mcp("aruvi_planner","add_planner_draft_child",{session_id:session.session_id,parent_node_id:story.id,child_type:"work_item",name:"Child task"});
+    const confirmed=await mcp("aruvi_planner","confirm_planner_plan",{session_id:session.session_id,product_id:product.id});
+    expect(confirmed.status,JSON.stringify(confirmed)).toBe("execution");
+    const updated=await mcp("aruvi_work_items","get_work_item",{id:story.id});
+    expect(updated).toMatchObject({id:story.id,title:"Improved story",priority:"high",product_area_id:area.id});
+    const items=await mcp("aruvi_work_items","list_work_items",{product_id:product.id});
+    expect(items.filter(item=>item.title==="Improved story")).toHaveLength(1);
+    expect(items.find(item=>item.title==="Child task")).toMatchObject({parent_work_item_id:story.id,work_item_type:"task"});
+  } finally { await mcp("aruvi_catalog","archive_product",{id:product.id}); }
 });
 
 test("MCP stages and updates an existing catalog node without duplicating it", async ({ request }) => {

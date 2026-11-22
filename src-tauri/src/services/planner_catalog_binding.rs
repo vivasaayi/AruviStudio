@@ -1,4 +1,5 @@
 use crate::domain::product::{Capability, Product, ProductArea};
+use crate::domain::work_item::{WorkItem, WorkItemStatus};
 use crate::error::AppError;
 use crate::persistence::product_core_repo;
 use crate::services::planner_action_fields::string_field;
@@ -64,8 +65,8 @@ pub(crate) async fn stage_catalog_node(
 ) -> Result<PlannerTurnResponse, AppError> {
     let _guard = lock_planner_session(&planner_service, db, &session_id).await?;
     let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
-    if !matches!(node_type.as_str(), "product_area" | "capability" | "feature") {
-        return Err(AppError::Validation("Select a product area, capability or feature.".into()));
+    if !matches!(node_type.as_str(), "product_area" | "capability" | "feature" | "work_item") {
+        return Err(AppError::Validation("Select a product area, capability, feature or work item.".into()));
     }
     let mut tx = db.begin_with("BEGIN IMMEDIATE").await?;
     let product = product_core_repo::get_product_in_conn(&mut tx, &product_id).await?;
@@ -95,36 +96,66 @@ pub(crate) async fn stage_catalog_node(
         root.details["_catalog_binding"] = json!({"kind":"product", "snapshot":product});
     }
     let missing = || AppError::Validation("Catalog node was not found in the selected product.".into());
-    let (area, path) = if node_type == "product_area" {
-        let area = sqlx::query_as::<_, ProductArea>("SELECT * FROM product_areas WHERE id=? AND product_id=?")
-            .bind(&node_id).bind(&product.id).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
-        (area, Vec::new())
-    } else {
-        let mut path = Vec::new(); let mut seen = HashSet::new(); let mut next = Some(node_id.clone());
+    let mut work_path: Vec<WorkItem> = Vec::new();
+    if node_type == "work_item" {
+        let mut next = Some(node_id.clone());
+        let mut seen = HashSet::new();
         while let Some(id) = next {
-            if path.len() >= 1000 || !seen.insert(id.clone()) { return Err(AppError::Validation("Catalog ancestry is cyclic or exceeds the supported depth.".into())); }
-            let capability = sqlx::query_as::<_, Capability>("SELECT * FROM capabilities WHERE id=?")
+            if work_path.len() >= 1000 || !seen.insert(id.clone()) { return Err(AppError::Validation("Work item ancestry is cyclic or exceeds the supported depth.".into())); }
+            let work = sqlx::query_as::<_, WorkItem>("SELECT * FROM work_items WHERE id=?")
                 .bind(&id).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
-            if path.is_empty() && node_type == "feature" && capability.node_kind.to_string() != "feature" { return Err(missing()); }
-            next = capability.parent_capability_id.clone(); path.push(capability);
+            if work.product_id.as_deref() != Some(product.id.as_str()) { return Err(missing()); }
+            if let Some(selected) = work_path.first() {
+                if selected.product_area_id != work.product_area_id || selected.capability_id != work.capability_id { return Err(AppError::Validation("Work item ancestry has inconsistent catalog scope.".into())); }
+            }
+            next = work.parent_work_item_id.clone();
+            work_path.push(work);
         }
-        let area_id = &path.first().expect("node id is nonempty").product_area_id;
-        if path.iter().any(|capability| &capability.product_area_id != area_id) { return Err(missing()); }
-        let area = sqlx::query_as::<_, ProductArea>("SELECT * FROM product_areas WHERE id=? AND product_id=?")
-            .bind(area_id).bind(&product.id).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
-        path.reverse(); (area, path)
-    };
-    stage_node(&mut draft, PlannerDraftNode {
-        id:area.id.clone(), parent_id:Some(product.id.clone()), node_type:"product_area".into(), name:area.name.clone(), summary:Some(area.description.clone()),
-        details:json!({"type":"update_product_area", "purpose":area.purpose, "nodeKind":area.node_kind, "explanation":area.explanation, "examples":area.examples, "implementationNotes":area.implementation_notes, "testGuidance":area.test_guidance, "_catalog_binding":{"kind":"product_area","snapshot":area}}),
-    })?;
-    let mut parent_id = area.id.clone();
-    for capability in path {
+        work_path.reverse();
+    }
+    let hierarchy_id = if node_type == "work_item" { work_path.last().and_then(|item| item.capability_id.clone().or_else(|| item.product_area_id.clone())) } else { Some(node_id.clone()) };
+    let hierarchy_is_area = node_type == "product_area" || (node_type == "work_item" && work_path.last().is_some_and(|item| item.capability_id.is_none()));
+    let mut parent_id = product.id.clone();
+    if let Some(hierarchy_id) = hierarchy_id {
+        let (area, path) = if hierarchy_is_area {
+            let area = sqlx::query_as::<_, ProductArea>("SELECT * FROM product_areas WHERE id=? AND product_id=?")
+                .bind(&hierarchy_id).bind(&product.id).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
+            (area, Vec::new())
+        } else {
+            let mut path = Vec::new(); let mut seen = HashSet::new(); let mut next = Some(hierarchy_id);
+            while let Some(id) = next {
+                if path.len() >= 1000 || !seen.insert(id.clone()) { return Err(AppError::Validation("Catalog ancestry is cyclic or exceeds the supported depth.".into())); }
+                let capability = sqlx::query_as::<_, Capability>("SELECT * FROM capabilities WHERE id=?")
+                    .bind(&id).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
+                if path.is_empty() && node_type == "feature" && capability.node_kind.to_string() != "feature" { return Err(missing()); }
+                next = capability.parent_capability_id.clone(); path.push(capability);
+            }
+            let area_id = &path.first().expect("node id is nonempty").product_area_id;
+            if path.iter().any(|capability| &capability.product_area_id != area_id) { return Err(missing()); }
+            if let Some(work) = work_path.last() { if work.product_area_id.as_ref() != Some(area_id) { return Err(missing()); } }
+            let area = sqlx::query_as::<_, ProductArea>("SELECT * FROM product_areas WHERE id=? AND product_id=?")
+                .bind(area_id).bind(&product.id).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
+            path.reverse(); (area, path)
+        };
         stage_node(&mut draft, PlannerDraftNode {
-            id:capability.id.clone(), parent_id:Some(parent_id.clone()), node_type:"capability".into(), name:capability.name.clone(), summary:Some(capability.description.clone()),
-            details:json!({"type":"update_capability", "nodeKind":capability.node_kind, "acceptanceCriteria":capability.acceptance_criteria, "explanation":capability.explanation, "examples":capability.examples, "priority":capability.priority, "risk":capability.risk, "technicalNotes":capability.technical_notes, "implementationNotes":capability.implementation_notes, "testGuidance":capability.test_guidance, "_catalog_binding":{"kind":"capability","snapshot":capability}}),
+            id:area.id.clone(), parent_id:Some(product.id.clone()), node_type:"product_area".into(), name:area.name.clone(), summary:Some(area.description.clone()),
+            details:json!({"type":"update_product_area", "purpose":area.purpose, "nodeKind":area.node_kind, "explanation":area.explanation, "examples":area.examples, "implementationNotes":area.implementation_notes, "testGuidance":area.test_guidance, "_catalog_binding":{"kind":"product_area","snapshot":area}}),
         })?;
-        parent_id = capability.id.clone();
+        parent_id = area.id.clone();
+        for capability in path {
+            stage_node(&mut draft, PlannerDraftNode {
+                id:capability.id.clone(), parent_id:Some(parent_id.clone()), node_type:"capability".into(), name:capability.name.clone(), summary:Some(capability.description.clone()),
+                details:json!({"type":"update_capability", "nodeKind":capability.node_kind, "acceptanceCriteria":capability.acceptance_criteria, "explanation":capability.explanation, "examples":capability.examples, "priority":capability.priority, "risk":capability.risk, "technicalNotes":capability.technical_notes, "implementationNotes":capability.implementation_notes, "testGuidance":capability.test_guidance, "_catalog_binding":{"kind":"capability","snapshot":capability}}),
+            })?;
+            parent_id = capability.id.clone();
+        }
+    }
+    for work in work_path {
+        stage_node(&mut draft, PlannerDraftNode {
+            id:work.id.clone(), parent_id:Some(parent_id.clone()), node_type:"work_item".into(), name:work.title.clone(), summary:Some(work.description.clone()),
+            details:json!({"type":"update_work_item", "problemStatement":work.problem_statement, "acceptanceCriteria":work.acceptance_criteria, "constraints":work.constraints, "status":work.status, "workItemType":work.work_item_type, "priority":work.priority, "complexity":work.complexity, "_catalog_binding":{"kind":"work_item","snapshot":work}}),
+        })?;
+        parent_id = work.id.clone();
     }
     session.draft_plan = Some(draft);
     session.selected_draft_node_id = Some(node_id);
@@ -207,5 +238,42 @@ pub(crate) async fn apply_bound_capability(
         .bind(field(node,"implementationNotes","implementation_notes",&current.implementation_notes))
         .bind(field(node,"testGuidance","test_guidance",&current.test_guidance))
         .bind(&snapshot.id).fetch_one(&mut *conn).await?;
+    Ok(Some(updated))
+}
+
+pub(crate) async fn apply_bound_work_item(
+    conn: &mut SqliteConnection, node: &PlannerDraftNode, product_id: &str,
+    area_id: Option<&str>, capability_id: Option<&str>, parent_id: Option<&str>,
+) -> Result<Option<WorkItem>, AppError> {
+    let Some(snapshot) = binding::<WorkItem>(node, "work_item")? else { return Ok(None) };
+    validate_name(node)?;
+    if snapshot.id != node.id || snapshot.product_id.as_deref() != Some(product_id) ||
+        snapshot.product_area_id.as_deref() != area_id || snapshot.capability_id.as_deref() != capability_id ||
+        snapshot.parent_work_item_id.as_deref() != parent_id {
+        return Err(AppError::Validation("Staged work item does not belong to the selected hierarchy or parent.".into()));
+    }
+    let current = sqlx::query_as::<_, WorkItem>("SELECT * FROM work_items WHERE id=?")
+        .bind(&snapshot.id).fetch_optional(&mut *conn).await?
+        .ok_or_else(|| AppError::Validation("The staged work item no longer exists.".into()))?;
+    if serde_json::to_value(&current)? != serde_json::to_value(&snapshot)? {
+        return Err(AppError::Validation("The staged work item changed; refresh and review it before applying.".into()));
+    }
+    let title = node.name.trim();
+    let description = node.summary.as_deref().unwrap_or(&current.description);
+    let problem = field(node, "problemStatement", "problem_statement", &current.problem_statement);
+    let criteria = field(node, "acceptanceCriteria", "acceptance_criteria", &current.acceptance_criteria);
+    let constraints = field(node, "constraints", "constraints", &current.constraints);
+    let status = field(node, "status", "status", &current.status.to_string());
+    serde_json::from_value::<WorkItemStatus>(serde_json::Value::String(status.clone()))
+        .map_err(|_| AppError::Validation("Invalid staged work item status.".into()))?;
+    let changed = title != current.title || description != current.description || problem != current.problem_statement ||
+        criteria != current.acceptance_criteria || constraints != current.constraints || status != current.status.to_string();
+    if !changed { return Ok(Some(current)); }
+    let active: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM workflow_runs WHERE work_item_id=? AND status IN ('running','paused') AND current_stage NOT IN ('done','failed','cancelled')) OR EXISTS(SELECT 1 FROM external_cli_runs WHERE work_item_id=? AND status='running')")
+        .bind(&snapshot.id).bind(&snapshot.id).fetch_one(&mut *conn).await?;
+    if active { return Err(AppError::Validation("The staged work item has an active workflow or CLI run; finish it before applying changes.".into())); }
+    let updated = sqlx::query_as::<_, WorkItem>("UPDATE work_items SET title=?, description=?, problem_statement=?, acceptance_criteria=?, constraints=?, status=?, updated_at=datetime('now') WHERE id=? RETURNING *")
+        .bind(title).bind(description).bind(problem).bind(criteria).bind(constraints).bind(status).bind(&snapshot.id)
+        .fetch_one(&mut *conn).await?;
     Ok(Some(updated))
 }

@@ -3303,7 +3303,7 @@
             setBusy(true);
             const sessionId = await ensureSession();
             const response = await request("/api/mobile/planner/sessions/" + encodeURIComponent(sessionId) + "/catalog-node", {
-              method:"POST", body:{product_id:productId, node_type:catalogNode.node_kind === "product_area" ? "product_area" : "capability", node_id:catalogNode.id}
+              method:"POST", body:{product_id:productId, node_type:catalogNode.node_kind === "work_item" ? "work_item" : catalogNode.node_kind === "product_area" ? "product_area" : "capability", node_id:catalogNode.id}
             });
             applyPlannerResponse(response, el.conversation);
             if (state.selectedProductId !== productId || state.activeTab !== originalTab || el.composer.value !== originalDraft) {
@@ -4136,7 +4136,7 @@
         : String(workItem.status || "draft").replaceAll("_", " ");
       appendDetailCard(workItem.title, workItem.description || workItem.problem_statement || "No description");
       const product = state.products.find((entry) => entry.id === workItem.product_id);
-      if (product) appendPlannerAction(el.deliveryDetails, "Improve " + workItem.title + " in Planner", product.id, `Enhance story "${workItem.title}" in product "${product.name}". Improve the problem statement, acceptance criteria, constraints, and split it into tasks if needed.`);
+      if (product) appendPlannerAction(el.deliveryDetails, "Improve " + workItem.title + " in Planner", product.id, `Enhance story "${workItem.title}" in product "${product.name}". Improve the problem statement, acceptance criteria, constraints, and split it into tasks if needed.`, {id:workItem.id, node_kind:"work_item"});
       appendDetailCard("Work item details", String(workItem.work_item_type || "task").replaceAll("_", " ") + " · " + String(workItem.priority || "medium").replaceAll("_", " ") + " priority · " + String(workItem.complexity || "medium").replaceAll("_", " ") + " complexity");
       if (workItem.problem_statement) appendDetailCard("Problem statement", workItem.problem_statement);
       if (workItem.acceptance_criteria) appendDetailCard("Acceptance criteria", workItem.acceptance_criteria);

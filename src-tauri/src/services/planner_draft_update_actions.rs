@@ -254,14 +254,15 @@ pub(crate) fn apply_update_draft_action(
                 .map(ToString::to_string)
                 .or(selected_work_item_title)
                 .ok_or_else(|| AppError::Validation("Draft work item is required".to_string()))?;
-            let node = draft_plan
-                .nodes
-                .iter_mut()
-                .find(|node| {
-                    node.node_type == "work_item"
-                        && normalize_text(Some(&node.name)) == normalize_text(Some(&title))
-                })
-                .ok_or_else(|| AppError::Validation("Draft work item is required".to_string()))?;
+            let selected_index = selected_draft_node_id.and_then(|id| draft_plan.nodes.iter().position(|node|
+                node.id == id && node.node_type == "work_item" && normalize_text(Some(&node.name)) == normalize_text(Some(&title))));
+            let node_index = if let Some(index) = selected_index { index } else {
+                let matches: Vec<_> = draft_plan.nodes.iter().enumerate().filter(|(_, node)|
+                    node.node_type == "work_item" && normalize_text(Some(&node.name)) == normalize_text(Some(&title))).map(|(index, _)| index).collect();
+                if matches.len() != 1 { return Err(AppError::Validation("Draft work item is missing or ambiguous; select the item to update.".into())); }
+                matches[0]
+            };
+            let node = &mut draft_plan.nodes[node_index];
             if let Some(name) = fields_string(action, "title") {
                 node.name = name;
                 set_string_value(&mut node.details, "title", &node.name);

@@ -12,6 +12,28 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Existing work-item Planner binding (in validation)
+
+The web work-item shortcut and MCP `stage_catalog_node` can stage an existing
+work item by ID, including its product, catalog and parent-work ancestry. Commit
+checks complete work-item snapshots and hierarchy, preserves workspace and other
+unmodified fields, and blocks edits while its workflow or CLI run is active.
+Selected work-item updates reject ambiguous title matches; a new child is
+committed under the selected work item. Manual children of work items default to
+task type. Existing work items are updated in place and stale edits roll back
+new work and other transaction changes.
+
+A disposable database test covers parent identity, new child placement, stale
+snapshot rejection, active CLI rejection and rollback. The native Rust suite
+passed 362 tests with eight ignored; the final manual-child default was added
+after that suite. A disposable native server passed two focused browser/MCP
+checks: the work shortcut selected the existing story, and MCP renamed the same
+story and created a task under it. This has not yet been tested in a packaged
+image or with a real model, nor have all stale/deleted parent, duplicate-title,
+active-workflow and cross-product cases been exercised end to end. Desktop
+product-overview and voice shortcuts still need ID binding. Full desktop parity,
+branch-image deployment, integration validation and staging remain open.
+
 ### Nested Planner create fields (in validation)
 
 The packaged real-model existing-area fixture failed safely before confirmation:
@@ -63,7 +85,8 @@ tests with eight ignored, including bounded ancestry, cross-product and
 unbound-draft handling. Worktree validation is pending.
 
 The desktop product-overview shortcuts and voice flow do not yet stage these
-bindings, and selected existing work items remain name-based. New unbound
+bindings. Selected existing work items now have the ID-bound path described
+above, but it has not completed the client and conflict validation matrix. New unbound
 hierarchy proposals still create nodes. Real-model behavior and the full client
 matrix remain unverified; do not claim complete selected-catalog parity.
 

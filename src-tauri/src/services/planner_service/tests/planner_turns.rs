@@ -3,6 +3,53 @@ use crate::persistence::{product_repo, work_item_repo};
 use serde_json::json;
 
 #[tokio::test]
+async fn staged_work_item_updates_identity_and_preserves_parent_and_scope() {
+    use crate::services::planner_catalog_binding::stage_catalog_node;
+    use crate::services::planner_session::load_session_from_db;
+    use crate::persistence::{work_item_read_repo, work_item_write_repo};
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("stage_existing_work").await;
+    let product = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"work-product", name:"Work product", description:"", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let area = product_repo::create_product_area(&state.db, product_repo::CreateProductAreaInput { id:"work-area", product_id:&product.id, name:"Work area", description:"", purpose:"", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let input = |id: &'static str, title: &'static str, parent: Option<&'static str>| work_item_repo::CreateWorkItemInput {
+        id, product_id:"work-product", product_area_id:Some("work-area"), capability_id:None, source_node_id:None, source_node_type:None, parent_work_item_id:parent,
+        title, problem_statement:"Original problem", description:"Original description", acceptance_criteria:"Original criteria", constraints:"Original constraints", work_item_type:"story", priority:"high", complexity:"medium"
+    };
+    let parent = work_item_write_repo::create_work_item(&state.db, input("work-parent", "Parent", None)).await.unwrap();
+    let child = work_item_write_repo::create_work_item(&state.db, input("work-child", "Child", Some("work-parent"))).await.unwrap();
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let staged = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "work_item".into(), child.id.clone()).await.unwrap();
+    assert_eq!(staged.selected_draft_node_id.as_deref(), Some(child.id.as_str()));
+    let loaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    let mut draft = loaded.draft_plan.unwrap();
+    assert_eq!(draft.nodes.iter().find(|node| node.id == child.id).unwrap().parent_id.as_deref(), Some(parent.id.as_str()));
+    let node = draft.nodes.iter_mut().find(|node| node.id == child.id).unwrap();
+    node.details["acceptanceCriteria"] = json!("Updated criteria");
+    let actions = normalize_actions(vec![json!({"type":"create_work_item", "title":"New task", "workItemType":"task", "target":{"productName":"Work product", "productAreaName":"Work area"}})]);
+    draft = apply_actions_to_draft(Some(draft), Some(&child.id), &actions).unwrap();
+    let new_node = draft.nodes.iter().find(|node| node.name == "New task").unwrap();
+    assert_eq!(new_node.parent_id.as_deref(), Some(child.id.as_str()));
+    sqlx::query("INSERT INTO external_cli_runs (id, work_item_id, provider, label, command, status) VALUES ('active-run', ?, 'fixture', 'fixture', 'fixture', 'running')").bind(&child.id).execute(&state.db).await.unwrap();
+    assert!(commit_draft_plan(&state, &draft).await.unwrap_err().to_string().contains("active workflow or CLI"));
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM work_items WHERE product_id=?").bind(&product.id).fetch_one(&state.db).await.unwrap();
+    assert_eq!(count, 2);
+    sqlx::query("UPDATE external_cli_runs SET status='completed' WHERE id='active-run'").execute(&state.db).await.unwrap();
+    sqlx::query("UPDATE work_items SET constraints='Concurrent edit' WHERE id=?").bind(&child.id).execute(&state.db).await.unwrap();
+    assert!(commit_draft_plan(&state, &draft).await.unwrap_err().to_string().contains("changed"));
+    sqlx::query("UPDATE work_items SET constraints='Original constraints' WHERE id=?").bind(&child.id).execute(&state.db).await.unwrap();
+    commit_draft_plan(&state, &draft).await.unwrap();
+    let updated = work_item_read_repo::get_work_item(&state.db, &child.id).await.unwrap();
+    assert_eq!(updated.acceptance_criteria, "Updated criteria");
+    assert_eq!(updated.parent_work_item_id.as_deref(), Some(parent.id.as_str()));
+    assert_eq!(updated.product_area_id.as_deref(), Some(area.id.as_str()));
+    assert_eq!(updated.priority.to_string(), "high");
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM work_items WHERE product_id=?").bind(&product.id).fetch_one(&state.db).await.unwrap();
+    assert_eq!(count, 3);
+    let task_parent: String = sqlx::query_scalar("SELECT parent_work_item_id FROM work_items WHERE title='New task'").fetch_one(&state.db).await.unwrap();
+    assert_eq!(task_parent, child.id);
+}
+
+#[tokio::test]
 async fn model_updates_a_staged_catalog_capability_without_creating_a_duplicate() {
     use crate::persistence::model_repo;
     use crate::services::planner_catalog_binding::stage_catalog_node;
