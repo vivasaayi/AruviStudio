@@ -12,6 +12,40 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Planner retry: validated branch deployment
+
+Hosted runs `45001703218` and `45001703222` passed at `03da1d0`, including
+Rust, integration, frontend, browser and clean ARM64/AMD64 image suites.
+The streamed ARM64 archive SHA-256 matched
+`3eef8c650c25edef9116446a4f6717066b280a8c0c4d8148ae3a20e30d1eed9f`;
+the extracted server layer matched
+`97b5d6529995a98d27bbbefaa6cbe171f13233db1f8f95fd4d9858eaf6d895ed`;
+the server binary hash was
+`b85529a2cafe4e497ff0b262cee9e0ee9fe41ab0e28dd1c989ecd12abc134e2c`.
+In two disposable strict browser/MCP runs using this binary and real
+`qwen25-coder-7b-q4`, the model initially invented another request; after a
+format retry it proposed the actual requested capability, and the fixture
+verified the initial draft, selected action and final hierarchy before
+confirmation. Two samples do not establish general model reliability.
+
+The verified binary was copied into a stopped disposable container based on
+the preceding runtime and committed as
+`sha256:5fe8ed9c9f702490538097d9afe23a9c65ca0719924b04dc07ab9ca547e293f1`.
+The runtime configuration matched the prior image, and the binary hash matched
+the clean artifact. This derived image is not a locally loaded clean image.
+It passed 60 workflow, 49 browser (one skipped), PDF isolation/outage and
+simulated CI checks, the packaged real Model Host quick start and simulated
+scoped-credential checks. The live Model Host still uses a management-capable
+credential.
+
+After the active-job guard and a checked SQLite backup, the worktree app and
+PDF sidecar were updated to the candidate; the preceding image remains tagged
+for rollback. Product, MCP/mobile authorization and PDF checks passed after
+restart, as did 13-section phone/desktop layout, MCP origin checks, real local
+coding and Piper/Whisper, and continuous voice with synthetic audio. Physical
+devices, live external providers, deployed Aruvici, Mac integration and VPS
+staging remain unverified.
+
 ### Branch deployment and planner action audit
 
 Two unused project test images with no containers were removed individually,
@@ -39,9 +73,9 @@ different feature. The fixture now requires the initial draft to contain no
 child nodes and the selected turn to propose exactly the requested capability;
 a repeat failed safely before confirmation when the model invented a later
 request. The system prompt and format-repair message now restate the actual
-latest request and reject continuing invented conversation. This subsequent
-source change and its test are not in the running image and have not yet
-passed hosted or real-model validation. Model outputs still require review.
+latest request and reject continuing invented conversation. The later planner retry checkpoint above records hosted, real-model and
+branch-deployment validation of that source change. Model outputs still
+require review.
 Mac integration, staging, physical devices and live third-party providers
 remain unverified.
 
