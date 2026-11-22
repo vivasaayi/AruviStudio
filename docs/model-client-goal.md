@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Short continuous voice turns (local validation)
+
+Continuous browser voice previously required 500 ms of above-threshold capture
+buffers, so a short answer in one 256 ms buffer could be discarded. The threshold
+is now 200 ms of detected buffers; a native disposable-server browser fixture
+sent a simulated 200 ms answer to transcription and chat and separately verified
+that an all-silence capture was discarded. Four related browser tests and a
+native debug server build passed. Detection remains a simple per-buffer RMS
+heuristic, not a speech classifier: short loud noises may be transcribed, quiet
+speech may be missed, and the actual resolution depends on the audio buffer and
+sample rate. Physical microphones and broader noise conditions remain unverified.
+This change is not yet in the running branch image.
+
 ### Short browser voice diagnostic
 
 With the deployed `37ffe58` runtime and real Model Host Whisper, the short

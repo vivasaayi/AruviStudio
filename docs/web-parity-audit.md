@@ -11,6 +11,9 @@ real Aruvici connection remain unverified.
 Manual browser recording now discards unfinished audio on navigation or page
 hide and closes a late microphone permission result; a disposable native-server
 browser fixture verified the navigation case. Hardware capture remains unverified.
+Continuous voice now accepts a short detected buffer, including a simulated
+200 ms answer, and discards simulated silence. Its RMS threshold can also detect
+noise; physical capture and broader noise handling remain unverified.
 
 Stage review now includes an optional connected diagram and focused-stage view;
 a disposable native-server browser fixture checked its connections, selection,

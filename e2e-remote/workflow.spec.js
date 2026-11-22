@@ -2557,7 +2557,8 @@ test("browser continuous voice conversation uses Studio transcription and chat",
       createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
       createScriptProcessor() { return { connect() {
         if (window.fixtureVoiceMicCalls !== 1) return;
-        setTimeout(() => { for (const chunk of [new Float32Array(8000).fill(0.5), new Float32Array(18000)]) this.onaudioprocess({ inputBuffer: { getChannelData: () => chunk }, outputBuffer: { getChannelData: () => new Float32Array(chunk.length) } }); }, 30);
+        // A short answer occupies 200 ms in one real-sized capture buffer.
+        setTimeout(() => { const shortAnswer = new Float32Array(4096); shortAnswer.fill(0.5, 0, 3200); for (const chunk of [shortAnswer, ...Array.from({ length: 5 }, () => new Float32Array(4096))]) this.onaudioprocess({ inputBuffer: { getChannelData: () => chunk }, outputBuffer: { getChannelData: () => new Float32Array(chunk.length) } }); }, 30);
       }, disconnect() {} }; }
       async close() {}
     };
@@ -2583,6 +2584,38 @@ test("browser continuous voice conversation uses Studio transcription and chat",
   await page.getByRole("button", { name: "End voice conversation" }).click();
   await expect(page.getByRole("button", { name: "Start voice conversation" })).toBeEnabled();
   expect(await page.evaluate(() => window.fixtureVoiceStops)).toBe(2);
+});
+
+test("continuous voice discards a silent capture", async ({ page }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable Studio server");
+  await page.addInitScript(() => {
+    window.fixtureSilentMicCalls = 0; window.fixtureSilentStops = 0;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => {
+      window.fixtureSilentMicCalls++;
+      return { getTracks: () => [{ stop() { window.fixtureSilentStops++; } }] };
+    } } });
+    window.AudioContext = class {
+      constructor() { this.sampleRate = 16000; this.destination = {}; }
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() { return { connect() {
+        if (window.fixtureSilentMicCalls !== 1) return;
+        setTimeout(() => { const chunk = new Float32Array(288000); this.onaudioprocess({ inputBuffer: { getChannelData: () => chunk }, outputBuffer: { getChannelData: () => new Float32Array(chunk.length) } }); }, 30);
+      }, disconnect() {} }; }
+      async close() {}
+    };
+  });
+  let transcriptions = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/api/mobile/speech/transcribe")) transcriptions++; });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.getByRole("button", { name: "Start voice conversation" }).click();
+  await expect.poll(() => page.evaluate(() => window.fixtureSilentMicCalls)).toBe(2);
+  expect(transcriptions).toBe(0);
+  await page.getByRole("button", { name: "End voice conversation" }).click();
+  await expect(page.getByRole("button", { name: "Start voice conversation" })).toBeEnabled();
+  expect(await page.evaluate(() => window.fixtureSilentStops)).toBe(2);
 });
 
 test("browser navigation discards manual voice capture", async ({ page }) => {

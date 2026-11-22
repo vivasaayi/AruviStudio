@@ -2046,7 +2046,9 @@
               for (const value of chunk) power += value * value;
               if (Math.sqrt(power / count) >= 0.015) { voiced += count; quiet = 0; }
               else if (heardSpeech) quiet += count;
-              if (voiced >= context.sampleRate * 0.5) heardSpeech = true;
+              // A full ScriptProcessor buffer is 256 ms at 16 kHz. Requiring
+              // two buffers discards short answers such as "yes" or "no".
+              if (voiced >= context.sampleRate * 0.2) heardSpeech = true;
             }
             event.outputBuffer.getChannelData(0).fill(0);
             if (samples >= maxSamples || (heardSpeech && quiet >= context.sampleRate * 1.1)) void finish(false);
