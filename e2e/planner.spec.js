@@ -45,6 +45,7 @@ test("planner supports deterministic create, refine, packet, and apply flow", as
   await expect(page.getByTestId("draft-node-draft-work_item-implement-delivery-audit-timeline")).toBeVisible();
 
   await page.getByTestId("draft-node-draft-work_item-implement-delivery-audit-timeline").click();
+  await expect(page.getByTestId("draft-node-add-child-type")).toHaveValue("work_item");
   await page.getByTestId("planner-input").fill("Revise this work item to include WhatsApp consent capture");
   await page.getByTestId("planner-send").click();
   await expect(page.getByText("Implement Delivery Audit Timeline and Consent Handling").first()).toBeVisible();
@@ -187,4 +188,95 @@ test("planner reports microphone setup errors and releases the audio track", asy
   expect(await page.evaluate(() => window.fixtureMicrophoneStops)).toBe(1);
   expect(await page.evaluate(() => window.fixtureContextCloses)).toBe(1);
   await expect(page.getByRole("button", { name: "Start Voice Input" })).toBeEnabled();
+});
+
+test("product overview stages the selected existing chapter before enabling Planner", async ({ page }) => {
+  await page.goto("/products");
+  await page.getByRole("button", { name: "Product Overview", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Product Book" })).toBeVisible();
+  await page.evaluate(() => {
+    const bridge = window.__ARUVI_E2E__, original = bridge.invoke;
+    window.__stageCalls = [];
+    bridge.invoke = (command, args) => {
+      if (command !== "stage_planner_catalog_node_command") return original(command, args);
+      window.__stageCalls.push(args);
+      return new Promise((resolve) => { window.__finishStage = () => resolve({status:"session_update", assistant_message:"Staged", selected_draft_node_id:args.nodeId, draft_tree_nodes:[{id:args.nodeId,label:"Existing chapter",node_type:"product_area",children:[]}], execution_lines:[],execution_errors:[],trace_events:[]}); });
+    };
+  });
+  await page.getByRole("button", { name: "Improve Chapter", exact: true }).first().click();
+  await expect.poll(() => page.evaluate(() => window.__stageCalls.length)).toBe(1);
+  await expect(page.getByTestId("planner-send")).toBeDisabled();
+  await expect(page.getByLabel("Planner product")).toBeDisabled();
+  await expect(page.getByLabel("Planner model")).toBeDisabled();
+  const staged = await page.evaluate(() => window.__stageCalls[0]);
+  expect(staged).toMatchObject({productId:"example-product-calculator",nodeType:"product_area"});
+  expect(staged.nodeId).toBeTruthy();
+  await page.evaluate(() => window.__finishStage());
+  await expect(page.getByTestId("planner-input")).toHaveValue(/Enhance product area/);
+  await expect(page.getByTestId("planner-send")).toBeEnabled();
+  await page.getByTestId("planner-send").click();
+  await expect.poll(() => page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("submit_planner_turn_command").length)).toBe(1);
+  const turn = await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("submit_planner_turn_command")[0].args);
+  expect(turn.selectedDraftNodeId).toBe(staged.nodeId);
+});
+
+test("product overview does not prepare an unsafe prompt when staging fails", async ({ page }) => {
+  await page.goto("/products");
+  await page.getByRole("button", { name: "Product Overview", exact: true }).click();
+  await page.evaluate(() => {
+    const bridge = window.__ARUVI_E2E__, original = bridge.invoke;
+    bridge.invoke = (command, args) => command === "stage_planner_catalog_node_command" ? Promise.reject(new Error("Catalog changed")) : original(command, args);
+  });
+  await page.getByRole("button", { name: "Improve Chapter", exact: true }).first().click();
+  await expect(page.getByText("Catalog changed").first()).toBeVisible();
+  await expect(page.getByTestId("planner-input")).toHaveValue("");
+});
+
+test("late desktop catalog staging does not navigate away from a newer page", async ({ page }) => {
+  await page.goto("/products");
+  await page.getByRole("button", { name: "Product Overview", exact: true }).click();
+  await page.evaluate(() => {
+    const bridge = window.__ARUVI_E2E__, original = bridge.invoke;
+    bridge.invoke = (command, args) => command !== "stage_planner_catalog_node_command" ? original(command, args) : new Promise((resolve) => {
+      window.__finishStage = () => resolve({status:"session_update", assistant_message:"Staged", selected_draft_node_id:args.nodeId, draft_tree_nodes:[{id:args.nodeId,label:"Existing chapter",node_type:"product_area",children:[]}], execution_lines:[],execution_errors:[],trace_events:[]});
+    });
+  });
+  await page.getByRole("button", { name: "Improve Chapter", exact: true }).first().click();
+  await expect.poll(() => page.evaluate(() => typeof window.__finishStage)).toBe("function");
+  await page.getByTestId("nav-products").click();
+  await expect(page).toHaveURL(/\/products$/);
+  await page.evaluate(() => window.__finishStage());
+  await expect(page.getByRole("heading", { name: "Products" })).toBeVisible();
+  await expect(page).toHaveURL(/\/products$/);
+});
+
+test("desktop catalog staging preserves text typed while the request is pending", async ({ page }) => {
+  await page.goto("/products");
+  await page.getByRole("button", { name: "Product Overview", exact: true }).click();
+  await page.evaluate(() => {
+    const bridge = window.__ARUVI_E2E__, original = bridge.invoke;
+    bridge.invoke = (command, args) => command !== "stage_planner_catalog_node_command" ? original(command, args) : new Promise((resolve) => {
+      window.__finishStage = () => resolve({status:"session_update", assistant_message:"Staged", selected_draft_node_id:args.nodeId, draft_tree_nodes:[{id:args.nodeId,label:"Existing chapter",node_type:"product_area",children:[]}], execution_lines:[],execution_errors:[],trace_events:[]});
+    });
+  });
+  await page.getByRole("button", { name: "Improve Chapter", exact: true }).first().click();
+  await expect.poll(() => page.evaluate(() => typeof window.__finishStage)).toBe("function");
+  await page.getByTestId("planner-input").fill("Keep my request");
+  await page.evaluate(() => window.__finishStage());
+  await expect(page.getByTestId("planner-input")).toHaveValue("Keep my request");
+  await expect(page.getByText("The selected item is staged. Your unsent request was preserved.").first()).toBeVisible();
+  await expect(page.getByTestId("planner-send")).toBeEnabled();
+});
+
+test("failed desktop Planner session creation does not leave staging locked", async ({ page }) => {
+  await page.goto("/products");
+  await page.getByRole("button", { name: "Product Overview", exact: true }).click();
+  await page.evaluate(() => {
+    const bridge = window.__ARUVI_E2E__, original = bridge.invoke;
+    bridge.invoke = (command, args) => command === "create_planner_session_command" ? Promise.reject(new Error("Session unavailable")) : original(command, args);
+  });
+  await page.getByRole("button", { name: "Improve Chapter", exact: true }).first().click();
+  await expect(page.getByText(/Session unavailable/).first()).toBeVisible();
+  await expect(page.getByLabel("Planner product")).toBeEnabled();
+  await expect(page.getByTestId("planner-input")).toHaveValue("");
 });

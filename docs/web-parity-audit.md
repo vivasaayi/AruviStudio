@@ -14,8 +14,8 @@ real local coding, and synthetic speech and browser voice. On the development
 branch, the web work-item Planner shortcut and MCP can stage an existing item
 by ID, update it after confirmation, and preserve a parent-child hierarchy.
 Native and packaged browser/MCP and real Model Host fixtures passed; the newer
-work-item changes are deployed to the Mac worktree, not staging. Desktop overview
-and voice selection still need equivalent binding and validation. This is not a
+work-item changes are deployed to the Mac worktree, not staging. Desktop Product Book shortcuts now use the same ID binding in mocked-Tauri
+browser tests; native-window and direct voice selection validation remain. This is not a
 claim that desktop-to-web parity or staging acceptance is complete.
 
 The previously generated macOS bundle lacked the microphone purpose string

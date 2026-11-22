@@ -76,6 +76,7 @@ export function PlannerHeader({
           </button>
           <select
             aria-label="Planner product"
+            disabled={isPlannerBusy}
             style={{ ...styles.select, width: 240 }}
             value={selectedProductId ?? ""}
             onChange={(event) => onProductChange(event.target.value || null)}
@@ -92,6 +93,7 @@ export function PlannerHeader({
           </button>
           <select
             aria-label="Planner model"
+            disabled={isPlannerBusy}
             style={{ ...styles.select, width: 260 }}
             value={plannerModelPickerValue}
             onChange={(event) => {

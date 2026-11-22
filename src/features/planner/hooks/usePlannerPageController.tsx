@@ -100,6 +100,7 @@ export function usePlannerPageController() {
 
   const {
     products,
+    productsPending,
     providers,
     models,
     repositories,
@@ -189,9 +190,10 @@ export function usePlannerPageController() {
     onAppendMessage: setMessages,
   });
 
-  usePlannerPageLifecycle({
+  const { isRouteStaging } = usePlannerPageLifecycle({
     selectedProductId,
     selectedProduct,
+    productsPending,
     sessionId,
     setSessionId,
     draftTreeNodes,
@@ -215,6 +217,7 @@ export function usePlannerPageController() {
     messages,
     location,
     navigate,
+    draft,
     setDraft,
     composerRef,
     consumedRoutePromptRef,
@@ -282,6 +285,7 @@ export function usePlannerPageController() {
     draftEditMutation,
     handlePlannerMutationSuccess,
     isVoiceCaptureBusy,
+    isRouteStaging,
     plannerBusyRef,
     processMutation,
     queryClient,

@@ -74,7 +74,7 @@ export function usePlannerPageViewModel({
   speechProviderSetting,
   speechModelSetting,
 }: PlannerPageViewModelInput) {
-  const { data: products = [] } = useQuery({ queryKey: ["products"], queryFn: listProducts });
+  const { data: products = [], isPending: productsPending } = useQuery({ queryKey: ["products"], queryFn: listProducts });
   const { data: providers = [] } = useQuery({ queryKey: ["plannerProviders"], queryFn: listProviders });
   const { data: models = [] } = useQuery({ queryKey: ["plannerModels"], queryFn: listModelDefinitions });
   const { data: repositories = [] } = useQuery({ queryKey: ["plannerRepositories"], queryFn: listRepositories });
@@ -219,6 +219,7 @@ export function usePlannerPageViewModel({
 
   return {
     products,
+    productsPending,
     providers,
     models,
     repositories,

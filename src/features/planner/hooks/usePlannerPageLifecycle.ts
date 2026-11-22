@@ -1,7 +1,7 @@
-import { useEffect, type Dispatch, type RefObject, type SetStateAction } from "react";
+import { useEffect, useRef, type Dispatch, type RefObject, type SetStateAction } from "react";
 import type { Location, NavigateFunction } from "react-router-dom";
 
-import { createPlannerSession, updatePlannerSession } from "../../../lib/tauri";
+import { createPlannerSession, stagePlannerCatalogNode, updatePlannerSession } from "../../../lib/tauri";
 import type { ModelDefinition, ModelProvider, PlannerTraceEvent, Product } from "../../../lib/types";
 import {
   DEFAULT_ASSISTANT_OPENING,
@@ -13,10 +13,12 @@ import {
 } from "../lib/plannerPageModel";
 
 type PlannerView = "conversation" | "draft" | "trace";
+type PlannerRouteState = { plannerPrompt?: string; plannerView?: PlannerView; plannerCatalogNode?: { productId: string; nodeType: "product_area" | "capability" | "work_item"; nodeId: string } | null };
 
 type PlannerPageLifecycleInput = {
   selectedProductId: string | null;
   selectedProduct: Product | null;
+  productsPending: boolean;
   sessionId: string | null;
   setSessionId: Dispatch<SetStateAction<string | null>>;
   draftTreeNodes: PlannerTreeNode[];
@@ -40,6 +42,7 @@ type PlannerPageLifecycleInput = {
   messages: PlannerMessage[];
   location: Location;
   navigate: NavigateFunction;
+  draft: string;
   setDraft: Dispatch<SetStateAction<string>>;
   composerRef: RefObject<HTMLTextAreaElement | null>;
   consumedRoutePromptRef: RefObject<string | null>;
@@ -51,6 +54,7 @@ type PlannerPageLifecycleInput = {
 export function usePlannerPageLifecycle({
   selectedProductId,
   selectedProduct,
+  productsPending,
   sessionId,
   setSessionId,
   draftTreeNodes,
@@ -74,6 +78,7 @@ export function usePlannerPageLifecycle({
   messages,
   location,
   navigate,
+  draft,
   setDraft,
   composerRef,
   consumedRoutePromptRef,
@@ -149,6 +154,9 @@ export function usePlannerPageLifecycle({
             ...current,
             { id: makeId(), role: "assistant", content: String(error), meta: "Planner error", kind: "error" },
           ]);
+          if ((location.state as PlannerRouteState | null)?.plannerCatalogNode && window.location.pathname === location.pathname && window.history.state?.key === location.key) {
+            navigate(location.pathname, { replace: true, state: null });
+          }
         }
       }
     };
@@ -156,7 +164,7 @@ export function usePlannerPageLifecycle({
     return () => {
       cancelled = true;
     };
-  }, [modelName, providerId, sessionId, setMessages, setSessionId]);
+  }, [location.key, location.pathname, location.state, modelName, navigate, providerId, sessionId, setMessages, setSessionId]);
 
   useEffect(() => {
     if (!providerId) {
@@ -182,18 +190,57 @@ export function usePlannerPageLifecycle({
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight });
   }, [messages, transcriptRef]);
 
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const routeState = location.state as PlannerRouteState | null;
+  const routeCatalogNode = routeState?.plannerCatalogNode;
+  const isRouteStaging = Boolean(routeCatalogNode);
   useEffect(() => {
-    const state = location.state as { plannerPrompt?: string; plannerView?: PlannerView } | null;
+    const state = location.state as PlannerRouteState | null;
     const prompt = state?.plannerPrompt?.trim();
-    if (!prompt || consumedRoutePromptRef.current === prompt) {
+    if (!prompt) return;
+    const context = state?.plannerCatalogNode;
+    if (!context) {
+      if (consumedRoutePromptRef.current === prompt) return;
+      consumedRoutePromptRef.current = prompt;
+      setDraft(prompt);
+      setPlannerView(state?.plannerView ?? "conversation");
+      composerRef.current?.focus();
+      navigate(location.pathname, { replace: true, state: null });
       return;
     }
-    consumedRoutePromptRef.current = prompt;
-    setDraft(prompt);
-    setPlannerView(state?.plannerView ?? "conversation");
-    composerRef.current?.focus();
-    navigate(location.pathname, { replace: true, state: null });
-  }, [composerRef, consumedRoutePromptRef, location.pathname, location.state, navigate, setDraft, setPlannerView]);
+    if (productsPending) return;
+    if (selectedProductId !== context.productId) {
+      setMessages((current) => [...current, { id: makeId(), role: "assistant", content: "The selected product is no longer available; return to Products and try again.", meta: "Planner error", kind: "error" }]);
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
+    if (!sessionId) return;
+    let cancelled = false;
+    const originalDraft = draftRef.current;
+    void stagePlannerCatalogNode({ sessionId, ...context }).then((response) => {
+      if (cancelled || window.location.pathname !== location.pathname || window.history.state?.key !== location.key) return;
+      if (response.selected_draft_node_id !== context.nodeId || !response.draft_tree_nodes) {
+        throw new Error("Planner did not stage the selected item. Try again.");
+      }
+      setDraftTreeNodes(response.draft_tree_nodes as unknown as PlannerTreeNode[]);
+      setSelectedDraftNodeId(context.nodeId);
+      if (!originalDraft.trim() && draftRef.current === originalDraft) {
+        setDraft(prompt);
+      } else {
+        setMessages((current) => [...current, { id: makeId(), role: "assistant", content: "The selected item is staged. Your unsent request was preserved.", meta: "Planner", kind: "text" }]);
+      }
+      setPlannerView(state?.plannerView ?? "conversation");
+      composerRef.current?.focus();
+      navigate(location.pathname, { replace: true, state: null });
+    }).catch((error: unknown) => {
+      if (cancelled || window.location.pathname !== location.pathname || window.history.state?.key !== location.key) return;
+      setMessages((current) => [...current, { id: makeId(), role: "assistant", content: error instanceof Error ? error.message : String(error), meta: "Planner error", kind: "error" }]);
+      setSelectedDraftNodeId(null);
+      navigate(location.pathname, { replace: true, state: null });
+    });
+    return () => { cancelled = true; };
+  }, [composerRef, consumedRoutePromptRef, location.key, location.pathname, location.state, navigate, productsPending, selectedProductId, sessionId, setDraft, setDraftTreeNodes, setMessages, setPlannerView, setSelectedDraftNodeId]);
 
   useEffect(() => {
     if (draftTreeNodes.length === 0 && plannerView === "draft") {
@@ -224,4 +271,5 @@ export function usePlannerPageLifecycle({
       return Array.from(currentSet);
     });
   }, [draftTreeNodes, selectedDraftNodeId, setExpandedDraftNodeIds]);
+  return { isRouteStaging };
 }

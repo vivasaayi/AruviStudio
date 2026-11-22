@@ -12,6 +12,23 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Desktop Product Book selection binding (in validation)
+
+Desktop Product Book area, capability and work-item shortcuts now carry the
+selected product and node IDs into Planner. Planner stages the existing node
+through the shared Rust command before enabling its actions, preserves text
+typed while staging, rejects a failed staging/session request, and ignores a
+late response after navigation. Product and model selectors are disabled while
+Planner is busy. The desktop draft editor also permits work-item children.
+Mocked-Tauri browser tests cover staging, selection passed to the next turn,
+failed staging/session creation, navigation races and unsent text preservation;
+the frontend build and 139 frontend tests passed. The focused desktop Planner
+suite passed all 12 tests. A wider run reported 80 passing tests only after the
+Playwright runner was interrupted during teardown; a second run is checking
+that behavior. This has not been validated in a physical native window. Direct voice selection of existing catalog items remains a separate
+parity gap. Worktree deployment and clean image validation for this frontend
+change are pending.
+
 ### Current worktree deployment at `79be018`
 
 Clean ARM64 and AMD64 images for source `79be018` passed the hosted full
@@ -99,8 +116,8 @@ checks: the work shortcut selected the existing story, and MCP renamed the same
 story and created a task under it. This has not yet been tested in a packaged
 image; a single real-model work-item update is recorded above. Not all
 stale/deleted parent, duplicate-title, active-workflow and cross-product cases
-have been exercised end to end. Desktop
-product-overview and voice shortcuts still need ID binding. Full desktop parity,
+have been exercised end to end. Desktop Product Book shortcuts now use ID binding as described above; direct
+voice selection still needs the equivalent binding. Full desktop parity,
 branch-image deployment, integration validation and staging remain open.
 
 ### Nested Planner create fields (in validation)
@@ -153,8 +170,8 @@ skips; the frontend build and 139 unit tests passed. The Rust suite passed 359
 tests with eight ignored, including bounded ancestry, cross-product and
 unbound-draft handling. Worktree validation is pending.
 
-The desktop product-overview shortcuts and voice flow do not yet stage these
-bindings. Selected existing work items now have the ID-bound path described
+The desktop Product Book shortcuts now stage these bindings as described above;
+the direct voice selection flow does not yet do so. Selected existing work items now have the ID-bound path described
 above, but it has not completed the client and conflict validation matrix. New unbound
 hierarchy proposals still create nodes. Real-model behavior and the full client
 matrix remain unverified; do not claim complete selected-catalog parity.

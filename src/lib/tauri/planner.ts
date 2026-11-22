@@ -38,6 +38,14 @@ export const updatePlannerSession = (data: { sessionId: string; providerId?: str
     model_name: data.modelName ?? null,
   });
 
+export const stagePlannerCatalogNode = (data: { sessionId: string; productId: string; nodeType: "product_area" | "capability" | "work_item"; nodeId: string }) =>
+  invoke<PlannerTurnResponse>("stage_planner_catalog_node_command", {
+    sessionId: data.sessionId, session_id: data.sessionId,
+    productId: data.productId, product_id: data.productId,
+    nodeType: data.nodeType, node_type: data.nodeType,
+    nodeId: data.nodeId, node_id: data.nodeId,
+  });
+
 export const clearPlannerPending = (sessionId: string) =>
   invoke<PlannerSessionInfo>("clear_planner_pending_command", {
     sessionId,

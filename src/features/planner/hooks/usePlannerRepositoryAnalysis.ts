@@ -9,6 +9,7 @@ type PlannerRepositoryAnalysisInput = {
   draftEditMutation: { isPending: boolean };
   handlePlannerMutationSuccess: (result: PlannerMutationResult) => void;
   isVoiceCaptureBusy: boolean;
+  isRouteStaging: boolean;
   plannerBusyRef: MutableRefObject<boolean>;
   processMutation: { isPending: boolean };
   queryClient: QueryClient;
@@ -22,6 +23,7 @@ export function usePlannerRepositoryAnalysis({
   draftEditMutation,
   handlePlannerMutationSuccess,
   isVoiceCaptureBusy,
+  isRouteStaging,
   plannerBusyRef,
   processMutation,
   queryClient,
@@ -33,7 +35,7 @@ export function usePlannerRepositoryAnalysis({
   const basePlannerBusy =
     processMutation.isPending ||
     draftEditMutation.isPending ||
-    isVoiceCaptureBusy;
+    isVoiceCaptureBusy || isRouteStaging;
   const repositoryModalState = usePlannerRepositoryModalState({
     queryClient,
     repositories,
@@ -43,7 +45,7 @@ export function usePlannerRepositoryAnalysis({
     isPlannerBusy: basePlannerBusy,
     onAnalysisSuccess: handlePlannerMutationSuccess,
   });
-  const isPlannerActionBusy = processMutation.isPending || draftEditMutation.isPending || repositoryModalState.isRepositoryAnalysisPending;
+  const isPlannerActionBusy = processMutation.isPending || draftEditMutation.isPending || repositoryModalState.isRepositoryAnalysisPending || isRouteStaging;
   const isPlannerBusy = isPlannerActionBusy || isVoiceCaptureBusy;
   plannerBusyRef.current = isPlannerBusy;
 
