@@ -8,6 +8,16 @@ planner concurrency fixture. These are specific scenarios, not proof of full par
 Physical desktop interaction and audio devices, live third-party providers, and a
 real Aruvici connection remain unverified.
 
+The current worktree deployment has passed authenticated mobile/MCP and PDF
+restart checks, phone and desktop layout, published-port MCP origin checks,
+real local coding, and synthetic speech and browser voice. On the development
+branch, the web work-item Planner shortcut and MCP can stage an existing item
+by ID, update it after confirmation, and preserve a parent-child hierarchy.
+Native browser/MCP and real Model Host fixtures passed; the newer work-item
+changes have not yet been deployed to the worktree or staging. Desktop overview
+and voice selection still need equivalent binding and validation. This is not a
+claim that desktop-to-web parity or staging acceptance is complete.
+
 The previously generated macOS bundle lacked the microphone purpose string
 required for microphone access. The new `src-tauri/Info.plist` supplies it, and
 an isolated unsigned debug bundle was checked for the merged value. The hardened
