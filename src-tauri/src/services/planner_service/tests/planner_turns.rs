@@ -8,9 +8,13 @@ async fn model_updates_a_staged_catalog_capability_without_creating_a_duplicate(
     use crate::services::planner_catalog_binding::stage_catalog_node;
     use crate::services::planner_text_turn::submit_planner_turn;
     use axum::{routing::post, Json, Router};
-    async fn complete(Json(_request): Json<serde_json::Value>) -> Json<serde_json::Value> {
-        let reply = json!({"type":"final","assistant_response":"Updated the capability", "needs_confirmation":true,"clarification_question":null,
-            "actions":[{"type":"update_capability","target":{"productName":"Model-bound product","productAreaName":"Model-bound area","capabilityName":"Model-bound capability"},"fields":{"technicalNotes":"Model proposed notes"}}]});
+    async fn complete(Json(request): Json<serde_json::Value>) -> Json<serde_json::Value> {
+        let actions = if request.to_string().contains("Add nested child") {
+            json!([{"type":"create_capability", "details":{"name":"Nested model child", "nodeKind":"capability", "technicalNotes":"Nested notes", "examples":["First", "Second"], "parent_id":"untrusted-id"}}])
+        } else {
+            json!([{"type":"update_capability","target":{"productName":"Model-bound product","productAreaName":"Model-bound area","capabilityName":"Model-bound capability"},"fields":{"technicalNotes":"Model proposed notes"}}])
+        };
+        let reply = json!({"type":"final","assistant_response":"Prepared the design", "needs_confirmation":true,"clarification_question":null,"actions":actions});
         Json(json!({"choices":[{"message":{"content":reply.to_string()},"finish_reason":"stop"}]}))
     }
     let _guard = acquire_planner_test_lock().await;
@@ -32,6 +36,16 @@ async fn model_updates_a_staged_catalog_capability_without_creating_a_duplicate(
     assert_eq!(confirmed.status, "execution", "{}", confirmed.assistant_message);
     let capabilities = product_repo::list_capabilities(&state.db, &area.id).await.unwrap();
     assert_eq!(capabilities.len(), 1); assert_eq!(capabilities[0].id, capability.id); assert_eq!(capabilities[0].technical_notes, "Model proposed notes");
+    let second = create_planner_session(state.planner_service.clone(), &state.db, Some("bound-provider".into()), Some("fixture".into())).await.unwrap();
+    stage_catalog_node(state.planner_service.clone(), &state.db, second.session_id.clone(), product.id.clone(), "product_area".into(), area.id.clone()).await.unwrap();
+    let turn = submit_planner_turn(state.planner_service.clone(), &state, second.session_id.clone(), "Add nested child".into(), Some(area.id.clone()), Some(product.id.clone())).await.unwrap();
+    assert_eq!(turn.status, "proposal", "{}", turn.assistant_message);
+    let confirmed = submit_planner_turn(state.planner_service.clone(), &state, second.session_id.clone(), "confirm".into(), None, Some(product.id.clone())).await.unwrap();
+    assert_eq!(confirmed.status, "execution", "{}", confirmed.assistant_message);
+    let capabilities = product_repo::list_capabilities(&state.db, &area.id).await.unwrap();
+    assert_eq!(capabilities.len(), 2);
+    let child = capabilities.iter().find(|item| item.name == "Nested model child").unwrap();
+    assert_eq!(child.product_area_id, area.id); assert!(child.parent_capability_id.is_none()); assert_eq!(child.technical_notes, "Nested notes"); assert_eq!(child.examples, "First\nSecond");
     server.abort();
 }
 

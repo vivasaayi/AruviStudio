@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Nested Planner create fields (in validation)
+
+The packaged real-model existing-area fixture failed safely before confirmation:
+the model repeatedly put the capability name under `details`, and the Planner
+rejected it after retries. Create actions now promote a bounded set of supported
+fields from `details`, reject conflicting or malformed values, and do not promote
+model-supplied parent IDs. Subsequent native Model Host attempts included one
+success and two safe failures; one failure was traced to a list of examples.
+Lists of text examples are now retained as newline-separated text; mixed-type
+lists are rejected. Parser tests and a simulated model proposal confirmed that
+the requested child is staged and created under the selected area. Real-model
+and packaged-image validation must be repeated against the latest revision.
+
 ### Bound Planner catalog updates (in validation)
 
 The shared draft-commit path can now recognize server-format product, area and
