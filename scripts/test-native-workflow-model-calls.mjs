@@ -16,7 +16,7 @@ try {
   async function call(name,action,args){const r=await fetch(base+'/api/mcp',{method:'POST',headers,body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name,arguments:{action,arguments:args}}})});const v=(await r.json()).result;assert(!v.isError,JSON.stringify(v));return v.structuredContent.result;}
   const product=await call('aruvi_catalog','create_product',{name:'Model calls fixture'});
   const task=await call('aruvi_work_items','create_work_item',{product_id:product.id,title:'Calls fixture task',work_item_type:'task'});
-  await writeFile(join(root,'artifacts','stage.txt'),'Recorded stage artifact.');
+  await writeFile(join(root,'artifacts','stage.txt'),'Recorded stage artifact.\n'+'x'.repeat(65536)+'\nFinal artifact page.');
   execFileSync('python3',['-c',`import sqlite3,sys
 c=sqlite3.connect(sys.argv[1])
 for workflow,model in [('first','first-model'),('second','other-model')]:
@@ -45,8 +45,11 @@ c.commit()`,db,task.id,join(root,'artifacts','stage.txt')]);
   assert((await map.getByRole('button',{name:'Coding',exact:true}).innerText()).includes('Not recorded'));
   const stageText=await page.locator('#deliveryDetails').innerText();assert(stageText.includes(delivery.workflow_run.id+'-stage → done'));assert(!stageText.includes((delivery.workflow_run.id==='first'?'second':'first')+'-stage → done'));
   assert(stageText.includes(expected));assert(!stageText.includes(unexpected));
-  await page.getByRole('button',{name:'Show stage artifact: '+delivery.workflow_run.id+' artifact'}).click();await page.getByText('Recorded stage artifact.',{exact:true}).waitFor();assert.equal(await page.getByRole('button',{name:'Show stage artifact: '+(delivery.workflow_run.id==='first'?'second':'first')+' artifact'}).count(),0);
-  const stageArtifact=page.getByRole('button',{name:'Show stage artifact: '+delivery.workflow_run.id+' artifact'}).locator('..');await stageArtifact.getByRole('button',{name:'Read in pages',exact:true}).click();await stageArtifact.getByText(/Bytes 0–/).waitFor();await stageArtifact.getByText('Recorded stage artifact.',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'Show stage artifact: '+delivery.workflow_run.id+' artifact'}).click();assert.equal(await page.getByRole('button',{name:'Show stage artifact: '+(delivery.workflow_run.id==='first'?'second':'first')+' artifact'}).count(),0);
+  const stageArtifact=page.getByRole('button',{name:'Show stage artifact: '+delivery.workflow_run.id+' artifact'}).locator('..');await stageArtifact.getByRole('button',{name:'Read in pages',exact:true}).click();await stageArtifact.getByText(/Bytes 0–/).waitFor();assert((await stageArtifact.locator('pre').innerText()).includes('Recorded stage artifact.'));
+  await stageArtifact.getByRole('button',{name:'Next page',exact:true}).click();await stageArtifact.getByText(/Bytes 65536–/).waitFor();assert((await stageArtifact.locator('pre').innerText()).includes('Final artifact page.'));
+  await stageArtifact.getByRole('button',{name:'Previous page',exact:true}).click();await stageArtifact.getByText(/Bytes 0–/).waitFor();assert((await stageArtifact.locator('pre').innerText()).includes('Recorded stage artifact.'));
+  await writeFile(join(root,'artifacts','stage.txt'),'Changed artifact');await stageArtifact.getByRole('button',{name:'Next page',exact:true}).click();await stageArtifact.getByText(/changed/i).waitFor();assert((await stageArtifact.locator('pre').innerText()).includes('Recorded stage artifact.'));
   await page.getByText('Show workflow diagram',{exact:true}).click();
   const graph=map.locator('svg[aria-hidden="true"]');assert.equal(await graph.locator('line').count(),27);assert.equal(await graph.locator('[data-graph-stage="coding"]').count(),1);
   const overflowLabels=await graph.locator('g').evaluateAll(groups=>groups.filter(group=>{const rect=group.querySelector('rect'), text=group.querySelector('text');return rect&&text&&text.getComputedTextLength()>Number(rect.getAttribute('width'))-8;}).map(group=>group.textContent));assert.deepEqual(overflowLabels,[],'Diagram labels should fit their nodes');

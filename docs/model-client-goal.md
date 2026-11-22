@@ -35,7 +35,8 @@ provider hosting into the model-host service as part of this work.
 The browser workflow-stage view now offers the same bounded artifact paging
 controls as the general artifact list, scoped to the selected work item and
 artifact. A disposable native-server browser test passed with a real recorded
-artifact and confirmed the other workflow's artifact was excluded. The first
+artifact, checked next/previous pages and rejection of a changed file, and
+confirmed the other workflow's artifact was excluded. The first
 test attempt asserted the page status before the asynchronous request finished;
 the corrected test waits for the status and passed. Clean-image and worktree
 deployment validation remain pending.
