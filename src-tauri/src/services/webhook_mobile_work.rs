@@ -14,6 +14,12 @@ use serde_json::json;
 pub(crate) struct MobileWorkItemListQuery {
     #[serde(alias = "productId")]
     product_id: Option<String>,
+    #[serde(alias = "sourceNodeId")]
+    source_node_id: Option<String>,
+    #[serde(alias = "sourceNodeType")]
+    source_node_type: Option<String>,
+    #[serde(alias = "topLevelOnly")]
+    top_level_only: Option<bool>,
     status: Option<String>,
     limit: Option<i64>,
     offset: Option<i64>,
@@ -300,17 +306,30 @@ pub(crate) async fn mobile_list_work_items(
     if let Err(response) = ensure_mobile_api_authorized(&state.app_state, &headers).await {
         return response;
     }
-    let page = work_item_repo::list_work_items_page_with_metadata(
-        &state.app_state.db,
-        work_item_repo::WorkItemListQuery {
-            product_id: query.product_id.as_deref(),
-            status: query.status.as_deref(),
-            limit: query.limit.or(Some(100)),
-            offset: query.offset,
-            ..Default::default()
-        },
-    )
-    .await;
+    if query.source_node_id.is_some() != query.source_node_type.is_some()
+        || (query.source_node_id.is_some()
+            && query.product_id.as_deref().is_none_or(|id| id.trim().is_empty()))
+        || query.source_node_id.as_deref().is_some_and(|id| id.trim().is_empty())
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            "A scoped work list requires a product, source node ID and source node type",
+        ).into_response();
+    }
+    let filters = work_item_repo::WorkItemListQuery {
+        product_id: query.product_id.as_deref(),
+        source_node_id: query.source_node_id.as_deref(),
+        source_node_type: query.source_node_type.as_deref(),
+        status: query.status.as_deref(),
+        limit: query.limit.or(Some(100)),
+        offset: query.offset,
+        ..Default::default()
+    };
+    let page = if query.top_level_only.unwrap_or(false) {
+        work_item_repo::list_top_level_work_items_page_with_metadata(&state.app_state.db, filters).await
+    } else {
+        work_item_repo::list_work_items_page_with_metadata(&state.app_state.db, filters).await
+    };
     match page {
         Ok(page) => Json(json!({
             "items": page.items,

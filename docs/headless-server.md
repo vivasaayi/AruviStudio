@@ -852,7 +852,18 @@ execution. Refresh the item and review it again after a conflict. The approval
 record and status update are committed together across browser, desktop and
 MCP task-decision paths.
 
-The Work view can filter by status and select up to 100 loaded items from one
+The Work view can filter by status and by an explicitly loaded hierarchy node.
+The hierarchy filter shows top-level work directly attached to the selected
+area or capability; it does not include descendants from nested nodes. A child
+opened from a matching parent can remain selected outside the filtered list.
+MCP `aruvi_work_items` / `list_work_items` accepts `source_node_id`,
+`source_node_type`, and `top_level_only: true`; `include_pagination: true`
+returns page metadata. Without `top_level_only`, children remain included.
+The authenticated mobile list endpoint accepts the same scope and top-level
+parameters and requires a product when a source node is specified. Both list
+APIs use offsets, so concurrent work changes can shift later pages.
+
+Select up to 100 loaded items from one
 product for a batch decision. A batch requires every selected snapshot to be
 current and free of active workflow or CLI execution; all decisions and
 approval records commit together or none do. Refresh and review after a
@@ -861,7 +872,7 @@ conflict. MCP exposes the same operation through `approve_work_items` and
 requested after commit when the saved policy enables them; the decision
 response does not guarantee that every workflow starts successfully.
 
-With the status filter cleared, drag a work card or use its move buttons to
+With both status and hierarchy filters cleared, drag a work card or use its move buttons to
 reorder loaded work items. Each move spans at most 1,000 loaded items. The
 server checks that the displayed interval still matches the current product
 order and commits the new order atomically; refresh after a conflict. Items

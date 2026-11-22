@@ -160,8 +160,10 @@ browser equivalent to the desktop story's task list;
 it does not yet establish complete story-screen parity. The goal checkpoint
 records validation and pagination limits.
 
-Selected work-item details also show type, priority and complexity; the goal
-checkpoint records the current validation status.
+Selected work-item details also show type, priority and complexity. The Work
+view can filter top-level work directly attached to an area or capability;
+MCP supports the same top-level query. The goal checkpoint records validation
+status and pagination limits.
 
 Refreshing the backlog retains an off-page selection after checking its product
 and status against the server. The goal checkpoint records the current test and

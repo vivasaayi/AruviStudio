@@ -12,6 +12,25 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Hierarchy-scoped work browsing: validation in progress
+
+The desktop product view can show top-level stories for a selected feature;
+the web Work view previously exposed only product-wide and status-filtered
+lists. It now loads hierarchy choices separately from the creation draft and
+requests top-level work directly attached to the chosen area or capability.
+The authenticated mobile endpoint accepts paired source-node filters and an
+optional top-level flag. MCP `list_work_items` also accepts `top_level_only`
+with and without pagination; both APIs retain their prior defaults. Reordering
+is disabled when either filter is active. An opened child can remain selected
+outside the filtered list if it belongs to the selected scope.
+
+A disposable native browser/MCP/API fixture covered 101 scoped top-level items,
+pagination, status filtering, children, cross-product isolation, authorization,
+invalid input, legacy MCP defaults, stale page responses and changing product
+while hierarchy choices load. Lists use offsets and are not stable snapshots
+under concurrent changes. Clean-image and deployed-branch validation remain
+pending; this is not full product-screen parity.
+
 ### Real-model multi-file delivery revalidation
 
 The currently deployed worktree image passed another disposable multi-file

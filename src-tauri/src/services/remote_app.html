@@ -808,9 +808,12 @@
                 </div>
                 <div class="panel-body">
                   <label><span class="label">Work status</span><select id="workStatusFilter"><option value="">All statuses</option><option value="draft">Draft</option><option value="ready_for_review">Ready for review</option><option value="approved">Approved</option><option value="in_planning">In planning</option><option value="in_progress">In progress</option><option value="in_validation">In validation</option><option value="waiting_human_review">Waiting human review</option><option value="done">Done</option><option value="blocked">Blocked</option><option value="failed">Failed</option><option value="cancelled">Cancelled</option></select></label>
+                  <button class="secondary" id="loadWorkFilterScopes" type="button">Load hierarchy filters</button>
+                  <label><span class="label">Work hierarchy filter</span><select id="workHierarchyFilter"><option value="">All product work</option></select></label>
+                  <div class="empty" id="workHierarchyFilterStatus">Load hierarchy filters to show top-level work for a selected area or capability.</div>
                   <div class="button-row"><button class="secondary" id="approveSelectedWork" type="button" disabled>Approve selected</button><button class="danger" id="rejectSelectedWork" type="button" disabled>Reject selected</button></div>
                   <div id="workSelectionStatus" class="empty" aria-live="polite">Select up to 100 loaded items for a batch decision.</div>
-                  <div class="empty">Drag work items or use the move buttons to reorder. Clear the status filter first.</div>
+                  <div class="empty">Drag work items or use the move buttons to reorder. Clear the status and hierarchy filters first.</div>
                   <div class="work-list" id="workList"></div>
                   <button class="secondary" id="loadMoreWorkButton" type="button" hidden>Load more work items</button>
                   <div class="empty" id="workPageStatus" aria-live="polite"></div>
@@ -1607,6 +1610,8 @@
       el.refreshDeliveryButton.disabled = nextBusy || !state.selectedWorkItemId;
       el.retryGitDeliveryButton.disabled = nextBusy || !state.delivery || !state.delivery.retryable_git_delivery;
       document.getElementById("workStatusFilter").disabled = nextBusy;
+      document.getElementById("workHierarchyFilter").disabled = nextBusy;
+      document.getElementById("loadWorkFilterScopes").disabled = nextBusy;
       el.workList.querySelectorAll("input[data-work-selection]").forEach((input) => { input.disabled = nextBusy; });
       updateWorkSelectionControls();
       updateWorkMoveControls();
@@ -3499,7 +3504,7 @@
         option.selected = product.id === state.selectedProductId;
         el.workProductSelect.appendChild(option);
       });
-      if (el.workProductSelect.value !== previousProduct) resetWorkScope();
+      if (el.workProductSelect.value !== previousProduct) { resetWorkScope(); resetWorkFilterScopes(); }
     }
 
     async function ensureWorkProducts() {
@@ -3518,13 +3523,40 @@
       document.getElementById("workSelectionStatus").textContent = count ? `${count} selected · up to 100 per batch` : "Select up to 100 loaded items for a batch decision.";
     }
     function updateWorkMoveControls() {
-      const disabled = state.busy || workMoreLoading || !!document.getElementById("workStatusFilter").value;
+      const disabled = state.busy || workMoreLoading || workListFiltered();
       el.workList.querySelectorAll("[data-work-move]").forEach((button) => { button.disabled = disabled || button.dataset.boundary === "true"; });
       el.workList.querySelectorAll(".work-card").forEach((card) => { card.draggable = !disabled; });
     }
     function workStatusQuery() {
       const status = document.getElementById("workStatusFilter").value;
-      return status ? "&status=" + encodeURIComponent(status) : "";
+      const scope = selectedWorkFilterScope();
+      return (status ? "&status=" + encodeURIComponent(status) : "") + (scope ? "&source_node_id=" + encodeURIComponent(scope.id) + "&source_node_type=" + encodeURIComponent(scope.type) + "&top_level_only=true" : "");
+    }
+    function selectedWorkFilterScope() { const value = document.getElementById("workHierarchyFilter").value; return value ? JSON.parse(value) : null; }
+    function workListFiltered() { return !!document.getElementById("workStatusFilter").value || !!document.getElementById("workHierarchyFilter").value; }
+    let workFilterGeneration = 0;
+    function resetWorkFilterScopes() {
+      workFilterGeneration++;
+      document.getElementById("workHierarchyFilter").replaceChildren(new Option("All product work", ""));
+      document.getElementById("workHierarchyFilterStatus").textContent = "Load hierarchy filters to show top-level work for a selected area or capability.";
+    }
+    async function loadWorkFilterScopes() {
+      const productId = state.selectedProductId, generation = ++workFilterGeneration;
+      if (!productId || state.busy) return;
+      const button = document.getElementById("loadWorkFilterScopes"), select = document.getElementById("workHierarchyFilter"), status = document.getElementById("workHierarchyFilterStatus");
+      button.disabled = true; status.textContent = "Loading hierarchy filters…";
+      try {
+        const tree = await request(`/api/mobile/products/${encodeURIComponent(productId)}/tree`);
+        if (generation !== workFilterGeneration || productId !== state.selectedProductId) return;
+        const previous = select.value, options = [new Option("All product work", "")];
+        const add = (node, label, type) => options.push(new Option(label, JSON.stringify({id:node.id,type})));
+        const addChildren = (children, prefix) => { for (const entry of children) { const label = prefix + " › " + entry.capability.name; add(entry.capability,label,"capability"); addChildren(entry.children || [],label); } };
+        for (const area of tree.product_areas || []) { add(area.product_area,area.product_area.name,"product_area"); addChildren(area.features || [],area.product_area.name); }
+        select.replaceChildren(...options); select.value = options.some((option) => option.value === previous) ? previous : "";
+        status.textContent = "Select a hierarchy node to show its top-level work. Clear the filter to see all product work.";
+        if (previous !== select.value) await loadWorkItems();
+      } catch (error) { if (generation === workFilterGeneration && productId === state.selectedProductId) status.textContent = "Unable to load hierarchy filters: " + (error.message || String(error)); }
+      finally { if (generation === workFilterGeneration) button.disabled = state.busy; }
     }
     function renderWorkPageStatus() {
       document.getElementById("loadMoreWorkButton").hidden = !workHasMore;
@@ -3566,7 +3598,8 @@
             const selected = await request("/api/mobile/work-items/" + encodeURIComponent(selectedId));
             if (requestId !== workPageRequestId || productId !== state.selectedProductId) return;
             const filter = document.getElementById("workStatusFilter").value;
-            keepSelected = selectedId !== state.selectedWorkItemId || (selected.product_id === productId && (!filter || selected.status === filter));
+            const scope = selectedWorkFilterScope();
+            keepSelected = selectedId !== state.selectedWorkItemId || (selected.product_id === productId && (!filter || selected.status === filter) && (!scope || (selected.source_node_id === scope.id && selected.source_node_type === scope.type)));
           } catch (error) {
             if (requestId !== workPageRequestId || productId !== state.selectedProductId) return;
             if (selectedId !== state.selectedWorkItemId) keepSelected = true;
@@ -3677,7 +3710,7 @@
       if (!state.workItems.length) {
         const empty = document.createElement("div");
         empty.className = "empty";
-        empty.textContent = document.getElementById("workStatusFilter").value ? "No work items match this status." : "No work items for this product.";
+        empty.textContent = workListFiltered() ? "No work items match these filters." : "No work items for this product.";
         el.workList.appendChild(empty);
         return;
       }
@@ -3694,7 +3727,7 @@
         card.type = "button";
         card.className = "work-card" + (item.id === state.selectedWorkItemId ? " selected" : "");
         card.onclick = () => selectWorkItem(item.id);
-        card.addEventListener("dragstart", (event) => { if (state.busy || workMoreLoading || document.getElementById("workStatusFilter").value) { event.preventDefault(); return; } draggedWorkId = item.id; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", item.id); });
+        card.addEventListener("dragstart", (event) => { if (state.busy || workMoreLoading || workListFiltered()) { event.preventDefault(); return; } draggedWorkId = item.id; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", item.id); });
         card.addEventListener("dragend", () => { draggedWorkId = null; });
         card.addEventListener("dragover", (event) => { if (draggedWorkId && draggedWorkId !== item.id) event.preventDefault(); });
         card.addEventListener("drop", (event) => { event.preventDefault(); const source = draggedWorkId; draggedWorkId = null; if (source) void moveWorkItem(source, item.id); });
@@ -3718,7 +3751,7 @@
     }
 
     async function moveWorkItem(sourceId, targetId) {
-      if (state.busy || workMoreLoading || document.getElementById("workStatusFilter").value) return;
+      if (state.busy || workMoreLoading || workListFiltered()) return;
       const source = state.workItems.findIndex((item) => item.id === sourceId), target = state.workItems.findIndex((item) => item.id === targetId);
       if (source < 0 || target < 0 || source === target) return;
       const start = Math.min(source, target), end = Math.max(source, target), productId = state.selectedProductId;
@@ -6746,6 +6779,7 @@
     el.workProductSelect.addEventListener("change", () => {
       cancelWorkWorkspace();
       resetWorkScope();
+      resetWorkFilterScopes();
       state.selectedProductId = el.workProductSelect.value;
       localStorage.setItem(storageKeys.selectedProduct, state.selectedProductId);
       state.selectedWorkItemId = "";
@@ -6755,6 +6789,8 @@
       void loadWorkItems();
     });
     document.getElementById("workStatusFilter").addEventListener("change", () => void loadWorkItems());
+    document.getElementById("workHierarchyFilter").addEventListener("change", () => void loadWorkItems());
+    document.getElementById("loadWorkFilterScopes").addEventListener("click", () => void loadWorkFilterScopes());
     document.getElementById("approveSelectedWork").addEventListener("click", () => void decideSelectedWork("approve"));
     document.getElementById("rejectSelectedWork").addEventListener("click", () => void decideSelectedWork("reject"));
     el.createWorkButton.addEventListener("click", createWorkItem);

@@ -136,6 +136,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let status = args.optional_string(&["status"])?;
             let include_pagination =
                 args.bool_or_default(&["include_pagination", "includePagination"], false)?;
+            let top_level_only = args.bool_or_default(&["top_level_only", "topLevelOnly"], false)?;
             let query = work_item_repo::WorkItemListQuery {
                 product_id: product_id.as_deref(),
                 product_area_id: product_area_id.as_deref(),
@@ -147,8 +148,11 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 offset: args.optional_i64(&["offset"])?,
             };
             if include_pagination {
-                let page =
-                    work_item_repo::list_work_items_page_with_metadata(&state.db, query).await?;
+                let page = if top_level_only {
+                    work_item_repo::list_top_level_work_items_page_with_metadata(&state.db, query).await?
+                } else {
+                    work_item_repo::list_work_items_page_with_metadata(&state.db, query).await?
+                };
                 let returned = page.items.len();
                 let next_offset = page.has_more.then_some(page.offset + page.limit);
                 action_result(
@@ -165,10 +169,12 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                     }),
                 )
             } else {
-                action_result(
-                    "list_work_items",
-                    work_item_repo::list_work_items_page(&state.db, query).await?,
-                )
+                let items = if top_level_only {
+                    work_item_repo::list_top_level_work_items_page(&state.db, query).await?
+                } else {
+                    work_item_repo::list_work_items_page(&state.db, query).await?
+                };
+                action_result("list_work_items", items)
             }
         }
         "summarize_work_items_by_product" => action_result(
