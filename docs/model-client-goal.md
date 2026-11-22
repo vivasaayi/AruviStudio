@@ -30,6 +30,16 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Dependency audit after interim deployment
+
+`npm audit --audit-level=low` reported zero vulnerabilities. With the locally
+available Rust advisory database at `d1fe6ac3e`, the Studio lockfile audit
+reported `RUSTSEC-2023-0071` and 16 warnings; the independent consumer audit
+exited successfully. The audit tool could not open the crates.io index, so this
+is a recheck against that local advisory snapshot, not proof of current online
+advisory completeness. The unresolved lockfile advisory and release review are
+described below.
+
 ### Docker capacity recovery and interim worktree deployment
 
 At the user's request to clean Docker, a BuildKit cache cleanup limited to
