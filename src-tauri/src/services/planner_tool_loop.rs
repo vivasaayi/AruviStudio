@@ -291,7 +291,7 @@ pub(crate) async fn run_tool_loop(
                             messages.push(ChatMessage { role: "assistant".into(), content: completion });
                             messages.push(ChatMessage {
                                 role: "user".into(),
-                                content: format!("The proposed actions cannot be applied to the current staged design: {}. No actions were applied. Return a complete corrected final JSON object. Refer only to existing parents or include the necessary requested parent creation actions before their children. If the user's intent is unclear, ask for clarification rather than inventing it.", error),
+                                content: format!("The proposed actions cannot be applied to the current staged design: {}. No actions were applied. Return a complete corrected final JSON object. Product areas belong directly under the selected product and do not need a parent product area. Put each new product area or capability name in its action's top-level name field, not only inside details. For children, refer only to existing parents or include necessary requested parent creation actions before their children. If the user's intent is unclear, ask for clarification rather than inventing it.", error),
                             });
                             continue;
                         }
@@ -446,6 +446,11 @@ mod tests {
             if count > 0 {
                 assert!(request["messages"].as_array().unwrap().iter().any(|message|
                     message["content"].as_str().unwrap_or("").contains("No actions were applied")));
+                let repair = request["messages"].as_array().unwrap().last().unwrap()["content"]
+                    .as_str()
+                    .unwrap();
+                assert!(repair.contains("do not need a parent product area"));
+                assert!(repair.contains("top-level name field"));
             }
             let actions = if count == 0 || fixture.always_invalid.load(Ordering::SeqCst) {
                 json!([{ "type": "create_capability", "name": "Stock", "target": { "productName": "Shop", "productAreaName": "Inventory" } }])

@@ -5,6 +5,14 @@ import { chromium } from "@playwright/test";
 let input = "";
 for await (const chunk of process.stdin) input += chunk;
 const fixture = JSON.parse(input);
+function plannerDiagnostic(result) {
+  return JSON.stringify({
+    status: result.status,
+    assistant_message: result.assistant_message,
+    execution_errors: result.execution_errors,
+    trace_events: (result.trace_events || []).filter((event) => ["model", "format_retry", "draft_retry", "error"].includes(event.stage)),
+  }).slice(0, 5000);
+}
 const browser = await chromium.launch({ executablePath: process.env.ARUVI_CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", headless: true });
 try {
   const page = await browser.newPage();
@@ -33,7 +41,11 @@ try {
   const payload = await response.text();
   assert.equal(response.ok(), true, `Planner HTTP ${response.status()}: ${payload.slice(0, 1000)}`);
   let result = JSON.parse(payload);
-  await page.locator("#draftTree").getByText(/inventory/i).first().waitFor({ timeout: 10000 });
+  try {
+    await page.locator("#draftTree").getByText(/inventory/i).first().waitFor({ timeout: 10000 });
+  } catch {
+    throw new Error(`Planner response did not show Inventory: ${plannerDiagnostic(result)}`);
+  }
   if (fixture.selected_node) {
     await page.locator("#draftTree button").filter({ hasText: /inventory/i }).first().click();
     const selectedNode = await page.evaluate(() => localStorage.getItem("aruvi.remote.selected_node"));
@@ -50,13 +62,7 @@ try {
     try {
       await page.locator("#draftTree").getByText(/stock/i).first().waitFor({ timeout: 10000 });
     } catch {
-      const diagnostic = {
-        status: result.status,
-        assistant_message: result.assistant_message,
-        execution_errors: result.execution_errors,
-        trace_events: (result.trace_events || []).filter((event) => ["model", "format_retry", "draft_retry", "error"].includes(event.stage)),
-      };
-      throw new Error(`Selected-node response did not show Stock: ${JSON.stringify(diagnostic).slice(0, 5000)}`);
+      throw new Error(`Selected-node response did not show Stock: ${plannerDiagnostic(result)}`);
     }
   }
   const downloadReady = page.waitForEvent("download");

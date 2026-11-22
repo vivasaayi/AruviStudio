@@ -58,6 +58,7 @@ Rules:
 - list_work_items is paginated and returns {workItems, pagination}; request the smallest useful limit and use pagination.hasMore/nextOffset only when you need another page.
 - After receiving tool results, continue reasoning and either call another tool or return type=final.
 - The selected product is the root. Strategy hierarchy is not editable here.
+- A product area is directly under the selected product; it does not need a parent product area. For create_product_area and create_capability, put the new entity's name in the action's top-level name field, not only inside details.
 - Model the product hierarchy as Product > Product Area > Capability > Feature. Use create_product_area only as the legacy action name for product areas and create_capability for capabilities/features.
 - There is no create_feature action. For a capability under a product area use create_capability with details.nodeKind=capability; for a feature under a capability use create_capability with details.nodeKind=feature. Do not change a requested capability into a feature.
 - Set product area nodeKind to product_area. Set capability nodeKind to capability under a product area, and feature under a capability.

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run a real local model-backed planner workflow in a disposable Studio fixture container."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ parser.add_argument("--repository", action="store_true", help="Analyze a disposa
 parser.add_argument("--browser", action="store_true", help="Drive the planner turn or repository analysis through a real browser")
 parser.add_argument("--selected-node", action="store_true", help="Add a capability beneath a browser-selected draft area")
 parser.add_argument("--trace", action="store_true", help="Print model and retry trace details (fixture content may appear in output)")
+parser.add_argument("--server-binary", type=Path, help="Run a local Linux server binary via a read-only fixture mount")
 args = parser.parse_args()
 if args.selected_node and (not args.browser or args.repository):
     parser.error("--selected-node requires --browser and cannot be combined with --repository")
@@ -58,8 +60,20 @@ try:
     volume_owned = True
     compose_env = dict(os.environ, APP_IMAGE=studio_env["APP_IMAGE"], PRODUCT_SOURCE=str(root), TEST_SOCKET_NAME=volume, TEST_PDF_SOCKET_NAME=pdf_volume, COMPOSE_IGNORE_ORPHANS="true")
     compose = ["docker", "compose", "--project-name", studio["project"], "--project-directory", str(root), "--env-file", str(envfile), "-f", str(root / "deploy/compose.test.yaml")]
-    command(compose + ["run", "--rm", "-d", "--name", container, "-p", "127.0.0.1::8787", "fixture"], env=compose_env)
+    run_options = ["run", "--rm", "-d", "--name", container, "-p", "127.0.0.1::8787"]
+    if args.server_binary:
+        binary = args.server_binary.expanduser().resolve(strict=True)
+        if not binary.is_file() or ":" in str(binary):
+            raise ValueError("Server binary must be a regular file with no colon in its path")
+        binary_digest = hashlib.sha256(binary.read_bytes()).hexdigest()
+        run_options += ["--volume", f"{binary}:/usr/local/bin/aruvi-studio-server:ro"]
+    command(compose + run_options + ["fixture"], env=compose_env)
     container_created = True
+    if args.server_binary:
+        mounted_digest = command(["docker", "exec", container, "sha256sum", "/usr/local/bin/aruvi-studio-server"]).split()[0]
+        if mounted_digest != binary_digest:
+            raise ValueError("Mounted server binary does not match the supplied file")
+        print(f"Fixture server binary SHA-256: {binary_digest}", flush=True)
     subprocess.run(["docker", "exec", "-i", container, "sh", "-c", "umask 077; cat > /data/llm-config.json"], input=json.dumps({"refs": {"coding-fixture": token}}), text=True, check=True)
     address = command(["docker", "port", container, "8787/tcp"]).splitlines()[0]
     if not address.startswith("127.0.0.1:"):

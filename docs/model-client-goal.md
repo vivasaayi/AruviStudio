@@ -12,6 +12,30 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Read-only binary planner fixture and root-area repair
+
+The disposable real-model planner fixture now accepts `--server-binary` and
+mounts an explicitly supplied Linux executable read-only, verifying its SHA-256
+inside the container. This runs the verified server without building another
+image; it does not validate a complete image or change the branch deployment.
+The binary from `7f3ea40` was exercised against the real local 7B model three
+times. Each attempt stopped before confirmation when the first turn failed to
+produce the requested Inventory area. The first diagnostic was not retained;
+the next two returned a product-area name nested only under `details`, then
+asked for a parent product area after the draft repair rejected the missing
+top-level name. The fixture now reports model and repair trace events when
+either turn misses its expected draft.
+
+The source prompt and draft-repair guidance now state that product areas
+belong directly to the selected product and that creation actions require a
+top-level name. The existing simulated-provider draft-repair test also checks
+these instructions. This latest change has not yet passed hosted checks or
+real-model validation. No generated actions were silently accepted.
+
+After Docker recovery, Mayyam E2E Zookeeper continued restarting and reported
+`Last transaction was partial` and `EOFException`. Its prior state was not
+verified. Its volumes were left untouched and require separate investigation.
+
 ### Selected-node action repair in progress
 
 Further disposable real-model samples passed twice, once with two format
