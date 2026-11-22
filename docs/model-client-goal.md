@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Child-work navigation parity in progress
+### Child-work navigation parity: branch validation
 
 The desktop story view lists its child tasks, while the web Work view previously
 required the user to find children in the product-wide backlog. The web Work
@@ -31,8 +31,28 @@ checked child and parent navigation, shortcut creation with inherited scope,
 preserved draft title, and two-page rendering of 51 real children, including at
 a 390×844 viewport without document overflow. A delayed child response was
 discarded after selecting a different work item. The full native Rust library
-suite passed 351 tests with eight ignored. Hosted clean-image checks, branch
-deployment and physical desktop comparison remain pending.
+suite passed 351 tests with eight ignored.
+
+Hosted test workflows `45034028483` and `45034032766` passed; clean ARM64 and
+AMD64 image validation in run `45034028486` passed for source `5e72811`. Later
+commits add only tests and checkpoints. The worktree candidate used the
+hash-verified ARM64 server from the clean image on the existing runtime image,
+so it is derived rather than the complete clean image. Its image ID is
+`sha256:8d953c4faf0fb68f6f278ae9ae6d8ff62a3d2d59d9539d574e12f1453762e294`;
+the server SHA-256 is
+`bd0f896ce8312e3c3d8581550beebbf58cf2d4358d53c9c19231b7884cf5d562`.
+The candidate passed 62 workflow tests, 52 browser tests (one skipped), PDF
+isolation and outage checks, simulated CI, and the real-host packaged quick
+start and stream cancellation. The scoped-credential fixture passed.
+
+After checking active jobs and backing up the database, the worktree app and
+PDF containers were updated. Restart acceptance checked product persistence,
+MCP, mobile authorization and PDF. The deployed browser passed child/parent
+navigation, shortcut creation and 51-child paging with disposable work items
+and archived products. Chrome checked all 13 sections and published-port MCP
+origin rules; real local coding and synthetic speech passed. The previous image
+remains tagged for rollback. Physical desktop and audio, live third-party
+providers, deployed Aruvici, Mac integration and VPS staging remain unverified.
 
 ### Hierarchy creation transaction: branch validation
 
