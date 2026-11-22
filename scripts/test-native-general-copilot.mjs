@@ -62,7 +62,7 @@ try {
   await page.getByText('streamed answer',{exact:false}).waitFor();
   assert.deepEqual(captured[1].messages.slice(-3).map(m => m.content), ['Explain ownership','model answer','Give an example']);
   await page.locator('#repositoryList .tool-card').filter({hasText:'General workspace'}).getByRole('button',{name:'Browse workspace'}).click();
-  await page.locator('#repositoryTree').getByRole('button',{name:'fixture.txt'}).click();
+  await page.locator('#repositoryTree').getByRole('button',{name:'fixture.txt',exact:true}).click();
   await page.getByRole('button',{name:'Close fixture.txt'}).waitFor(); assert.equal(await page.locator('#repositoryCopilotResult').textContent(),'');
   const downloadCopy = async () => { const pending = page.waitForEvent('download'); await page.getByRole('button',{name:'Download open copy'}).click(); const download = await pending; return [download.suggestedFilename(), await readFile(await download.path(),'utf8')]; };
   await page.locator('#repositoryFileContent').fill('unsaved content\n');
@@ -98,7 +98,7 @@ try {
   assert.equal(await readFile(join(repo,'fixture.txt'),'utf8'),'updated content\n');
   await page.locator('#repositoryCopilotStream').uncheck();
   await writeFile(join(repo,'fixture.txt'),'fixture content\n');
-  await page.locator('#repositoryTree').getByRole('button',{name:'fixture.txt'}).click();
+  await page.locator('#repositoryTree').getByRole('button',{name:'fixture.txt',exact:true}).click();
   await page.getByRole('button',{name:'Close fixture.txt'}).waitFor();
   await page.locator('#repositoryCopilotQuestion').fill('Update the open file');
   await page.locator('#repositoryCopilotPatchButton').click();

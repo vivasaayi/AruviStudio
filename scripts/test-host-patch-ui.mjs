@@ -16,7 +16,7 @@ try {
   await page.getByRole("button", { name: "Workspaces", exact: true }).click();
   const row = page.locator("#repositoryList .tool-card").filter({ hasText: "File fixture" });
   await row.getByRole("button", { name: "Browse workspace" }).click();
-  await page.locator("#repositoryTree").getByRole("button", { name: "math.js" }).click();
+  await page.locator("#repositoryTree").getByRole("button", { name: "math.js", exact: true }).click();
   await page.getByLabel("Selected file contents").waitFor();
   await page.getByRole("button", { name: "Use code editor" }).click();
   await page.locator("#codeEditorStatus").getByText("Code editor active", { exact: true }).waitFor({ timeout: 30000 });
