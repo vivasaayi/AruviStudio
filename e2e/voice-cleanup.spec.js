@@ -21,7 +21,7 @@ test("direct chat closes a microphone granted after navigation", async ({ page }
   await page.getByTestId("nav-products").click();
   await page.evaluate(() => window.grantPendingMic());
   await expect.poll(() => page.evaluate(() => window.pendingMicStops)).toBe(1);
-  expect(await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("transcribe_audio").length)).toBe(0);
+  expect(await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("transcribe_audio_command").length)).toBe(0);
 });
 
 test("direct chat can cancel a pending microphone request", async ({ page }) => {
@@ -43,5 +43,5 @@ test("planner closes a microphone granted after navigation", async ({ page }) =>
   await page.getByTestId("nav-products").click();
   await page.evaluate(() => window.grantPendingMic());
   await expect.poll(() => page.evaluate(() => window.pendingMicStops)).toBe(1);
-  expect(await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("transcribe_audio").length)).toBe(0);
+  expect(await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("transcribe_audio_command").length)).toBe(0);
 });
