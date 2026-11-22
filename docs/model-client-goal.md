@@ -41,7 +41,10 @@ staging a different item. ASCII case-insensitive matching is supported;
 non-ASCII names require their stored case. An isolated database test covers
 scope, duplicates, story/task identity and rollback on conversation failure. A
 native browser/MCP fixture stages an area and capability through voice
-transcripts. Physical microphone capture and clean image validation remain open.
+transcripts. A separate real Piper/Whisper synthetic-speech round trip produced
+“Select existing product area Inventory” and staged the intended area in a
+disposable native server. Physical microphone capture and clean image
+validation remain open.
 
 ### Current worktree deployment at `1215881`
 
