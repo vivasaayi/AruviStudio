@@ -29,8 +29,9 @@ A native Rust test checked authentication, invalid offsets, missing parents
 and 51 items across two pages. A disposable native server and headless browser
 checked child and parent navigation, shortcut creation with inherited scope,
 preserved draft title, and two-page rendering of 51 real children, including at
-a 390×844 viewport without document overflow. Full Rust, hosted clean-image
-checks, branch deployment and physical desktop comparison remain pending.
+a 390×844 viewport without document overflow. The full native Rust library
+suite passed 351 tests with eight ignored. Hosted clean-image checks, branch
+deployment and physical desktop comparison remain pending.
 
 ### Hierarchy creation transaction: branch validation
 
