@@ -545,8 +545,11 @@ build through the Docker Studio relay, including its stages, Rust-test log and
 OCI artifact verification. A follow-up fixture selected and queued a different
 commit in the browser and verified the real build passed. This exposed and fixed
 a selector that hid valid mapped host/container targets; the backend validates
-target identity when assigning or queueing. Cancellation and other actions are
-still covered only by simulated-service tests.
+target identity when assigning or queueing. A later fixture used both MCP and
+a real browser to cancel an active Rust test and retry the same revision through
+the authenticated relay. The cancelled run published no package, and the retry
+passed. This uses a disposable service and synthetic repository rather than a
+deployed product CI.
 
 The current branch's Linux container and a newly built native Studio server
 repeated the real-service relay fixture with Aruvici protocol candidate

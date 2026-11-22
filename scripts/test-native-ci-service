@@ -25,6 +25,7 @@ parser.add_argument("--docker-image", help="Optionally probe the temporary socke
 parser.add_argument("--audit-protocol", action="store_true", help="Inspect a disposable target and report protocol support without queueing a build")
 parser.add_argument("--exercise-protocol", action="store_true", help="With --audit-protocol, verify retry and artifact records with worker execution locked")
 parser.add_argument("--execute-build", action="store_true", help="With --audit-protocol, execute a disposable Rust/OCI build")
+parser.add_argument("--exercise-cancellation", action="store_true", help="Cancel a running fixture test and retry it through Studio")
 parser.add_argument("--relay-image", help="Test an authenticated Docker-to-host relay with this Studio image")
 parser.add_argument("--browser", action="store_true", help="Inspect the completed build in a real headless browser (requires --execute-build)")
 parser.add_argument("--browser-executable", help="Optional Chromium executable for the browser check")
@@ -38,6 +39,8 @@ if args.exercise_protocol and args.execute_build:
     parser.error("Choose either --exercise-protocol or --execute-build")
 if args.browser and not args.execute_build:
     parser.error("--browser requires --execute-build")
+if args.exercise_cancellation and not args.execute_build:
+    parser.error("--exercise-cancellation requires --execute-build")
 if args.browser_executable and not args.browser:
     parser.error("--browser-executable requires --browser")
 if args.artifact_browser and not args.exercise_protocol:
@@ -105,7 +108,13 @@ try:
             (repository / "Dockerfile").write_text("FROM scratch\n" + ("COPY fixture.txt /fixture.txt\n" if args.execute_build else ""))
             if args.execute_build:
                 (repository / "src").mkdir()
-                (repository / "src/lib.rs").write_text("pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n")
+                source = "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n"
+                if args.exercise_cancellation:
+                    started, release, finished = (root / name for name in ("test-started", "test-release", "test-finished"))
+                    source += '''\n#[test]\nfn waits_for_release() {\n    let start = std::time::Instant::now();\n    std::fs::write(STARTED, b"started").unwrap();\n    while !std::path::Path::new(RELEASE).exists() {\n        assert!(start.elapsed() < std::time::Duration::from_secs(120));\n        std::thread::sleep(std::time::Duration::from_millis(100));\n    }\n    std::fs::write(FINISHED, b"finished").unwrap();\n}\n'''.replace("STARTED", json.dumps(str(started))).replace("RELEASE", json.dumps(str(release))).replace("FINISHED", json.dumps(str(finished)))
+                (repository / "src/lib.rs").write_text(source)
+                if args.exercise_cancellation:
+                    subprocess.run(["cargo", "fmt", "--manifest-path", str(repository / "Cargo.toml")], check=True, capture_output=True)
                 (repository / "fixture.txt").write_text("Disposable CI fixture\n")
                 subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=repository, check=True, capture_output=True)
             def git(*arguments):
@@ -350,6 +359,39 @@ try:
                     build_call, build_base, build_token = container_call, container_base, image_token
                 queued = build_call("aruvi_ci", "queue_build", {"target_id": "fixture", "repository_id": repo["id"], "product_id": product["id"], "commit": commit})
                 run_id = queued["run_id"]
+                if args.exercise_cancellation:
+                    def control(action, identifier):
+                        if not args.browser: return build_call("aruvi_ci", action + "_run", {"id": identifier})
+                        browser_env = dict(base_env, ARUVI_TEST_CI_URL=build_base, ARUVI_TEST_CI_TOKEN=build_token,
+                                           ARUVI_TEST_CI_RUN=str(identifier), ARUVI_TEST_CI_CONTROL=action)
+                        if args.browser_executable: browser_env["ARUVI_TEST_CI_BROWSER_EXECUTABLE"] = args.browser_executable
+                        result = subprocess.run(["node", str(Path(__file__).resolve().parent / "test-native-ci-control-browser.mjs")],
+                                                env=browser_env, check=True, capture_output=True, text=True, timeout=60)
+                        return json.loads(result.stdout)
+                    deadline = time.monotonic() + 120
+                    while not started.exists():
+                        waiting = build_call("aruvi_ci", "get_run", {"id": run_id})
+                        if waiting["status"] in ("passed", "failed", "blocked", "cancelled", "interrupted"):
+                            raise RuntimeError("CI fixture ended before the blocking test started: " + json.dumps(waiting))
+                        if time.monotonic() >= deadline: raise RuntimeError("CI fixture test did not start")
+                        time.sleep(.25)
+                    control("cancel", run_id)
+                    deadline = time.monotonic() + 30
+                    while True:
+                        cancelled = build_call("aruvi_ci", "get_run", {"id": run_id})
+                        if cancelled["status"] in ("passed", "failed", "blocked", "cancelled", "interrupted"): break
+                        if time.monotonic() >= deadline: raise RuntimeError("Cancellation did not finish")
+                        time.sleep(.25)
+                    if cancelled["status"] != "cancelled": raise RuntimeError("CI run was not cancelled")
+                    if any(item.get("kind") == "package" for item in cancelled.get("artifacts", [])):
+                        raise RuntimeError("Cancelled run published a package")
+                    release.touch()
+                    time.sleep(1)
+                    if finished.exists(): raise RuntimeError("Cancelled test continued after cancellation")
+                    retry = control("retry", run_id)
+                    run_id = retry["run_id"]
+                    if run_id == queued["run_id"]: raise RuntimeError("Retry reused the cancelled run")
+                    print(("Browser" if args.browser else "MCP") + " cancelled a real running CI test before package publication and retried it.", flush=True)
                 deadline = time.monotonic() + 300
                 while True:
                     run = build_call("aruvi_ci", "get_run", {"id": run_id})
@@ -358,6 +400,8 @@ try:
                     time.sleep(.5)
                 if run["status"] != "passed":
                     raise RuntimeError("Disposable build did not pass: " + json.dumps({"status":run["status"], "stages":run.get("stages", []), "error":run.get("error")}))
+                if args.exercise_cancellation and (not finished.exists() or run.get("commit") != commit):
+                    raise RuntimeError("Retried CI run did not execute the same test and revision")
                 stages = {stage["name"]: stage["status"] for stage in run.get("stages", [])}
                 if any(stages.get(stage) != "passed" for stage in ("secrets", "fmt", "clippy", "rust-tests", "package", "verify-package")):
                     raise RuntimeError("Disposable build did not pass all expected stages: " + json.dumps(stages))

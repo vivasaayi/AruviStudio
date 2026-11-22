@@ -32,6 +32,20 @@ historic database, desktop session, concurrent user or staging deployment.
 
 ### Real CI service and container relay revalidation
 
+An extended disposable fixture now also blocks inside an actual Rust test,
+cancels the running build, and retries the same revision. It verified the
+cancelled run published no package and that the test did not finish after the
+release signal, then verified the retried test and full Rust/OCI pipeline
+passed. Both MCP and headless Chrome exercised the controls through the branch
+container's authenticated relay to the real protocol-candidate service. In the
+browser run, Chrome additionally inspected artifact verification and queued a
+distinct revision. The first cancellation fixture failed its formatting stage
+before the blocking test; formatting the synthetic source corrected the fixture.
+Repeat with the documented `native-ci-service --audit-protocol --execute-build`
+fixture and add `--exercise-cancellation`; add `--relay-image IMAGE --browser`
+to cover the container and browser. This does not establish behavior of the
+deployed service, arbitrary subprocess trees or real product pipelines.
+
 Studio source `bd06190` was built as a native Mac server with only the `rlib`
 crate type and package debug information disabled to reduce disk usage. A
 disposable Aruvici protocol-branch service at `33e5a08` and the running branch's
