@@ -4237,9 +4237,9 @@
               stageDetails.appendChild(text);
               const artifacts = (delivery.artifacts || []).filter((artifact) => artifact.workflow_run_id === workflow.id && (ids.has(artifact.agent_run_id) || artifact.artifact_type.startsWith(stage + "_") || (stage === "coding" && ["coding_tool_trace", "coding_applied_files"].includes(artifact.artifact_type))));
               for (const artifact of artifacts) {
-                const artifactButton = document.createElement("button"), artifactOutput = document.createElement("pre"); artifactButton.type = "button"; artifactButton.className = "secondary"; artifactButton.textContent = "Show stage artifact: " + (artifact.summary || artifact.artifact_type); artifactOutput.style.whiteSpace = "pre-wrap"; artifactOutput.style.overflowWrap = "anywhere";
+                const artifactCard = document.createElement("div"), artifactButton = document.createElement("button"), artifactOutput = document.createElement("pre"); artifactCard.className = "tool-card"; artifactButton.type = "button"; artifactButton.className = "secondary"; artifactButton.textContent = "Show stage artifact: " + (artifact.summary || artifact.artifact_type); artifactOutput.style.whiteSpace = "pre-wrap"; artifactOutput.style.overflowWrap = "anywhere";
                 artifactButton.addEventListener("click", async () => { artifactButton.disabled = true; try { const result = await request("/api/mobile/work-items/" + encodeURIComponent(workItem.id) + "/artifacts/" + encodeURIComponent(artifact.id)); if (artifactOutput.isConnected) artifactOutput.textContent = result.content; } catch (error) { if (artifactOutput.isConnected) artifactOutput.textContent = error.message || String(error); } finally { artifactButton.disabled = false; } });
-                stageDetails.append(artifactButton, artifactOutput);
+                artifactCard.appendChild(artifactButton); appendArtifactPaging(artifactCard, artifactOutput, artifactButton, workItem.id, artifact.id); artifactCard.appendChild(artifactOutput); stageDetails.appendChild(artifactCard);
               }
             };
             stageSelect.onchange = () => { graphSelectedId = null; renderStage(); };

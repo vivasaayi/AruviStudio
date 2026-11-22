@@ -12,9 +12,9 @@ provider hosting into the model-host service as part of this work.
 
 ## Remaining acceptance work
 
-- [x] Build and check the current runtime revision on ARM64 and AMD64, and
-  validate and deploy the Mac worktree candidate. Repeat these checks for any
-  later runtime changes and for the eventual merged revision.
+- [ ] Build and check the latest runtime revision on ARM64 and AMD64, and
+  validate and deploy the Mac worktree candidate. Repeat for the eventual merged
+  revision; the previous `227fde4` runtime passed these checks.
 - [ ] Complete the action-by-action desktop/web/MCP parity inventory, including
   direct voice selection edge cases, native dialogs and deliberately platform-specific
   behavior. Validate actual native-window and physical audio interaction when
@@ -29,6 +29,16 @@ provider hosting into the model-host service as part of this work.
   connectivity checks. Production promotion and release require separate work.
 
 ## Checkpoints
+
+### Workflow-stage artifact paging
+
+The browser workflow-stage view now offers the same bounded artifact paging
+controls as the general artifact list, scoped to the selected work item and
+artifact. A disposable native-server browser test passed with a real recorded
+artifact and confirmed the other workflow's artifact was excluded. The first
+test attempt asserted the page status before the asynchronous request finished;
+the corrected test waits for the status and passed. Clean-image and worktree
+deployment validation remain pending.
 
 ### Current worktree deployment at `227fde4`
 
