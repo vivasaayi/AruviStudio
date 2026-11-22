@@ -26,7 +26,10 @@ sample; packaged-image and broader real-model reliability validation remain.
 A deeper parent/child test then exposed selection inference walking past the
 selected child to its parent. The inference now keeps the closest work item and
 capability; the database regression confirms the selected child, active-run
-guard and new descendant all use the intended identity.
+guard and new descendant all use the intended identity. A further disposable
+real Model Host run updated a selected child task, left its parent unchanged and
+created no duplicates. A bound selected work item also rejects an explicit model
+target naming a different work item; a focused test covers that conflict.
 
 ### Existing work-item Planner binding (in validation)
 

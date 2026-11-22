@@ -23,6 +23,8 @@ async fn staged_work_item_updates_identity_and_preserves_parent_and_scope() {
     let loaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
     let mut draft = loaded.draft_plan.unwrap();
     assert_eq!(draft.nodes.iter().find(|node| node.id == child.id).unwrap().parent_id.as_deref(), Some(parent.id.as_str()));
+    let wrong = normalize_actions(vec![json!({"type":"update_work_item", "fields":{"acceptanceCriteria":"Wrong item"}, "target":{"productName":"Work product", "workItemTitle":"Parent"}})]);
+    assert!(apply_actions_to_draft(Some(draft.clone()), Some(&child.id), &wrong).unwrap_err().to_string().contains("does not match"));
     let actions = normalize_actions(vec![
         json!({"type":"update_work_item", "details":{"acceptanceCriteria":"Updated criteria"}, "target":{"productName":"Work product"}}),
         json!({"type":"create_work_item", "title":"New task", "workItemType":"task", "target":{"productName":"Work product", "productAreaName":"Work area"}})
