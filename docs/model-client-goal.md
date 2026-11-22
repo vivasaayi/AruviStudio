@@ -28,6 +28,17 @@ not a signed production build or evidence of a successful macOS permission
 prompt, WebKit capture, physical microphone or audible playback. The console
 was locked, so native-window and hardware acceptance remain open.
 
+Tauri enables the macOS hardened runtime by default. Its bundle configuration
+now also includes Apple's `com.apple.security.device.audio-input` entitlement,
+which is needed for hardened-runtime audio input. A separate Tauri-generated
+debug bundle was signed with an ad-hoc identity; `codesign --verify --strict
+--deep` passed, and inspection showed both the runtime flag and the entitlement
+on the bundle. Tauri also applied that entitlement to the bundled MCP binary.
+This is not Developer ID signing, notarization, user consent or a real
+microphone test. Apple still requires explicit user permission. See Apple's
+[audio-input entitlement](https://developer.apple.com/documentation/BundleResources/Entitlements/com.apple.security.device.audio-input)
+and [hardened runtime guidance](https://developer.apple.com/documentation/xcode/configuring-the-hardened-runtime).
+
 ### Historical desktop data startup upgrade
 
 `bash scripts/test legacy-migration NATIVE_SERVER --image IMAGE` reconstructs a
