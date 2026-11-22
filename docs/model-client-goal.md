@@ -24,8 +24,9 @@ Mocked-Tauri browser tests cover staging, selection passed to the next turn,
 failed staging/session creation, navigation races and unsent text preservation;
 the frontend build and 139 frontend tests passed. The focused desktop Planner
 suite passed all 12 tests. A wider run reported 80 passing tests only after the
-Playwright runner was interrupted during teardown; a second run is checking
-that behavior. This has not been validated in a physical native window. Direct voice selection of existing catalog items remains a separate
+Playwright runner was interrupted during teardown; a second run with the list
+reporter completed cleanly with all 80 passing. This has not been validated in
+a physical native window. Direct voice selection of existing catalog items remains a separate
 parity gap. Worktree deployment and clean image validation for this frontend
 change are pending.
 
