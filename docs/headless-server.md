@@ -855,6 +855,10 @@ MCP task-decision paths.
 The Work view can filter by status and by an explicitly loaded hierarchy node.
 In the product tree, choose **View work** on an area or capability to open its
 work directly; this clears the status filter and retains an unsubmitted title.
+Product, hierarchy and selected work views can also prepare a contextual
+Planner request. Review it before sending; replacing an unsent Planner draft
+requires confirmation. If the chosen product is no longer available, Planner
+requires a new explicit scope instead of silently sending an unscoped request.
 The hierarchy filter shows top-level work directly attached to the selected
 area or capability; it does not include descendants from nested nodes. A child
 opened from a matching parent can remain selected outside the filtered list.

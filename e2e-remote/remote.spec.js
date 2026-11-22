@@ -564,6 +564,73 @@ test("planner sends its explicit product scope", async ({ page }) => {
   expect(turns[1].product_id).toBeNull();
 });
 
+test("planner requires an explicit scope when its selected product disappears", async ({ page }) => {
+  await page.addInitScript(() => { localStorage.setItem("aruvi.remote.token", "synthetic-token"); localStorage.setItem("aruvi.remote.selected_product", "missing-product"); });
+  await page.route("**/api/mobile/products", route => route.fulfill({json:[]}));
+  await page.goto("/remote");
+  await expect(page.locator("#plannerProductSelect")).toHaveValue("__choose__");
+  await page.locator("#composer").fill("Must stay scoped");
+  await page.locator("#sendButton").click();
+  await expect(page.locator("#status")).toContainText("Choose a planner product scope");
+  await expect(page.locator("#composer")).toHaveValue("Must stay scoped");
+});
+
+test("product and work actions prepare scoped planner requests without losing drafts", async ({ page, request }) => {
+  test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
+  async function mcp(name, action, arguments_) {
+    const response = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:{action,arguments:arguments_}}}});
+    const result=(await response.json()).result; expect(result.isError,JSON.stringify(result)).not.toBeTruthy(); return result.structuredContent.result;
+  }
+  const product = await mcp("aruvi_catalog", "create_product", {name:`Planner actions ${Date.now()}`});
+  let story;
+  try {
+    const area = await mcp("aruvi_catalog", "create_product_area", {product_id:product.id,name:"Planning area"});
+    const capability = await mcp("aruvi_catalog", "create_capability", {product_area_id:area.id,name:"Planning capability"});
+    story = await mcp("aruvi_work_items", "create_story", {product_id:product.id,source_node_id:capability.id,source_node_type:"capability",title:"Planning story"});
+    const turns=[];
+    await page.addInitScript(() => localStorage.setItem("aruvi.remote.selected_node", "stale-draft-node"));
+    await page.route("**/api/mobile/planner/sessions", route => route.fulfill({json:{session_id:"fixture-session"}}));
+    await page.route("**/api/mobile/planner/sessions/*/turn", route => { turns.push(route.request().postDataJSON()); return route.fulfill({json:{session_id:"fixture-session",assistant_message:"Ready",draft_tree_nodes:[]}}); });
+    await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+    await page.locator("#composer").fill("Keep my unsent request");
+    await page.getByRole("button",{name:"Products",exact:true}).click();
+    await page.locator("#productList .product-card").filter({hasText:product.name}).click();
+    page.once("dialog", dialog => dialog.dismiss());
+    await page.getByRole("button",{name:"Improve product",exact:true}).click();
+    await expect(page.locator("#tab-products")).toHaveClass(/active/);
+    await expect(page.locator("#composer")).toHaveValue("Keep my unsent request");
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button",{name:"Improve product",exact:true}).click();
+    await expect(page.locator("#plannerProductSelect")).toHaveValue(product.id);
+    await expect(page.locator("#composer")).toHaveValue(new RegExp(product.name));
+    await page.getByRole("button",{name:"Send",exact:true}).first().click();
+    await expect.poll(() => turns.length).toBe(1);
+    expect(turns[0]).toMatchObject({product_id:product.id,selected_draft_node_id:null});
+    expect(turns[0].user_input).toContain(product.name);
+    await page.getByRole("button",{name:"Products",exact:true}).click();
+    await page.getByRole("button",{name:"Load product tree"}).click();
+    await page.locator("#productTree summary").filter({hasText:"Planning area"}).click();
+    await page.getByRole("button",{name:"Plan children for Planning area",exact:true}).click();
+    await expect(page.locator("#composer")).toHaveValue(/Planning area/);
+    await expect(page.locator("#plannerProductSelect")).toHaveValue(product.id);
+    await page.getByRole("button",{name:"Products",exact:true}).click();
+    await page.locator("#productTree summary").filter({hasText:"Planning capability"}).click();
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button",{name:"Plan stories for Planning capability",exact:true}).click();
+    await expect(page.locator("#composer")).toHaveValue(/Planning capability/);
+    await page.getByRole("button",{name:"Work",exact:true}).click();
+    await page.locator("#workProductSelect").selectOption(product.id);
+    await page.locator("#workList .work-card").filter({hasText:"Planning story"}).click();
+    page.once("dialog", dialog => dialog.accept());
+    await page.getByRole("button",{name:"Improve Planning story in Planner",exact:true}).click();
+    await expect(page.locator("#composer")).toHaveValue(/Planning story/);
+    await expect(page.locator("#plannerProductSelect")).toHaveValue(product.id);
+  } finally {
+    if (story) await mcp("aruvi_work_items", "delete_work_item", {id:story.id});
+    await mcp("aruvi_catalog", "archive_product", {id:product.id});
+  }
+});
+
 test("planner locks product and draft selection while a turn is pending", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("aruvi.remote.token", "synthetic-token"));
   await page.route("**/api/mobile/products", (route) => route.fulfill({ json: [{ id: "product-a", name: "Product A" }] }));

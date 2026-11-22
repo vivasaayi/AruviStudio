@@ -621,6 +621,7 @@
                   <label><span class="label">Product area purpose (optional)</span><input id="newAreaPurpose" /></label>
                   <button id="createAreaButton" type="submit" disabled>Add product area</button>
                 </form>
+                <div class="button-row" id="productPlannerActions"></div>
                 <div class="tree" id="productTree"></div>
                 <details id="resetPlanSection"><summary>Reset product plan</summary>
                   <form id="resetPlanForm" class="stack">
@@ -2500,7 +2501,11 @@
         if (requestId !== plannerProductsRequestId) return;
         for (const product of products) el.plannerProductSelect.add(new Option(product.name, product.id));
         if (products.some((product) => product.id === state.selectedProductId)) el.plannerProductSelect.value = state.selectedProductId;
-        el.plannerProductStatus.textContent = "Choose the product to include in planner turns, or leave unscoped.";
+        else if (state.selectedProductId) {
+          el.plannerProductSelect.add(new Option("Choose a scope…", "__choose__"));
+          el.plannerProductSelect.value = "__choose__";
+        }
+        el.plannerProductStatus.textContent = el.plannerProductSelect.value === "__choose__" ? "Selected product is unavailable. Choose a product scope." : "Choose the product to include in planner turns, or leave unscoped.";
         plannerProductsReady = true;
       } catch (error) {
         if (requestId === plannerProductsRequestId) {
@@ -3197,6 +3202,7 @@
       el.resetPlanButton.disabled = true;
       el.productMetrics.replaceChildren();
       el.productTree.replaceChildren();
+      document.getElementById("productPlannerActions").replaceChildren();
       const summary = await request("/api/mobile/products/" + encodeURIComponent(productId) + "/summary");
       if (state.selectedProductId !== productId) return;
       state.productSummary = summary;
@@ -3270,9 +3276,23 @@
       more.addEventListener("click", load); return section;
     }
 
+    function appendPlannerAction(parent, label, productId, prompt) {
+      const button = document.createElement("button");
+      button.type = "button"; button.className = "secondary"; button.textContent = label;
+      button.addEventListener("click", () => {
+        if (state.busy || state.selectedProductId !== productId) return;
+        if (el.composer.value.trim() && !confirm("Replace the unsent Planner draft with this prepared request?")) return;
+        state.selectedNodeId = ""; localStorage.removeItem(storageKeys.selectedNode); renderDraftTree();
+        el.composer.value = prompt;
+        switchTab("planner");
+      });
+      parent.appendChild(button);
+    }
+
     function renderProductSummary() {
       el.productMetrics.innerHTML = "";
       el.productTree.innerHTML = "";
+      const plannerActions = document.getElementById("productPlannerActions"); plannerActions.replaceChildren();
       const summary = state.productSummary;
       el.productBookDownload.disabled = !summary || productBookExporting;
       if (!summary) {
@@ -3289,6 +3309,11 @@
       el.productMetrics.appendChild(renderMetric(summary.total_node_count || 0, "Nodes"));
       el.productMetrics.appendChild(renderMetric(summary.leaf_node_count || 0, "Leaf Nodes"));
       el.productMetrics.appendChild(renderMetric(product && product.status ? product.status : "active", "Status"));
+
+      if (product) {
+        appendPlannerAction(plannerActions, "Improve product", product.id, `Enhance product "${product.name}". Review the current product management tree, identify missing product areas, capabilities, features, stories, and tasks, then stage a concrete improvement plan.`);
+        appendPlannerAction(plannerActions, "Plan a product area", product.id, `Add a useful product area under product "${product.name}". Stage the new product area with its initial capabilities and starter stories.`);
+      }
 
       const button = document.createElement("button");
       button.type = "button";
@@ -3323,6 +3348,21 @@
           const viewWork = document.createElement("button"); viewWork.type = "button"; viewWork.className = "secondary";
           viewWork.textContent = "View work"; viewWork.setAttribute("aria-label", "View work for " + item.name);
           viewWork.addEventListener("click", () => void openHierarchyWork(productId, item)); details.appendChild(viewWork);
+          const product = state.products.find((entry) => entry.id === productId);
+          if (product) {
+            const actions = document.createElement("div"); actions.className = "button-row";
+            const area = item.node_kind === "product_area";
+            const scope = area ? `product area "${item.name}"` : `${(item.node_kind || "capability").replaceAll("_", " ")} "${item.name}"`;
+            const improve = area
+              ? `Enhance ${scope} in product "${product.name}". Add or revise child capabilities, features, stories, and tasks so this branch is execution-ready.`
+              : `Enhance ${scope} in product "${product.name}". Improve its description, acceptance criteria, technical notes, and missing child structure.`;
+            appendPlannerAction(actions, "Improve " + item.name, productId, improve);
+            appendPlannerAction(actions, "Plan children for " + item.name, productId, area
+              ? `Add child capabilities under ${scope} in product "${product.name}". Include concise descriptions, acceptance criteria, and starter stories where helpful.`
+              : `Add child nodes under "${item.name}" in product "${product.name}". Stage concrete features with clear descriptions and acceptance criteria.`);
+            if (!area) appendPlannerAction(actions, "Plan stories for " + item.name, productId, `Add delivery stories and tasks under "${item.name}" in product "${product.name}". Make each story specific, testable, and scoped to this branch.`);
+            details.appendChild(actions);
+          }
           const index = siblingIds.indexOf(item.id);
           if (siblingIds.length > 1 && siblingIds.length <= 1000) {
             const controls = document.createElement("div");
@@ -4064,6 +4104,8 @@
         ? String(workflow.current_stage || workflow.status).replaceAll("_", " ")
         : String(workItem.status || "draft").replaceAll("_", " ");
       appendDetailCard(workItem.title, workItem.description || workItem.problem_statement || "No description");
+      const product = state.products.find((entry) => entry.id === workItem.product_id);
+      if (product) appendPlannerAction(el.deliveryDetails, "Improve " + workItem.title + " in Planner", product.id, `Enhance story "${workItem.title}" in product "${product.name}". Improve the problem statement, acceptance criteria, constraints, and split it into tasks if needed.`);
       appendDetailCard("Work item details", String(workItem.work_item_type || "task").replaceAll("_", " ") + " · " + String(workItem.priority || "medium").replaceAll("_", " ") + " priority · " + String(workItem.complexity || "medium").replaceAll("_", " ") + " complexity");
       if (workItem.problem_statement) appendDetailCard("Problem statement", workItem.problem_statement);
       if (workItem.acceptance_criteria) appendDetailCard("Acceptance criteria", workItem.acceptance_criteria);

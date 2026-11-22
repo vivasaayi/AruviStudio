@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Contextual Planner actions (in validation)
+
+Browser Products, hierarchy nodes and selected work now prepare the desktop's
+contextual improvement and child/story planning requests. They select the
+product, clear an unrelated selected Planner draft node, do not send a request
+automatically, and ask before replacing unsent text. A missing selected product
+requires an explicit scope rather than silently becoming unscoped. A disposable
+browser/MCP fixture covers product, area, capability and work actions, declined
+replacement and the outgoing scoped turn. The native server build and targeted
+tests passed. The configured native browser suite passed 51 tests with five
+fixture-dependent skips. Worktree deployment is pending; this does not prove
+real-model or native-window parity.
+
 ### Product hierarchy to work navigation
 
 The web product tree now offers a direct action to view top-level work for an
