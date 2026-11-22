@@ -20,10 +20,11 @@ Missing or null product targets are filled from the selection. Catalog lookup by
 name rejects duplicate exact product names instead of choosing the first; this
 can make name-based reports unavailable for duplicates until they carry IDs.
 The guard applies to text and repository analysis and validates model output;
-the model tool-read scope is separately documented below. Test and deployment
-evidence is pending. Focused tests cover explicit cross-product targets,
+the model tool-read scope is separately documented below. Focused tests cover explicit cross-product targets,
 duplicate product names and null targets; a simulated model also attempted a
-cross-product report and was rejected before any action executed.
+cross-product report and was rejected before any action executed. The native
+server build, four browser/MCP Planner checks and the Rust library suite (356
+passed, eight ignored) passed. Worktree deployment remains pending.
 
 ### Planner product identity on commit (in validation)
 
