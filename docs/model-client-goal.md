@@ -36,7 +36,8 @@ query were also checked.
 Lists use offsets and are not stable snapshots
 under concurrent changes. The configured native browser suite passed 49 tests
 with five fixture-dependent skips; the native Rust library suite passed 351
-tests with eight ignored, including after the empty-list selection fix.
+tests with eight ignored, including after the empty-list selection and MCP
+discovery fixes.
 Clean-image and deployed-branch validation remain
 pending; this is not full product-screen parity.
 
