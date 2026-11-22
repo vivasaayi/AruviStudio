@@ -22,7 +22,7 @@ consumer lockfile. The Studio lockfile reported one vulnerability,
 that does not resolve the lockfile advisory or cover other feature selections.
 Release review of the warnings and locally patched SQLx remains open.
 
-### Child task actions: validation in progress
+### Child task actions: branch validation
 
 The browser parent-work list now offers direct edit and delete actions for each
 child, as the desktop story view does. Editing opens the existing guarded task
@@ -30,8 +30,8 @@ form. Deletion asks for confirmation and uses the loaded child as the existing
 server-side stale-data baseline; the list is refreshed afterward. Cross-product
 legacy children remain disabled. A native server build and disposable browser
 tests passed edit/save, cancelled deletion, a concurrent MCP edit rejected by
-the delete endpoint, confirmed deletion and 101-child paging. Clean image and
-deployment checks remain pending. Physical desktop acceptance remains open.
+the delete endpoint, confirmed deletion and 101-child paging. Physical desktop
+acceptance remains open.
 The broader native browser run passed 31 tests and skipped 22 fixture-dependent
 cases. An earlier attempt enabled all disposable-container cases against the
 native fixture: 44 passed, five skipped and four failed because that fixture
@@ -41,7 +41,24 @@ temporary repository paths and origin configuration. The workspace-choice test
 now accepts fixture paths while retaining its container defaults. A subsequent
 combined native run with those settings passed 48 browser tests and skipped five
 that need additional fixtures. The full native Rust library suite passed 351
-tests with eight ignored. Full clean-image validation remains pending.
+tests with eight ignored.
+
+Clean ARM64 and AMD64 image validation passed for `285a92f`. The worktree
+candidate combines its checksum-verified ARM64 server with the prior runtime
+image; it is not the complete clean image. Candidate image ID is
+`sha256:decf478c14d1428cfe29863cdbf03dd08818d2b75e6c8b84c5e21f72a6c94ad1`
+and server SHA-256 is
+`470ea4b1c7d80988984ecab3ff6d7e3cd78ac8139dfbf2b5aa40966a735a1cd0`.
+Isolated workflow, browser, PDF and simulated-CI tests and real Model Host
+quick-start, cancellation and scoped-credential checks passed. After an
+active-job check and verified database backup, the app and PDF containers
+were updated; restart acceptance verified product persistence, MCP, mobile
+authorization and PDF. The deployed child-action and 101-child browser tests,
+all 13 sections at phone and desktop widths, MCP origin checks, real local
+coding and speech through MCP, and continuous browser voice with synthetic
+audio passed. The previous image remains tagged for rollback. Physical desktop
+and audio, live third-party providers, deployed Aruvici, Mac integration and VPS
+staging remain unverified.
 
 ### Independent model-client revalidation
 
