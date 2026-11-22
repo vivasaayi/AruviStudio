@@ -52,6 +52,12 @@ links, deduplication, navigation, refresh and narrow-screen checks. Physical
 audio, native-window interaction, full parity, integration and staging remain
 open.
 
+A subsequent disposable container using the deployed image exercised an
+existing-area Planner turn in the browser with the real `qwen25-coder-7b-q4`
+host. The proposal required one format retry, remained uncommitted before
+review, and was confirmed through MCP. This is one successful model sample;
+the Mac console still reported locked, so native-window comparison remains open.
+
 ### Dependency audit after interim deployment
 
 `npm audit --audit-level=low` reported zero vulnerabilities. With the locally
