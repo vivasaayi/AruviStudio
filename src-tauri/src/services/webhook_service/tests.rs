@@ -244,10 +244,16 @@ async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
     let empty_session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
     let empty_url = format!("/api/mobile/planner/sessions/{}/review-packet", empty_session.session_id);
     assert_eq!(send_json(&router, Method::GET, &empty_url, Some("draft-test-token"), None).await.0, StatusCode::BAD_REQUEST);
+    // Pending action details must be the same for desktop, browser, and MCP packets.
+    let pending = json!({"assistant_response":"Review", "needs_confirmation":true, "clarification_question":null,
+        "actions":[{"type":"create_work_item", "title":"Count stock", "description":"Count physical stock"}]});
+    sqlx::query("UPDATE planner_sessions SET pending_plan_json = ? WHERE id = ?")
+        .bind(pending.to_string()).bind(&session.session_id).execute(&state.db).await.unwrap();
     let snapshot = crate::services::planner_session::load_session_from_db(&state.db, &session.session_id).await.unwrap();
     let expected = crate::services::planner_draft::build_draft_tree_nodes(snapshot.draft_plan.as_ref().unwrap(), snapshot.selected_draft_node_id.as_deref());
     let desktop = crate::services::planner_review_packet::build_desktop_review_packet(state.planner_service.clone(), &state.db, session.session_id.clone(), expected.clone(), Some(child.clone())).await.unwrap();
     assert!(desktop.html.contains("&quot;selectedNode&quot;: &quot;Area&quot;"));
+    assert!(desktop.html.contains("<div>Count physical stock</div>"));
     let mut stale = expected.clone();
     stale[0].label = "Stale name".into();
     assert!(crate::services::planner_review_packet::build_desktop_review_packet(state.planner_service.clone(), &state.db, session.session_id.clone(), stale, None).await.is_err());
@@ -259,6 +265,7 @@ async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
     let packet = parse_json(&body);
     assert!(packet["filename"].as_str().unwrap().ends_with("-design-review-packet.html"));
     assert!(packet["html"].as_str().unwrap().contains("Approval Section"));
+    assert!(packet["html"].as_str().unwrap().contains("<div>Count physical stock</div>"));
     assert!(packet["html"].as_str().unwrap().contains("Area"));
     assert!(packet["html"].as_str().unwrap().contains("draftNodes"));
     assert!(packet["html"].as_str().unwrap().contains("Staged detail &lt;script&gt;fixture&lt;/script&gt;"));
@@ -266,6 +273,7 @@ async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
     assert!(packet["html"].as_str().unwrap().contains("absence does not imply deletion"));
     let mcp_packet = crate::mcp::dispatch_tool(&state, "aruvi_planner", json!({"action":"export_planner_review_packet", "arguments":{"session_id":session.session_id}})).await.unwrap();
     assert!(mcp_packet["result"]["html"].as_str().unwrap().contains("Approval Section"));
+    assert!(mcp_packet["result"]["html"].as_str().unwrap().contains("<div>Count physical stock</div>"));
     let validation = format!("/api/mobile/planner/sessions/{}/validation", session.session_id);
     assert_eq!(send_json(&router, Method::GET, &validation, None, None).await.0, StatusCode::UNAUTHORIZED);
     let (status, summary) = send_json(&router, Method::GET, &validation, Some("draft-test-token"), None).await;

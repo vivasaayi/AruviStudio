@@ -30,6 +30,18 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Planner session summary parity finding
+
+A source comparison found that Rust session-packet action summaries omitted
+fallback descriptions present in the snapshot/desktop renderer. The branch
+change restores fallbacks for capability and work-item creation, template
+application, capability conversion, and report scope; it also restricts the
+capability creation scope to product and area. Focused Rust cases cover these
+examples, and the persisted-session fixture verifies the actual action summary
+through desktop, browser API and MCP. The full native Rust suite passed 369 tests
+with eight ignored. Further action-by-action comparison, clean-image and deployed
+validation remain open; this is not complete packet-renderer parity.
+
 ### Planner snapshot readiness escaping
 
 The caller-supplied readiness score was interpolated into the snapshot HTML

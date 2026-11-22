@@ -98,7 +98,18 @@ fn summarize_action(action: &Value) -> (String, String, String) {
                     target("capabilityName")
                 })
             ),
-            scoped(),
+            {
+                let scope = [target("productName"), target("productAreaName")]
+                    .into_iter()
+                    .filter(|value| !value.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" / ");
+                if scope.is_empty() {
+                    "Attach to selected scope.".into()
+                } else {
+                    scope
+                }
+            },
         ),
         "create_work_item" => (
             "+".into(),
@@ -114,7 +125,13 @@ fn summarize_action(action: &Value) -> (String, String, String) {
                     field("title")
                 }
             ),
-            scoped(),
+            if !scoped().is_empty() {
+                scoped()
+            } else if !field("description").is_empty() {
+                field("description").into()
+            } else {
+                "New delivery work proposal.".into()
+            },
         ),
         "apply_capability_template" => (
             "+".into(),
@@ -127,7 +144,13 @@ fn summarize_action(action: &Value) -> (String, String, String) {
                 },
                 name("unnamed topic")
             ),
-            scoped(),
+            if !scoped().is_empty() {
+                scoped()
+            } else if !field("description").is_empty() {
+                field("description").into()
+            } else {
+                "Create a product-design scaffold.".into()
+            },
         ),
         "convert_capability_kind" => (
             "~".into(),
@@ -136,8 +159,22 @@ fn summarize_action(action: &Value) -> (String, String, String) {
                 .into(),
             format!(
                 "nodeKind={} childStrategy={}",
-                field("nodeKind"),
-                field("childStrategy")
+                action
+                    .get("nodeKind")
+                    .filter(|v| !v.is_null())
+                    .map(|v| v
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| v.to_string()))
+                    .unwrap_or_else(|| "unknown".into()),
+                action
+                    .get("childStrategy")
+                    .filter(|v| !v.is_null())
+                    .map(|v| v
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| v.to_string()))
+                    .unwrap_or_else(|| "reject".into())
             ),
         ),
         "update_product" | "update_product_area" | "update_capability" | "update_work_item" => {
@@ -159,9 +196,23 @@ fn summarize_action(action: &Value) -> (String, String, String) {
         "report_tree" => (
             "i".into(),
             "Tree report".into(),
-            target("productName").into(),
+            if target("productName").is_empty() {
+                "All products".into()
+            } else {
+                target("productName").into()
+            },
         ),
-        "report_status" => ("i".into(), "Status report".into(), scoped()),
+        "report_status" => (
+            "i".into(),
+            "Status report".into(),
+            if !target("productName").is_empty() {
+                target("productName").into()
+            } else if !target("workItemTitle").is_empty() {
+                target("workItemTitle").into()
+            } else {
+                "Current scope".into()
+            },
+        ),
         _ => (
             "!".into(),
             kind.replace('_', " "),
@@ -475,6 +526,51 @@ async fn build_packet(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn session_action_summaries_keep_desktop_fallback_details() {
+        let cases = [
+            (
+                json!({"type":"create_capability"}),
+                "Attach to selected scope.",
+            ),
+            (
+                json!({"type":"create_capability", "target":{"productName":"Shop", "productAreaName":"Stock", "capabilityName":"not scope"}}),
+                "Shop / Stock",
+            ),
+            (json!({"type":"report_tree"}), "All products"),
+            (
+                json!({"type":"report_status", "target":{"workItemTitle":"Count"}}),
+                "Count",
+            ),
+            (
+                json!({"type":"create_work_item", "description":"Count stock"}),
+                "Count stock",
+            ),
+            (
+                json!({"type":"create_work_item"}),
+                "New delivery work proposal.",
+            ),
+            (
+                json!({"type":"apply_capability_template", "description":"Inventory outline"}),
+                "Inventory outline",
+            ),
+            (
+                json!({"type":"apply_capability_template"}),
+                "Create a product-design scaffold.",
+            ),
+            (
+                json!({"type":"convert_capability_kind"}),
+                "nodeKind=unknown childStrategy=reject",
+            ),
+            (
+                json!({"type":"create_work_item", "description":"ignored", "target":{"productName":"Shop"}}),
+                "Shop",
+            ),
+        ];
+        for (action, expected) in cases {
+            assert_eq!(summarize_action(&action).2, expected);
+        }
+    }
     #[test]
     fn packet_escapes_untrusted_html_and_sanitizes_filename() {
         let node = PlannerTreeNode {
