@@ -153,9 +153,10 @@ the browser helper on stdin.
 
 The helper reads the selected host's private token without printing it, verifies
 model discovery from both the Mac and the Studio container, and updates the named
-provider without replacing its ID. Discovery rejects HTTP redirects. For native staging, select `--environment
-staging` and the checkout used to manage that deployment; use a coding model
-actually installed there. The current native staging fixture does not contain one.
+provider without replacing its ID. Discovery rejects HTTP redirects. For the
+current native Mac integration host, select `--environment integration` and the
+checkout used to manage that deployment; choose a coding model actually installed
+there. Its retained service identity may still contain the word `staging`.
 Use `--name` to choose a different provider name. This setup stores the host's
 bearer token in Studio's secret store. In the inspected Model Host source, this
 same token authorizes both `/v1` inference and `/api` management operations,

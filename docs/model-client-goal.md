@@ -26,6 +26,15 @@ regressions also passed. The native server was built with reduced debug output
 and only the `rlib` crate type. Linux candidate and deployed-branch checks are
 pending. This simulated input does not prove real-device capture.
 
+The same native candidate also passed real Model Host coding, browser and MCP
+general Copilot, and a synthetic Piper/Whisper round trip. The first attempt to
+run the speech fixture failed before starting Studio because its old default
+selected `staging`, which the current native host adapter no longer accepts.
+The host's native `integration` environment retains its legacy staging service
+identity. The fixture now defaults to `integration`; a repeat without an
+explicit speech-environment argument passed. These checks use synthetic audio
+and do not exercise the manual suspended-context case with physical hardware.
+
 ### macOS microphone bundle configuration
 
 The previously generated macOS application bundle lacked
