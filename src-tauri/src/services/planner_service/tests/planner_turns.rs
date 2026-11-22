@@ -54,7 +54,7 @@ async fn staged_work_item_updates_identity_and_preserves_parent_and_scope() {
     assert!(apply_actions_to_draft(Some(draft.clone()), Some(&child.id), &wrong).unwrap_err().to_string().contains("does not match"));
     let actions = normalize_actions(vec![
         json!({"type":"update_work_item", "details":{"acceptanceCriteria":"Updated criteria"}, "target":{"productName":"Work product"}}),
-        json!({"type":"create_work_item", "title":"New task", "workItemType":"task", "target":{"productName":"Work product", "productAreaName":"Work area"}})
+        json!({"type":"create_work_item", "title":"New task", "target":{"productName":"Work product", "productAreaName":"Work area"}})
     ]);
     draft = apply_actions_to_draft(Some(draft), Some(&child.id), &actions).unwrap();
     let new_node = draft.nodes.iter().find(|node| node.name == "New task").unwrap();
@@ -86,6 +86,8 @@ async fn staged_work_item_updates_identity_and_preserves_parent_and_scope() {
     assert_eq!(count, 3);
     let task_parent: String = sqlx::query_scalar("SELECT parent_work_item_id FROM work_items WHERE title='New task'").fetch_one(&state.db).await.unwrap();
     assert_eq!(task_parent, child.id);
+    let task_type: String = sqlx::query_scalar("SELECT work_item_type FROM work_items WHERE title='New task'").fetch_one(&state.db).await.unwrap();
+    assert_eq!(task_type, "task");
 }
 
 #[tokio::test]

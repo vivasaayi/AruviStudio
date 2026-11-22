@@ -21,9 +21,9 @@ from `fields`, `details`, or the top level and reject empty, conflicting,
 malformed or unsupported update fields. After the fix, separate native real Model Host proposals updated the original
 selected product, area, capability and child work item only after confirmation.
 The full native Rust suite passed 365 tests with eight ignored; packaged-image
-validation remains. Each real-model result is a single sample. The desktop suite
-reported all 81 tests passing, but its runner was interrupted after lingering
-in teardown; a clean hosted result remains necessary.
+validation remains. Each real-model result is a single sample. One two-worker desktop run reported all 81 tests passing after its runner
+was interrupted during teardown. A subsequent single-worker run completed
+cleanly with all 81 passing.
 
 ### Product-root Planner binding (in validation)
 
@@ -121,7 +121,9 @@ capability; the database regression confirms the selected child, active-run
 guard and new descendant all use the intended identity. A further disposable
 real Model Host run updated a selected child task, left its parent unchanged and
 created no duplicates. A bound selected work item also rejects an explicit model
-target naming a different work item; a focused test covers that conflict.
+target naming a different work item; a focused test covers that conflict. A model-created
+child with no explicit work type defaults to a task under the selected work
+item; a database test verifies its persisted type and parent.
 
 ### Existing work-item Planner binding (in validation)
 

@@ -240,7 +240,7 @@ pub(crate) fn apply_create_draft_action(
                     "constraints": string_field(action, "constraints"),
                     "workItemType": string_field(action, "workItemType")
                         .or_else(|| string_field(action, "work_item_type"))
-                        .unwrap_or_else(|| "story".to_string()),
+                        .unwrap_or_else(|| if selected_work.is_some() { "task".to_string() } else { "story".to_string() }),
                     "priority": string_field(action, "priority")
                         .unwrap_or_else(|| "medium".to_string()),
                     "complexity": string_field(action, "complexity")
