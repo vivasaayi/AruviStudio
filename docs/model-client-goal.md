@@ -12,6 +12,27 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Agent workspace write confinement in progress
+
+An agent's workspace `write_file` previously rejected relative-path traversal
+but opened the resulting path directly, so a symlink created in the copied
+workspace could redirect a write. On Unix it now opens each parent directory
+relative to a directory descriptor without following symlinks, opens the final
+file without following symlinks or truncating it, and checks that it is a
+regular file with one link before writing. The shared path validator also
+rejects `.git` components. This covers both tool-loop and legacy agent writes.
+Non-Unix builds use checked paths with a second check after creating parents;
+unrelated writers can still race that fallback. Even on Unix, a separate process
+can change file contents or add a hard link after the metadata check, and a
+concurrent rename can move an already-open directory. This does not make the
+agent workspace a security sandbox or make a multi-file workflow atomic.
+
+The native Mac regression test rejects directory and file symlinks, a hard link,
+traversal and `.git`, verifies the external target is unchanged, and exercises
+new and existing nested files. The complete native Rust library suite passed 348
+tests with eight ignored. Linux hosted checks and a candidate branch deployment
+remain to be validated; the running branch still uses the preceding image.
+
 ### Reviewed MCP patches: validated branch deployment
 
 Hosted test run `45009026679` passed 347 Rust unit tests (eight ignored),

@@ -15,39 +15,6 @@ pub struct WorkItemWorkspace {
 }
 
 impl WorkItemWorkspace {
-    fn resolve_relative_repo_path(&self, relative_path: &str) -> Result<PathBuf, AppError> {
-        let normalized = relative_path.replace('\\', "/");
-        let candidate = Path::new(&normalized);
-        if candidate.is_absolute() {
-            return Err(AppError::Validation(format!(
-                "Absolute paths are not allowed: {}",
-                relative_path
-            )));
-        }
-
-        let mut clean = PathBuf::new();
-        for component in candidate.components() {
-            match component {
-                std::path::Component::CurDir => {}
-                std::path::Component::Normal(value) => clean.push(value),
-                _ => {
-                    return Err(AppError::Validation(format!(
-                        "Path traversal is not allowed: {}",
-                        relative_path
-                    )));
-                }
-            }
-        }
-
-        if clean.as_os_str().is_empty() {
-            return Err(AppError::Validation(
-                "Empty relative path is not allowed".to_string(),
-            ));
-        }
-
-        Ok(self.repo_path.join(clean))
-    }
-
     /// Create a new isolated workspace for a work item
     pub async fn create(
         work_item: &WorkItem,
@@ -190,16 +157,11 @@ impl WorkItemWorkspace {
 
     /// Write a file to the workspace
     pub async fn write_file(&self, relative_path: &str, content: &str) -> Result<(), AppError> {
-        let path = self.resolve_relative_repo_path(relative_path)?;
-
-        // Ensure parent directory exists
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).await.map_err(AppError::Io)?;
-        }
-
-        fs::write(&path, content).await.map_err(|e| {
-            AppError::Internal(format!("Failed to write file {}: {}", path.display(), e))
-        })
+        let relative = safe_relative_path(relative_path)?;
+        let root = self.repo_path.clone();
+        let content = content.to_owned();
+        tokio::task::spawn_blocking(move || write_confined_file(&root, &relative, content.as_bytes()))
+            .await.map_err(|error| AppError::Internal(format!("Workspace write task failed: {error}")))?
     }
 
     pub async fn sync_files_back(
@@ -253,6 +215,62 @@ impl WorkItemWorkspace {
             .map_err(AppError::Io)?;
         Ok(())
     }
+}
+
+// Use directory descriptors on Unix so a symlink substituted after validation cannot
+// redirect an agent write. Do not truncate until the opened file has been checked.
+#[cfg(unix)]
+fn write_confined_file(root: &Path, relative: &Path, content: &[u8]) -> Result<(), AppError> {
+    use std::ffi::CString;
+    use std::io::Write;
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let mut directory = std::fs::OpenOptions::new().read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(root)?;
+    let mut parts = relative.components().peekable();
+    while let Some(component) = parts.next() {
+        let std::path::Component::Normal(part) = component else {
+            return Err(AppError::Validation("Invalid repository file path".to_string()));
+        };
+        let name = CString::new(part.as_bytes()).map_err(|_| AppError::Validation("Invalid repository file path".to_string()))?;
+        if parts.peek().is_some() {
+            // SAFETY: the directory descriptor and name are valid for this call.
+            let result = unsafe { libc::mkdirat(directory.as_raw_fd(), name.as_ptr(), 0o777) };
+            if result != 0 {
+                let error = std::io::Error::last_os_error();
+                if error.kind() != std::io::ErrorKind::AlreadyExists { return Err(error.into()); }
+            }
+            // SAFETY: openat returns a new descriptor owned by the File below.
+            let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC) };
+            if fd < 0 { return Err(std::io::Error::last_os_error().into()); }
+            directory = unsafe { std::fs::File::from_raw_fd(fd) };
+        } else {
+            // SAFETY: openat returns a new descriptor owned by the File below.
+            let fd = unsafe { libc::openat(directory.as_raw_fd(), name.as_ptr(), libc::O_WRONLY | libc::O_CREAT | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK, 0o666) };
+            if fd < 0 { return Err(std::io::Error::last_os_error().into()); }
+            let mut file = unsafe { std::fs::File::from_raw_fd(fd) };
+            let metadata = file.metadata()?;
+            if !metadata.is_file() || metadata.nlink() != 1 {
+                return Err(AppError::Validation("Workspace destination must be a regular file without hard links".to_string()));
+            }
+            file.set_len(0)?;
+            file.write_all(content)?;
+            return Ok(());
+        }
+    }
+    Err(AppError::Validation("Empty repository file path".to_string()))
+}
+
+#[cfg(not(unix))]
+fn write_confined_file(root: &Path, relative: &Path, content: &[u8]) -> Result<(), AppError> {
+    let path = confined_file_path(root, relative, true)?;
+    if let Some(parent) = path.parent() { std::fs::create_dir_all(parent)?; }
+    let path = confined_file_path(root, relative, true)?;
+    std::fs::write(path, content)?;
+    Ok(())
 }
 
 /// Validate an agent-supplied path before using it in the workspace or repository.
@@ -366,6 +384,30 @@ mod delivery_tests {
         let workspace = WorkItemWorkspace { work_item_id: "fixture".into(), base_path: root.clone(), repo_path: repo };
         assert!(workspace.read_file("link.txt").await.is_err());
         std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn workspace_write_rejects_links_without_modifying_their_targets() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let repo = root.path().join("repo");
+        let outside = root.path().join("outside");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("target"), "original").unwrap();
+        symlink(&outside, repo.join("linked-dir")).unwrap();
+        symlink(outside.join("target"), repo.join("linked-file")).unwrap();
+        std::fs::hard_link(outside.join("target"), repo.join("hard-link")).unwrap();
+        let workspace = WorkItemWorkspace { work_item_id: "fixture".into(), base_path: root.path().to_owned(), repo_path: repo.clone() };
+
+        for path in ["linked-dir/target", "linked-file", "hard-link", "../outside/target", ".git/config"] {
+            assert!(workspace.write_file(path, "changed").await.is_err(), "write should reject {path}");
+            assert_eq!(std::fs::read_to_string(outside.join("target")).unwrap(), "original");
+        }
+        workspace.write_file("new/nested/file.txt", "created").await.unwrap();
+        workspace.write_file("new/nested/file.txt", "updated").await.unwrap();
+        assert_eq!(std::fs::read_to_string(repo.join("new/nested/file.txt")).unwrap(), "updated");
     }
 
     #[cfg(unix)]
