@@ -790,6 +790,8 @@ test("browser and MCP reject switching a staged planner draft to another product
     await expect(page.locator("#draftTree")).toContainText("Preserved design area");
     const malformed=await request.post(`/api/mobile/planner/sessions/${sessionId}/confirm`,{headers,data:{product_id:7}});
     expect(malformed.status()).toBe(422);
+    const typo=await request.post(`/api/mobile/planner/sessions/${sessionId}/confirm`,{headers,data:{product_idd:second.id}});
+    expect(typo.status()).toBe(422);
     const legacyConfirm=await request.post(`/api/mobile/planner/sessions/${sessionId}/confirm`,{headers});
     expect(legacyConfirm.status(),await legacyConfirm.text()).toBe(200);
     const tree=await (await request.get(`/api/mobile/products/${first.id}/tree`,{headers})).json();

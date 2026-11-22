@@ -58,6 +58,9 @@ test("planner supports deterministic create, refine, packet, and apply flow", as
 
   await page.getByTestId("draft-commit").click();
   await expect(page.getByText("Applied design to catalog.").first()).toBeVisible();
+  const confirmation = await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("confirm_planner_plan_command"));
+  expect(confirmation).toHaveLength(1);
+  expect(confirmation[0].args.productId).toBe("example-product-calculator");
 
   await page.getByTestId("nav-products").click();
   await expect(page.getByRole("heading", { name: "Products" })).toBeVisible();

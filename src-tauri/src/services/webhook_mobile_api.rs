@@ -1884,6 +1884,7 @@ pub(crate) struct MobilePlannerTurnRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct MobilePlannerConfirmRequest {
     #[serde(alias = "productId")]
     product_id: Option<String>,

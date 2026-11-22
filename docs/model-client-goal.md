@@ -21,15 +21,19 @@ same guard. The browser retains a failed text request for correction. An
 explicit voice clear remains available to discard a staged draft deliberately.
 Mobile confirmation accepts legacy empty bodies; a nonempty malformed request
 must be rejected rather than interpreted as an unscoped confirmation. Existing
-clients that omit product scope remain unscoped. For older drafts with a root ID
+clients that omit product scope remain unscoped; unknown confirmation fields
+are rejected. For older drafts with a root ID
 that no longer identifies a persisted product, matching falls back to the root
 name, which cannot disambiguate deleted or historical same-name products.
 
 An isolated Rust test covers same-name persisted products, unchanged stored
 draft and selection, text, voice, repository analysis, confirmation, legacy root
 matching and explicit clear. Browser/MCP fixtures cover scoped rejection and
-unscoped confirmation compatibility. Final regression and worktree deployment
-remain pending.
+unscoped confirmation compatibility, and reject malformed or misspelled scope
+fields. The configured native browser suite passed 53 tests with five skips;
+the frontend build and 139 frontend unit tests passed. A mocked desktop Planner
+test confirmed that its confirmation call carries the selected product. Final
+Rust regression and worktree deployment remain pending.
 
 ### Contextual Planner actions (in validation)
 
