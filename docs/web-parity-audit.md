@@ -151,6 +151,14 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+MCP reviewed-patch reads, previews and application can now bind to the
+captured workspace root. First-class preview and reviewed application require
+that root; legacy actions remain compatible without it. Hosted clean-image and
+disposable branch fixtures verified stale-root and stale-content rejection and
+successful application. The lock coordinates Studio processes, while external
+filesystem writers can still race. See the goal checkpoint for deployment and
+test evidence.
+
 The branch now exposes desktop work-item scope summaries and the complete
 repository attachment inventory through MCP. Hosted and disposable local
 fixtures verified discovery, filtering and nonempty attachments; the live

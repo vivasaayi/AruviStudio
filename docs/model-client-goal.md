@@ -12,6 +12,40 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Reviewed MCP patches: validated branch deployment
+
+Hosted test run `45009026679` passed 347 Rust unit tests (eight ignored),
+including reviewed-patch root and stale-file guards, plus Rust integration and
+UI checks. Clean-image run `45009026686` passed on ARM64 and AMD64: each
+passed 62 workflow tests, 49 browser tests (one skipped), PDF isolation and
+outage checks, and simulated CI. The corrected workflow-automation conflict
+test passed on both architectures.
+
+The ARM64 archive SHA-256 was
+`e2cc4c1e86c88c6673d2788625eb582a4aec0091a468ca240870d2cb7b321352`,
+its server layer was
+`ae318c36e90360742940853b9cd0f6b3f6902d3ff3ff74c7996e0cef04ce4a84`,
+and its server binary was
+`cc0a29eca363988802cec094d85bfca036cf09196b10e377e6221bafa2790686`.
+With Docker storage constrained, the verified binary was added to the preceding
+branch runtime to create image
+`sha256:95176a6bc4ca5139225667b01e7a57a79602014df4537170bc57ab4c6c25c40f`.
+Its binary hash and runtime configuration matched, and non-Rust runtime inputs
+were unchanged since that earlier image. This is a derived image, not a locally
+loaded full clean image.
+
+The local candidate passed workflow, browser, PDF isolation/outage and simulated
+CI checks, including the first-class reviewed-patch flow. The real Model Host
+quick start and stream cancellation passed; a separate simulated scoped-host
+fixture checked credential restrictions. The running Model Host still uses a
+management-capable credential. An active-job guard and verified SQLite backup
+preceded the branch switch, and the prior image remains tagged for rollback.
+After restart, product, MCP, mobile authorization, PDF, 13-section layout,
+published-port MCP origin, real coding, Piper/Whisper and continuous browser
+voice with synthetic audio all passed. Physical devices, native-window parity,
+live third-party providers, real Aruvici, Mac integration and VPS staging remain
+unverified; the worktree deployment does not establish complete parity.
+
 ### Workflow automation test timing correction
 
 Hosted ARM64 run `45007731706` failed an existing workflow-automation
@@ -23,8 +57,7 @@ arguments for focused runs. Five sequential repetitions passed against the
 previous branch runtime, with PDF outage verification. An initial five-worker
 repeat had four failures because all workers shared and modified the same
 fixture setting; it did not represent independent test databases. The revised
-test has not yet passed a new clean-image matrix, and this does not validate
-the pending MCP patch changes.
+test subsequently passed the clean-image matrix recorded above.
 
 ### MCP reviewed-patch workspace guard in progress
 
@@ -42,8 +75,8 @@ cooperating Studio processes; external filesystem writers can still race.
 
 Rust tests cover root changes, stale content, missing root, successful review
 and legacy behavior; the disposable browser/MCP fixture covers the first-class
-flow and rejection. These changes have not yet passed hosted checks or been
-deployed.
+flow and rejection. The later checkpoint above records hosted and branch
+deployment validation.
 
 ### MCP scoped work and attachment parity: branch validation
 
