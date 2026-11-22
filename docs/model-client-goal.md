@@ -24,8 +24,9 @@ The same 32 consumer tests also passed offline in an ARM64 Linux container with
 read-only dependency caches and no network. A separately built ARM64 Linux probe
 then passed real Model Host discovery, text completion, streaming, token-limit
 handling and synthetic speech generation/transcription. This does not establish
-AMD64 coverage for the updated pin. Hosted AMD64 CI now runs the independent
-consumer suite; its first run for this workflow change is pending.
+AMD64 real-host coverage for the updated pin. Hosted AMD64 CI run `45038751154`
+passed its new independent-consumer test step; the rest of that workflow was
+still running when recorded.
 
 ### Child-work details: validation in progress
 
@@ -4593,7 +4594,7 @@ scope is reviewed, not merely until an example passes.
 
 | Requirement | Current evidence | Remaining work |
 | --- | --- | --- |
-| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and a separate fixture pinned to `484cce1f698be34c7ae901717640e6ad299deb95`. The consumer's 32 offline tests passed on macOS and ARM64 Linux; native real-host text and synthetic Piper/Whisper probes passed at that pin. The pin check confirms the current client sources and manifest match. | Validate the updated pin on AMD64 Linux, and decide independent ownership, versioning and migration for other projects. The current pin is a checkpoint, not a published release. |
+| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and a separate fixture pinned to `484cce1f698be34c7ae901717640e6ad299deb95`. Its consumer tests passed on macOS, ARM64 Linux and hosted AMD64 Linux; real-host text and synthetic Piper/Whisper probes passed on macOS and ARM64 Linux. The pin check confirms the current client sources and manifest match. | Validate AMD64 real-host access, and decide independent ownership, versioning and migration for other projects. The current pin is a checkpoint, not a published release. |
 | OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
 | Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. A later new-module attempt produced a missing function definition; independent behavior checks caught it before delivery. | Investigate reliability on broader coding tasks and actual authenticated network delivery; syntax-only checks do not establish correctness. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
