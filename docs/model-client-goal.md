@@ -22,7 +22,9 @@ or changed runs and records the reason and `user_override` history in the same
 transaction. Browser requests carry the displayed stage and status; MCP may
 provide both as `expected_stage` and `expected_status`, while legacy callers
 use a freshly loaded baseline. The desktop command retains its existing
-already-failed no-op. Stage and status are not a unique revision: a run that
+already-failed no-op. A legacy failed-stage run with an active status can be
+reconciled without a duplicate failed-to-failed history entry. Stage and status
+are not a unique revision: a run that
 changes away and back between reads may still match. Most importantly, this
 database override does not stop an executor or undo external effects; the
 browser explicitly warns the operator to check the executor first.

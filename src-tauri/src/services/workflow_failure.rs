@@ -13,7 +13,7 @@ pub async fn mark_workflow_failed_by_operator(
     reason: &str,
 ) -> Result<(), AppError> {
     if !matches!(expected_status, "running" | "paused")
-        || matches!(expected_stage, "done" | "failed" | "cancelled")
+        || matches!(expected_stage, "done" | "cancelled")
         || expected_stage.trim().is_empty()
         || reason.trim().is_empty() || reason.len() > 4000
     {
@@ -26,9 +26,13 @@ pub async fn mark_workflow_failed_by_operator(
     if updated.rows_affected() != 1 {
         return Err(AppError::Validation("Workflow changed or is no longer active; refresh before continuing".into()));
     }
-    sqlx::query("INSERT INTO workflow_stage_history (id,workflow_run_id,from_stage,to_stage,trigger,notes,transitioned_at) VALUES (?,?,?,'failed','user_override',?,datetime('now'))")
-        .bind(uuid::Uuid::new_v4().to_string()).bind(workflow_run_id).bind(expected_stage).bind(reason)
-        .execute(&mut *tx).await?;
+    // A legacy partially recorded failure may already have a failed stage.
+    // Reconcile its active status without inventing a failed -> failed transition.
+    if expected_stage != "failed" {
+        sqlx::query("INSERT INTO workflow_stage_history (id,workflow_run_id,from_stage,to_stage,trigger,notes,transitioned_at) VALUES (?,?,?,'failed','user_override',?,datetime('now'))")
+            .bind(uuid::Uuid::new_v4().to_string()).bind(workflow_run_id).bind(expected_stage).bind(reason)
+            .execute(&mut *tx).await?;
+    }
     tx.commit().await?;
     Ok(())
 }

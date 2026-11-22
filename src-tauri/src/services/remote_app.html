@@ -3895,7 +3895,7 @@
             (workflow.error_message ? " · " + workflow.error_message : ""),
           workflow.status === "failed" ? "error" : ""
         );
-        if (["running", "paused"].includes(workflow.status) && !["done", "failed", "cancelled"].includes(workflow.current_stage)) {
+        if (["running", "paused"].includes(workflow.status) && !["done", "cancelled"].includes(workflow.current_stage)) {
           const recovery = document.createElement("div"), fail = document.createElement("button"), explanation = document.createElement("p");
           recovery.className = "tool-card";
           explanation.textContent = "For a stuck run, mark its record failed only after checking the executor. This does not stop running processes or undo external actions.";

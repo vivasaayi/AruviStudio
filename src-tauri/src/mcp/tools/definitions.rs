@@ -134,7 +134,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
         ),
         action_tool(
             "aruvi_workflows",
-            "Control workflow execution and inspect workflow/agent run state.",
+            "Control workflow execution and inspect workflow/agent run state. For mark_workflow_run_failed, provide expected_stage and expected_status together to reject a stale run; this records an override but does not stop an executor.",
             &[
                 "start_work_item_workflow",
                 "get_workflow_run",

@@ -1021,6 +1021,14 @@ async fn remote_work_api_auth_create_start_approve_and_delivery_flow() {
     let history = workflow_repo::get_workflow_history(&state.db, &seeded_run.id).await.unwrap();
     assert_eq!(history.iter().filter(|entry| entry.trigger == "user_override" && entry.to_stage == "failed").count(), 1);
     assert_eq!(send_json(&router, Method::POST, &failure_url, Some(token), Some(failure)).await.0, StatusCode::CONFLICT);
+
+    let legacy = workflow_repo::create_workflow_run(&state.db, "partially-failed-run", work_item_id).await.unwrap();
+    workflow_repo::update_workflow_stage(&state.db, &legacy.id, "failed").await.unwrap();
+    let legacy_url = format!("/api/mobile/workflows/{}/mark-failed", legacy.id);
+    let (status, body) = send_json(&router, Method::POST, &legacy_url, Some(token), Some(json!({"expected_stage":"failed", "expected_status":"running", "reason":"Reconcile incomplete failure"}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(workflow_repo::get_workflow_run(&state.db, &legacy.id).await.unwrap().status, "failed");
+    assert!(workflow_repo::get_workflow_history(&state.db, &legacy.id).await.unwrap().is_empty());
 }
 
 #[tokio::test]
