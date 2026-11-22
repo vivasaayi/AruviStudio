@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Work-item creation refresh
+
+After a new work item is created, the browser now clears the previous delivery
+and workspace edit state immediately and displays `Loading` until the new
+item's delivery arrives. A controlled browser fixture delayed that response:
+the prior branch image retained the old item's status, while the updated HTML
+showed `Loading`, disabled the workspace action, and showed the new item after
+release. This reproduces stale display, not the cause of the separate hosted
+workspace-editor failure. The updated server image and hosted checks remain
+pending at this checkpoint.
+
 ### Branch deployment after Planner voice fix
 
 The branch service at `127.0.0.1:55288` runs derived image

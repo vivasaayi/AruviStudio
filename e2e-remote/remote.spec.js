@@ -2740,3 +2740,48 @@ test("browser displays product-scoped references on demand", async ({page,reques
     await expect(nodeRefs).not.toContainText('Browser-created reference');
   } finally { await call('archive_product',{id:product.id}); await call('archive_product',{id:other.id}); }
 });
+
+test("new work item clears stale delivery while its details load", async ({ page }) => {
+  const oldItem = { id: "old", title: "Old task", status: "approved", work_item_type: "task", priority: "medium", complexity: "medium" };
+  const newItem = { ...oldItem, id: "new", title: "New task", status: "draft" };
+  let created = false, releaseDelivery, signalDelivery;
+  const heldDelivery = new Promise((resolve) => { releaseDelivery = resolve; });
+  const deliveryRequested = new Promise((resolve) => { signalDelivery = resolve; });
+  await page.addInitScript(() => localStorage.setItem("aruvi.remote.token", "synthetic"));
+  if (process.env.ARUVI_TEST_REMOTE_HTML_SOURCE === "1") {
+    const html = await readFile("src-tauri/src/services/remote_app.html", "utf8");
+    await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
+  }
+  await page.route("**/api/mobile/**", async (route) => {
+    const { pathname } = new URL(route.request().url());
+    if (pathname === "/api/mobile/products") return route.fulfill({ json: [{ id: "product", name: "Product" }] });
+    if (pathname === "/api/mobile/workflow-test-config") return route.fulfill({ json: { mode: "inherit", argv: [] } });
+    if (pathname === "/api/mobile/work-items" && route.request().method() === "POST") {
+      created = true;
+      return route.fulfill({ json: newItem });
+    }
+    if (pathname === "/api/mobile/work-items") return route.fulfill({ json: { items: created ? [newItem, oldItem] : [oldItem], has_more: false } });
+    if (pathname.endsWith("/new/delivery")) {
+      signalDelivery();
+      await heldDelivery;
+      return route.fulfill({ json: { work_item: newItem, workflow_run: null } });
+    }
+    if (pathname.endsWith("/old/delivery")) return route.fulfill({ json: { work_item: oldItem, workflow_run: null } });
+    return route.fulfill({ status: 404, json: { error: "Unexpected fixture request" } });
+  });
+  try {
+    await page.goto("/remote");
+    await page.getByRole("button", { name: "Work", exact: true }).click();
+    await expect(page.locator("#deliveryStatus")).toHaveText("approved");
+    await page.locator("#workTitleInput").fill("New task");
+    await page.locator("#createWorkButton").click();
+    await Promise.race([deliveryRequested, new Promise((_, reject) => setTimeout(() => reject(new Error("New delivery request did not start")), 10000))]);
+    await expect(page.locator("#deliveryStatus")).toHaveText("Loading");
+    await expect(page.locator("#editWorkWorkspaceButton")).toBeDisabled();
+    releaseDelivery();
+    await expect(page.locator("#deliveryStatus")).toHaveText("draft");
+    await expect(page.locator("#deliveryDetails")).toContainText("New task");
+  } finally {
+    releaseDelivery();
+  }
+});

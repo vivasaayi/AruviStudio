@@ -4132,7 +4132,10 @@
             source_node_id: scope?.id, source_node_type: scope?.type, parent_work_item_id: parentId || undefined
           }
         });
+        cancelWorkWorkspace();
         state.selectedWorkItemId = workItem.id;
+        state.delivery = null;
+        renderDelivery();
         localStorage.setItem(storageKeys.selectedWorkItem, workItem.id);
         el.workTitleInput.value = "";
         el.workProblemInput.value = "";
