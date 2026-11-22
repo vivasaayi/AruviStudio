@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Real-model multi-file delivery revalidation
+
+The currently deployed worktree image passed another disposable multi-file
+workflow using `qwen25-coder-7b-q4` through the real native Model Host. Browser
+approval advanced the plan and test gates; the disposable Git remote stayed
+unchanged before review, and independent generated-code and syntax checks passed
+before delivery. The work-item workspace override received the generated files
+while the product default workspace remained unchanged. This is one model sample
+using a management-capable credential; it does not establish general coding
+reliability, physical desktop interaction or staging acceptance.
+
 ### Selected work-item metadata: branch validation
 
 The web work-item detail now shows the selected item's type, priority and
