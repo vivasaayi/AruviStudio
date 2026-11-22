@@ -12,6 +12,21 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Real-model multi-file branch revalidation
+
+A disposable workflow on the branch runtime derived from `8618a95` used the
+real `qwen25-coder-7b-q4` model, a workspace override, JSON-object coding mode,
+a 4,096-token non-coding budget and browser plan/test approvals. The first
+sample reached test review but failed the independent behavioral check and was
+not delivered; the detailed error was truncated in the captured tool output.
+A repeat with a private log passed the workflow syntax check and independent
+behavioral assertions, verified the default workspace remained untouched, and
+delivered both files to a disposable local Git remote after browser approval.
+The remote was unchanged before test review, and both fixtures and their volumes
+were removed. These two samples demonstrate the guarded workflow and model
+variability; they do not establish general coding reliability, authenticated
+network delivery, or staging acceptance.
+
 ### Readable browser status messages
 
 The header previously clipped long errors to a single line, including on touch
