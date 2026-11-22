@@ -37,6 +37,14 @@ with the updated HTML and the preceding server image;
 PDF outage checks passed. The existing browser/provider/MCP workflow was also
 extended to start from the Model Host draft, supply a simulated endpoint, save
 the provider and select its model; the full isolated remote suite passed again.
+A separate disposable Docker fixture then used the updated source HTML and the
+currently deployed native Model Host: it created a provider with the host's
+management credential in temporary data, discovered and registered the real
+`qwen25-coder-7b-q4` model, verified both provider and model through MCP without
+returning the host credential, and completed browser coding chat. The fixture
+was removed afterward. The check can be repeated with
+`bash scripts/test host-model-quickstart`; `--packaged` tests the candidate's
+embedded HTML instead. The host's scoped-credential draft is not deployed.
 Packaged-image, real third-party provider and staging validation remain pending.
 
 ### Selector fix: clean-image and branch validation
