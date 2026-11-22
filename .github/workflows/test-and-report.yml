@@ -64,7 +64,20 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Test independent model client consumer
-        run: cargo test --locked --manifest-path validation/model-client-consumer/Cargo.toml
+        run: |
+          cargo test --locked --manifest-path validation/model-client-consumer/Cargo.toml
+          cargo build --locked --manifest-path validation/model-client-consumer/Cargo.toml --bin host_probe
+          cd validation/model-client-consumer/target/debug
+          sha256sum host_probe > host_probe.sha256
+
+      - name: Upload independent model client probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: independent-model-client-probe-${{ github.sha }}
+          path: |
+            validation/model-client-consumer/target/debug/host_probe
+            validation/model-client-consumer/target/debug/host_probe.sha256
+          retention-days: 3
 
       - name: Install frontend dependencies
         run: npm ci
