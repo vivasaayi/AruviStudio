@@ -4150,7 +4150,7 @@
       const page = await request(`/api/mobile/work-items?product_id=${encodeURIComponent(productId)}&limit=100&offset=${workParentOffset}`);
       if (generation !== workScopeGeneration || el.workProductSelect.value !== productId) return;
       for (const item of page.items || []) {
-        if (!item.parent_work_item_id) el.workParentInput.add(new Option(`${item.title} · ${item.work_item_type}`, item.id));
+        el.workParentInput.add(new Option(`${item.parent_work_item_id ? "Child: " : ""}${item.title} · ${item.work_item_type}`, item.id));
       }
       workParentOffset += page.limit;
       el.loadMoreWorkParentsButton.hidden = !page.has_more;

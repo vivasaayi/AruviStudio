@@ -12,6 +12,22 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Nested work-item creation parity in progress
+
+The shared backend and MCP allow a work item under an existing child, inheriting
+the parent's hierarchy scope, but the browser parent selector filtered out all
+children. The selector now includes them with a `Child:` prefix, using the
+existing paged product-scoped API. The labels do not display a complete
+ancestor path, and pagination remains offset-based rather than a stable snapshot.
+The browser/backend test now creates a story, child and nested child, checks
+inherited scope and verifies the complete product export through MCP. It passed
+against a disposable native server and database with
+`bash scripts/test native-remote -g 'browser places work in hierarchy and under a parent'`.
+The new generic fixture requires a locally built `aruvi-studio-server` and
+Chrome; it creates its own temporary data and does not use the worktree database.
+The frontend suite passed 139 tests and the frontend build passed. Clean-image
+checks and deployment of this change are pending.
+
 ### Stuck workflow recovery parity: branch validation
 
 Desktop and MCP could mark a workflow failed, but the browser lacked that
