@@ -21,7 +21,9 @@ lookup failures preserve the selection and show an error. A response for an
 older selection cannot replace a newer selection. The interface indicates when
 the selected item is outside the loaded page. A native browser fixture covered
 101 children, refresh, a simulated lookup failure, a selection race and status
-filtering. Branch image and deployment validation remain in progress.
+filtering. Three focused native browser tests passed; the native Rust library
+suite passed 351 tests with eight ignored. The code is pushed as `76d08fa`;
+clean-image and deployment validation remain in progress.
 
 ### Child-work navigation parity: branch validation
 
