@@ -151,6 +151,13 @@ provider. Live-provider behavior and full IDE parity remain open.
 
 ### Audit findings before merge
 
+Shared agent workspace writes now reject symlinked path components and existing
+hard-linked destinations on Unix before modifying a file; tool-loop and legacy
+agent writes use the same guard. Native Rust regression coverage and hosted
+Linux workflow checks passed. The checked-path fallback on non-Unix and races
+with external filesystem writers have weaker guarantees; this is not an agent
+sandbox. The goal checkpoint records the worktree deployment and test limits.
+
 MCP reviewed-patch reads, previews and application can now bind to the
 captured workspace root. First-class preview and reviewed application require
 that root; legacy actions remain compatible without it. Hosted clean-image and

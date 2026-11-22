@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Agent workspace write confinement in progress
+### Agent workspace write confinement: branch validation
 
 An agent's workspace `write_file` previously rejected relative-path traversal
 but opened the resulting path directly, so a symlink created in the copied
@@ -30,8 +30,34 @@ agent workspace a security sandbox or make a multi-file workflow atomic.
 The native Mac regression test rejects directory and file symlinks, a hard link,
 traversal and `.git`, verifies the external target is unchanged, and exercises
 new and existing nested files. The complete native Rust library suite passed 348
-tests with eight ignored. Linux hosted checks and a candidate branch deployment
-remain to be validated; the running branch still uses the preceding image.
+tests with eight ignored. Hosted test run `45010981696` passed the same 348
+Rust tests (eight ignored), Rust integration and UI checks. Clean-image run
+`45010982184` passed on ARM64 and AMD64, including workflow, browser, PDF
+isolation and simulated CI checks.
+
+The ARM64 archive SHA-256 was
+`7b583f80470bd8ebd47a3514cc72d2ea7bee830dd20c68090f890eefff80860b`,
+its server layer was
+`2a694bc790fce740b77c5a6e621b62045473e45004d40ea60b16790f83f47c40`,
+and its server binary was
+`99fe9d5b5e7a5aac5adcd3cd029839171fd082f89373ff60eb153628379a1e72`.
+The verified binary was added to the preceding branch runtime to create
+`sha256:1f56d3be9dd4f5084d7941516d19daade6a5bc29586db32e3581ad89de4966f2`.
+Its binary hash and runtime configuration matched, and non-Rust runtime inputs
+were unchanged since the prior image. It is a derived image, not a locally
+loaded full clean image. The local candidate passed 62 workflow tests, 49
+browser tests (one skipped), PDF isolation/outage and simulated CI, plus the
+real Model Host quick start and stream cancellation and a simulated scoped-host
+credential fixture. The running Model Host still uses a management-capable
+credential.
+
+An active-job guard and verified SQLite backup preceded the branch switch; the
+prior image remains tagged for rollback. After restart, product, MCP, mobile
+authorization, PDF, 13-section layout, published-port MCP origin, real coding,
+Piper/Whisper and continuous browser voice with synthetic audio passed. Physical
+devices, native-window parity, live third-party providers, real Aruvici, Mac
+integration and VPS staging remain unverified. This worktree deployment is not
+evidence of complete desktop parity or staging readiness.
 
 ### Reviewed MCP patches: validated branch deployment
 
