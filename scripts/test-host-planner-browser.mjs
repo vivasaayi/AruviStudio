@@ -31,6 +31,17 @@ try {
     await page.locator("#plannerRepositorySelect").selectOption(fixture.repository);
     completed = page.waitForResponse((response) => response.url().endsWith("/analyze-repository") && response.request().method() === "POST", { timeout: 240000 });
     await page.locator("#analyzePlannerRepositoryButton").click();
+  } else if (fixture.existing_area) {
+    await page.getByRole("button", { name: "Products", exact: true }).click();
+    await page.locator("#productList .product-card").filter({ hasText: "Planner validation product" }).click();
+    await page.getByRole("button", { name: "Load product tree" }).click();
+    await page.locator("#productTree summary").filter({ hasText: "Inventory Management" }).click();
+    await page.getByRole("button", { name: "Plan children for Inventory Management", exact: true }).click();
+    await page.locator("#composer").waitFor({ state: "visible" });
+    assert.equal(await page.evaluate(() => localStorage.getItem("aruvi.remote.selected_node")), fixture.existing_area);
+    await page.locator("#composer").fill("Add one capability named Stock Tracking under the selected Inventory Management product area to track stock levels.");
+    completed = page.waitForResponse((response) => response.url().endsWith("/turn") && response.request().method() === "POST", { timeout: 240000 });
+    await page.locator("#sendButton").click();
   } else {
     await page.locator("#composer").fill("Add one product area named Inventory Management for tracking stock levels to this product.");
     completed = page.waitForResponse((response) => response.url().endsWith("/turn") && response.request().method() === "POST", { timeout: 240000 });
@@ -38,6 +49,7 @@ try {
   }
   const response = await completed;
   assert.equal(response.request().postDataJSON().product_id, fixture.product);
+  if (fixture.existing_area) assert.equal(response.request().postDataJSON().selected_draft_node_id, fixture.existing_area);
   const payload = await response.text();
   assert.equal(response.ok(), true, `Planner HTTP ${response.status()}: ${payload.slice(0, 1000)}`);
   let result = JSON.parse(payload);

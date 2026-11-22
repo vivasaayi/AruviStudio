@@ -32,7 +32,10 @@ stale nodes. Browser hierarchy Planner actions use this operation; MCP exposes
 `aruvi_planner` / `stage_catalog_node`, and a desktop command is available.
 Focused tests cover in-place MCP updates, concurrent conflicts, browser draft
 preservation and navigation races; the desktop confirmation UI retains a draft
-after a conflict. A full native browser run passed 56 tests with five fixture
+after a conflict. An isolated simulated model also proposed an update to a
+staged capability, which was applied to the same ID only after confirmation.
+A real Model Host browser fixture for an existing area is prepared but not yet
+run against the new image. A full native browser run passed 56 tests with five fixture
 skips; the frontend build and 139 unit tests passed. The Rust suite passed 358
 tests with eight ignored, followed by a focused recheck of bounded ancestry,
 cross-product and unbound-draft handling. Worktree validation is pending.

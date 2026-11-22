@@ -3,6 +3,39 @@ use crate::persistence::{product_repo, work_item_repo};
 use serde_json::json;
 
 #[tokio::test]
+async fn model_updates_a_staged_catalog_capability_without_creating_a_duplicate() {
+    use crate::persistence::model_repo;
+    use crate::services::planner_catalog_binding::stage_catalog_node;
+    use crate::services::planner_text_turn::submit_planner_turn;
+    use axum::{routing::post, Json, Router};
+    async fn complete(Json(_request): Json<serde_json::Value>) -> Json<serde_json::Value> {
+        let reply = json!({"type":"final","assistant_response":"Updated the capability", "needs_confirmation":true,"clarification_question":null,
+            "actions":[{"type":"update_capability","target":{"productName":"Model-bound product","productAreaName":"Model-bound area","capabilityName":"Model-bound capability"},"fields":{"technicalNotes":"Model proposed notes"}}]});
+        Json(json!({"choices":[{"message":{"content":reply.to_string()},"finish_reason":"stop"}]}))
+    }
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("model_bound_catalog").await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, Router::new().route("/v1/chat/completions", post(complete))).await.unwrap() });
+    model_repo::create_provider(&state.db, "bound-provider", "Fixture", "openai_compatible", &format!("http://{address}/v1"), None).await.unwrap();
+    model_repo::create_model_definition(&state.db, "bound-model", "bound-provider", "fixture", None, None, None).await.unwrap();
+    let product = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"model-bound-product", name:"Model-bound product", description:"", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let area = product_repo::create_product_area(&state.db, product_repo::CreateProductAreaInput { id:"model-bound-area", product_id:&product.id, name:"Model-bound area", description:"", purpose:"", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let capability = product_repo::create_capability(&state.db, product_repo::CreateCapabilityInput { id:"model-bound-capability", product_area_id:&area.id, parent_capability_id:None, name:"Model-bound capability", description:"", acceptance_criteria:"", priority:"medium", risk:"low", technical_notes:"Original", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let session = create_planner_session(state.planner_service.clone(), &state.db, Some("bound-provider".into()), Some("fixture".into())).await.unwrap();
+    stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "capability".into(), capability.id.clone()).await.unwrap();
+    let turn = submit_planner_turn(state.planner_service.clone(), &state, session.session_id.clone(), "Improve technical notes".into(), Some(capability.id.clone()), Some(product.id.clone())).await.unwrap();
+    assert_eq!(turn.status, "proposal", "{}", turn.assistant_message);
+    assert_eq!(product_repo::get_capability(&state.db, &capability.id).await.unwrap().technical_notes, "Original");
+    let confirmed = submit_planner_turn(state.planner_service.clone(), &state, session.session_id.clone(), "confirm".into(), None, Some(product.id.clone())).await.unwrap();
+    assert_eq!(confirmed.status, "execution", "{}", confirmed.assistant_message);
+    let capabilities = product_repo::list_capabilities(&state.db, &area.id).await.unwrap();
+    assert_eq!(capabilities.len(), 1); assert_eq!(capabilities[0].id, capability.id); assert_eq!(capabilities[0].technical_notes, "Model proposed notes");
+    server.abort();
+}
+
+#[tokio::test]
 async fn staging_catalog_node_preserves_draft_and_commits_existing_records() {
     use crate::services::planner_catalog_binding::stage_catalog_node;
     use crate::services::planner_draft_commands::rename_planner_draft_node;
