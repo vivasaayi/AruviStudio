@@ -333,6 +333,7 @@ pub(crate) async fn mobile_get_work_item(
     }
     match work_item_repo::get_work_item(&state.app_state.db, &work_item_id).await {
         Ok(work_item) => Json(work_item).into_response(),
+        Err(AppError::NotFound(_)) => (StatusCode::NOT_FOUND, "Work item not found").into_response(),
         Err(error) => bad_request(error),
     }
 }

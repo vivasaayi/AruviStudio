@@ -2184,6 +2184,7 @@ test("browser places work in hierarchy and under a parent", async ({ page, reque
 
 test("browser pages a story's child work", async ({ page, request }) => {
   test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
+  test.setTimeout(60000);
   async function mcp(name, action, arguments_) {
     const response = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:{action,arguments:arguments_}}}});
     const result = (await response.json()).result;
@@ -2193,18 +2194,48 @@ test("browser pages a story's child work", async ({ page, request }) => {
   let parent; const children = [];
   try {
     parent = await mcp("aruvi_work_items","create_story",{product_id:product.id,title:"Paged story"});
-    for (let index=0; index<51; index++) children.push(await mcp("aruvi_work_items","create_task",{story_id:parent.id,title:`Paged child ${String(index).padStart(2,"0")}`}));
+    for (let index=0; index<101; index++) children.push(await mcp("aruvi_work_items","create_task",{story_id:parent.id,title:`Paged child ${String(index).padStart(3,"0")}`}));
     await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
     await page.getByRole("button",{name:"Work",exact:true}).click(); await page.locator("#workProductSelect").selectOption(product.id);
     await page.locator("#workList .work-card").filter({hasText:"Paged story"}).click();
     await page.getByRole("button",{name:"Load child work",exact:true}).click();
     await expect(page.locator("#deliveryDetails")).toContainText("50 child work item(s) loaded.");
-    await expect(page.getByRole("button",{name:/^Paged child 50 ·/})).toHaveCount(0);
+    await expect(page.getByRole("button",{name:/^Paged child 050 ·/})).toHaveCount(0);
     await page.getByRole("button",{name:"Load more child work"}).click();
-    await expect(page.locator("#deliveryDetails")).toContainText("51 child work item(s) loaded.");
+    await expect(page.locator("#deliveryDetails")).toContainText("100 child work item(s) loaded.");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
-    await expect(page.getByRole("button",{name:/^Paged child 50 ·/})).toHaveCount(1);
+    await expect(page.getByRole("button",{name:/^Paged child 050 ·/})).toHaveCount(1);
+    await page.getByRole("button",{name:"Load more child work"}).click();
+    await expect(page.locator("#deliveryDetails")).toContainText("101 child work item(s) loaded.");
     await expect(page.getByRole("button",{name:"Load more child work"})).toHaveCount(0);
+    await page.getByRole("button",{name:/^Paged child 100 ·/}).click();
+    await expect(page.locator("#deliveryDetails")).toContainText("Paged child 100");
+    await expect(page.locator("#workPageStatus")).toContainText("selected item outside loaded page");
+    await page.locator("#refreshWorkButton").click();
+    await expect(page.locator("#deliveryDetails")).toContainText("Paged child 100");
+    await expect(page.locator("#workPageStatus")).toContainText("selected item outside loaded page");
+    const selectedLookup = `**/api/mobile/work-items/${children[100].id}`;
+    await page.route(selectedLookup, (route) => route.fulfill({status:503,body:"Temporary selected-item failure"}));
+    await page.locator("#refreshWorkButton").click();
+    await expect(page.locator("#status")).toContainText("Temporary selected-item failure");
+    await expect(page.locator("#deliveryDetails")).toContainText("Paged child 100");
+    await page.unroute(selectedLookup);
+    await page.locator("#refreshWorkButton").click();
+    await expect(page.locator("#deliveryDetails")).toContainText("Paged child 100");
+    await expect(page.locator("#status")).toHaveText("Connected");
+    let releaseLookup, lookupArrived;
+    const lookupHeld = new Promise((resolve) => { lookupArrived = resolve; });
+    await page.route(selectedLookup, async (route) => { await new Promise((resolve) => { releaseLookup = resolve; lookupArrived(); }); await route.continue(); });
+    await page.locator("#refreshWorkButton").click();
+    await lookupHeld;
+    const lookupResponse = page.waitForResponse((response) => response.url().endsWith(`/api/mobile/work-items/${children[100].id}`));
+    try { await page.locator("#workList .work-card").filter({hasText:"Paged story"}).click(); }
+    finally { releaseLookup(); }
+    await lookupResponse;
+    await expect(page.locator("#deliveryDetails")).toContainText("Paged story");
+    await page.unroute(selectedLookup);
+    await page.locator("#workStatusFilter").selectOption("done");
+    await expect(page.locator("#deliveryStatus")).toHaveText("Select a task");
   } finally {
     for (const child of children) await mcp("aruvi_work_items","delete_work_item",{id:child.id});
     if (parent) await mcp("aruvi_work_items","delete_work_item",{id:parent.id});

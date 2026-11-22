@@ -12,6 +12,17 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Off-page work selection: validation in progress
+
+Refreshing the backlog now checks an off-page selection against the server and
+keeps it when it still belongs to the selected product and matches the status
+filter. Missing work returns 404 and falls back to a loaded item; transient
+lookup failures preserve the selection and show an error. A response for an
+older selection cannot replace a newer selection. The interface indicates when
+the selected item is outside the loaded page. A native browser fixture covered
+101 children, refresh, a simulated lookup failure, a selection race and status
+filtering. Branch image and deployment validation remain in progress.
+
 ### Child-work navigation parity: branch validation
 
 The desktop story view lists its child tasks, while the web Work view previously
@@ -22,8 +33,8 @@ the parent for a new work draft without clearing the draft title. The new
 authenticated endpoint shares the existing child-work query. Pagination uses
 offsets, not a stable snapshot: concurrent inserts, deletions or reordering can
 shift later pages. Legacy cross-product relationships are displayed but cannot
-be opened through this control. A child outside the loaded backlog can be
-opened, though a later backlog refresh may reset that selection.
+be opened through this control. Off-page selection refresh behavior is described
+in the later checkpoint above.
 
 A native Rust test checked authentication, invalid offsets, missing parents
 and 51 items across two pages. A disposable native server and headless browser

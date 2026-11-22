@@ -1702,7 +1702,9 @@
           const payload = JSON.parse(text);
           message = payload.error || payload.message || text;
         } catch {}
-        throw new Error(message || "Request failed with status " + response.status);
+        const error = new Error(message || "Request failed with status " + response.status);
+        error.status = response.status;
+        throw error;
       }
       return response.json();
     }
@@ -3526,7 +3528,8 @@
     }
     function renderWorkPageStatus() {
       document.getElementById("loadMoreWorkButton").hidden = !workHasMore;
-      document.getElementById("workPageStatus").textContent = state.workItems.length ? `${state.workItems.length} work item(s) loaded${workHasMore ? " · more available" : ""}. Refresh to see changes to earlier pages.` : "";
+      const outside = state.selectedWorkItemId && !state.workItems.some((item) => item.id === state.selectedWorkItemId) ? " · selected item outside loaded page" : "";
+      document.getElementById("workPageStatus").textContent = state.workItems.length ? `${state.workItems.length} work item(s) loaded${workHasMore ? " · more available" : ""}${outside}. Refresh to see changes to earlier pages.` : "";
     }
     async function loadWorkItems() {
       const requestId = ++workPageRequestId;
@@ -3556,7 +3559,21 @@
         state.workItems = response.items || [];
         workNextOffset = state.workItems.length; workHasMore = !!response.has_more;
         renderWorkPageStatus();
-        if (!state.workItems.some((item) => item.id === state.selectedWorkItemId)) {
+        const selectedId = state.selectedWorkItemId;
+        let keepSelected = state.workItems.some((item) => item.id === selectedId);
+        if (selectedId && !keepSelected) {
+          try {
+            const selected = await request("/api/mobile/work-items/" + encodeURIComponent(selectedId));
+            if (requestId !== workPageRequestId || productId !== state.selectedProductId) return;
+            const filter = document.getElementById("workStatusFilter").value;
+            keepSelected = selectedId !== state.selectedWorkItemId || (selected.product_id === productId && (!filter || selected.status === filter));
+          } catch (error) {
+            if (requestId !== workPageRequestId || productId !== state.selectedProductId) return;
+            if (selectedId !== state.selectedWorkItemId) keepSelected = true;
+            else if (error.status !== 404) throw error;
+          }
+        }
+        if (!keepSelected && selectedId === state.selectedWorkItemId) {
           cancelWorkWorkspace();
           state.selectedWorkItemId = state.workItems[0] ? state.workItems[0].id : "";
           if (state.selectedWorkItemId) {
@@ -3565,6 +3582,7 @@
             localStorage.removeItem(storageKeys.selectedWorkItem);
           }
         }
+        renderWorkPageStatus();
         renderWorkItems();
         if (state.selectedWorkItemId) {
           await loadDelivery(false);
@@ -3741,6 +3759,7 @@
       cancelWorkEdit();
       state.delivery = null;
       renderWorkItems();
+      renderWorkPageStatus();
       renderDelivery();
       document.getElementById("externalCliRuns").textContent = "";
       document.getElementById("externalCliEvents").textContent = "";

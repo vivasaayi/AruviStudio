@@ -175,6 +175,7 @@ async fn child_work_endpoint_is_authenticated_and_pages_direct_children() {
     }
     let uri = format!("/api/mobile/work-items/{parent_id}/children");
     assert_eq!(send_json(&router,Method::GET,&uri,None,None).await.0,StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router,Method::GET,"/api/mobile/work-items/missing",Some("children-token"),None).await.0,StatusCode::NOT_FOUND);
     assert_eq!(send_json(&router,Method::GET,&format!("{uri}?offset=-1"),Some("children-token"),None).await.0,StatusCode::BAD_REQUEST);
     assert_eq!(send_json(&router,Method::GET,"/api/mobile/work-items/missing/children",Some("children-token"),None).await.0,StatusCode::BAD_REQUEST);
     let (status,first) = send_json(&router,Method::GET,&uri,Some("children-token"),None).await;

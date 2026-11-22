@@ -157,6 +157,10 @@ draft. This supplies a browser equivalent to the desktop story's task list;
 it does not yet establish complete story-screen parity. The goal checkpoint
 records validation and pagination limits.
 
+Refreshing the backlog retains an off-page selection after checking its product
+and status against the server. The goal checkpoint records the current test and
+deployment status for this behavior.
+
 Browser hierarchy creation now supports the desktop's product-area description
 and capability/feature description, acceptance criteria and technical notes.
 The server forwards them to the catalog service; older clients can omit them.
