@@ -12,6 +12,25 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Native Model Host watcher and Studio outages
+
+The opt-in native-host watcher previously checked only the host's endpoint and
+process identity after initial setup. A Studio outage with an unchanged host
+was not detected, so the watcher could report no error and skip revalidation.
+It now probes Studio's MCP provider list while the host is unchanged. A failed
+probe follows the existing retry path and revalidates after Studio returns,
+without rotating an unchanged host credential. The helper remains a foreground
+process and does not start automatically. The read-only probe checks
+reachability, not provider contents or credential changes; an outage entirely
+between polls can be missed. Revalidation has the helper's existing provider
+ownership and completion-profile behavior.
+
+Twenty native synchronization tests passed, including a simulated Studio MCP
+failure and recovery, unchanged-token behavior, malformed responses and
+secret-free errors. The read-only MCP probe passed against the running branch.
+No running service was restarted for this check, so it is not live restart or
+integration/staging acceptance.
+
 ### Independent client native Model Host probe
 
 The independent consumer remains Git-pinned at

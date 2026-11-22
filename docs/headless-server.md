@@ -200,12 +200,17 @@ has simulated-provider coverage; live DeepSeek voice is not yet verified.
 
 Native worktree ports can change after a restart. Add `--watch` to keep the helper
 running in the foreground; it polls every five seconds, retries outages, and
-refreshes the provider when the endpoint or token changes. Port-only changes
-reuse the existing stored credential; changed tokens are rotated. Stop it with Ctrl-C.
+refreshes the provider when the endpoint or token changes. While the host is
+unchanged it also probes Studio's MCP provider list. If that probe fails, it
+retries and revalidates the provider when Studio returns; it does not rotate an
+unchanged credential. Port-only changes also reuse the stored credential;
+changed tokens are rotated. Stop it with Ctrl-C.
 This watcher is opt-in and does not start automatically at login. Requests may
 fail during a restart until refresh succeeds. Run the one-shot command again if
 no watcher is active. The helper targets Studio's Docker worktree, using
 `host.docker.internal`; a native desktop setup must use a host-reachable address.
+The probe detects reachability, not every provider or credential edit, and a
+brief outage entirely between polls can be missed.
 
 To exercise the browser workflow without changing the running service's data, run
 `scripts/test-container-workflow.sh` after `bash scripts/env worktree up`. It starts a

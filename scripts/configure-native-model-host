@@ -34,6 +34,12 @@ def mcp(action, arguments):
     return json.loads(result.stdout)["result"]
 
 
+def probe_studio():
+    """Check the watched Studio endpoint without modifying providers or keys."""
+    if not isinstance(mcp("list_providers", {}), list):
+        raise SetupError("Studio provider discovery returned an invalid response")
+
+
 def read_host_state(host, environment, credential_scope="management"):
     env = dict(os.environ, ARUVI_MODEL_HOST_ENV="native")
     def info(action):
@@ -158,6 +164,10 @@ def main():
                 print(json.dumps(result), flush=True)
                 last = current
                 needs_recovery = False
+            elif args.watch:
+                # The host can stay unchanged while Studio stops or is recreated.
+                # A failed probe enters the existing retry/revalidation path.
+                probe_studio()
             last_error = None
         except (OSError, ValueError, KeyError, TypeError, StopIteration, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             # Neither HTTP response content nor subprocess output should reach logs.
