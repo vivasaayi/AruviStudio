@@ -23,7 +23,24 @@ products. A disposable database test checks that ambiguous and missing update
 targets leave both same-name products unchanged and that an exact ID updates
 only its product. Broader regression and deployment checks are pending. This
 does not yet bind existing product areas or capabilities to draft nodes.
-The native Planner turn regression group passed 23 tests.
+The native Planner turn regression group passed 23 tests; the full Rust library
+suite passed 355 tests with eight ignored.
+
+Remaining selected-catalog migration work:
+
+1. Define a server-owned catalog context containing product and node IDs, node
+   kind and ancestry. Validate ownership and reject missing or changed targets;
+   do not substitute a same-name node.
+2. Stage existing nodes with their original values and identity separately from
+   newly proposed nodes. Preserve an existing staged design when changing
+   context, and make that state reviewable before applying it.
+3. Apply updates to the bound records under the same transaction as new child
+   creation, checking the stored snapshot for conflicting concurrent edits or
+   moves. A rejected operation must leave the complete draft and catalog intact.
+4. Carry the context through web, desktop, MCP and voice as applicable; test
+   duplicate names, nested nodes, stale snapshots, cross-product IDs, deleted
+   targets, failures and retry, as well as real-model behavior. Existing legacy
+   drafts and explicitly unscoped requests need documented compatibility.
 
 ### Scoped Planner model tool reads (in validation)
 
