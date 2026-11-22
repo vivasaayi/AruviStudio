@@ -12,7 +12,7 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
-### Hierarchy-scoped work browsing: validation in progress
+### Hierarchy-scoped work browsing: branch validation
 
 The desktop product view can show top-level stories for a selected feature;
 the web Work view previously exposed only product-wide and status-filtered
@@ -37,9 +37,24 @@ Lists use offsets and are not stable snapshots
 under concurrent changes. The configured native browser suite passed 49 tests
 with five fixture-dependent skips; the native Rust library suite passed 351
 tests with eight ignored, including after the empty-list selection and MCP
-discovery fixes.
-Clean-image and deployed-branch validation remain
-pending; this is not full product-screen parity.
+discovery fixes. This is not full product-screen parity.
+
+Clean ARM64 and AMD64 image validation passed for `265d7c8`. The worktree
+candidate combines its checksum-verified ARM64 server with the prior runtime
+image; it is not the complete clean image. Candidate image ID is
+`sha256:fedd68b6de05ee74c256dfb6f9be9c6a485569ca2252e6bced63900ea15475a4`
+and server SHA-256 is
+`31a6bf2d8174992c15312da0d3d9f31881622ed560167f23956d63d4fab3d8c3`.
+Isolated workflow, browser, PDF and simulated-CI suites and real Model Host
+quick-start, cancellation and scoped-credential checks passed. After an
+active-job check and verified database backup, the app and PDF containers were
+updated; restart acceptance verified product persistence, MCP, mobile
+authorization and PDF. The deployed scoped-work browser/MCP/API fixture,
+hierarchy and child-work tests, all 13 sections at phone and desktop widths,
+MCP origin checks, real local coding and speech through MCP, and continuous
+browser voice with synthetic audio passed. The previous image remains tagged
+for rollback. Physical desktop and audio, live third-party providers, deployed
+Aruvici, Mac integration and VPS staging remain unverified.
 
 ### Real-model multi-file delivery revalidation
 
