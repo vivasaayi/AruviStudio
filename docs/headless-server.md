@@ -866,7 +866,11 @@ updates are also rejected while their workflow or CLI run is active. New
 children of a staged work item retain that parent. MCP can stage the same
 context with `aruvi_planner` / `stage_catalog_node` using `session_id`,
 `product_id`, `node_type` (`product`, `product_area`, `capability`, `feature`,
-or `work_item`) and `node_id`. Newly proposed unbound nodes are created.
+or `work_item`) and `node_id`. Newly proposed unbound nodes are created. Planner voice can also stage an existing item by saying, for example,
+“Select existing product area Inventory” after selecting a product. Use an exact
+name and an explicit type: product, product area, capability, feature, story,
+task or work item. Duplicate matches are rejected. Matching is case-insensitive
+for ASCII characters; non-ASCII names must match their stored case.
 If a Planner session contains another product's staged design, a scoped turn or
 confirmation is rejected. Review and clear that design or start a new session
 before switching. MCP `confirm_planner_plan` and the mobile confirmation endpoint

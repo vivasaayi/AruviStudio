@@ -18,6 +18,19 @@ fn exact_voice_command_text(normalized: &str) -> &str {
         .trim_end()
 }
 
+async fn find_existing_voice_nodes(conn: &mut sqlx::SqliteConnection, product_id: &str, kind: &str, name: &str) -> Result<Vec<String>, AppError> {
+    let sql = match kind {
+        "product" => "SELECT id FROM products WHERE id=? AND trim(name)=trim(?) COLLATE NOCASE LIMIT 2",
+        "product_area" => "SELECT id FROM product_areas WHERE product_id=? AND trim(name)=trim(?) COLLATE NOCASE LIMIT 2",
+        "capability" => "SELECT c.id FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE a.product_id=? AND trim(c.name)=trim(?) COLLATE NOCASE LIMIT 2",
+        "feature" => "SELECT c.id FROM capabilities c JOIN product_areas a ON a.id=c.product_area_id WHERE a.product_id=? AND c.node_kind='feature' AND trim(c.name)=trim(?) COLLATE NOCASE LIMIT 2",
+        "story" => "SELECT id FROM work_items WHERE product_id=? AND work_item_type='story' AND trim(title)=trim(?) COLLATE NOCASE LIMIT 2",
+        "task" => "SELECT id FROM work_items WHERE product_id=? AND work_item_type='task' AND trim(title)=trim(?) COLLATE NOCASE LIMIT 2",
+        _ => "SELECT id FROM work_items WHERE product_id=? AND trim(title)=trim(?) COLLATE NOCASE LIMIT 2",
+    };
+    Ok(sqlx::query_scalar::<_, String>(sql).bind(product_id).bind(name).fetch_all(conn).await?)
+}
+
 #[cfg(test)]
 mod command_text_tests {
     use super::exact_voice_command_text;
@@ -273,6 +286,47 @@ pub async fn submit_planner_voice_turn(
     let is_draft_selection_command = ["select ", "choose ", "highlight ", "open ", "expand ", "collapse ", "close "]
         .iter()
         .any(|prefix| normalized_transcript.starts_with(prefix));
+
+    // Explicitly selecting an existing catalog item is distinct from selecting
+    // a node already in the staged design. Match only exact, unique names in
+    // the selected product, then snapshot and record the exchange atomically.
+    let existing_prefix = ["select existing ", "choose existing "].iter()
+        .find(|prefix| normalized_transcript.starts_with(**prefix));
+    if let Some(prefix) = existing_prefix {
+        let product_id = selected_product_id.as_deref().ok_or_else(|| AppError::Validation("Select a product before selecting an existing catalog item.".into()))?;
+        let reference_text = spoken[prefix.len()..].trim();
+        let (kind, reference) = parse_voice_node_reference(reference_text);
+        let kind = kind.filter(|kind| matches!(*kind, "product" | "product_area" | "capability" | "feature" | "work_item" | "story" | "task"))
+            .ok_or_else(|| AppError::Validation("Specify product, product area, capability, feature, story, task or work item when selecting an existing item.".into()))?;
+        let mut tx = state.db.begin_with("BEGIN IMMEDIATE").await?;
+        let mut matches = find_existing_voice_nodes(&mut tx, product_id, kind, &reference).await?;
+        if matches.is_empty() && reference.ends_with('.') {
+            matches = find_existing_voice_nodes(&mut tx, product_id, kind, exact_voice_command_text(&reference)).await?;
+        }
+        if matches.is_empty() { return Err(AppError::Validation("No matching existing item was found in the selected product.".into())); }
+        if matches.len() != 1 { return Err(AppError::Validation("Multiple existing items match; select the intended item in the product view.".into())); }
+        let node_id = matches.remove(0);
+        let stage_kind = if matches!(kind, "story" | "task") { "work_item" } else { kind };
+        let draft = crate::services::planner_catalog_binding::build_staged_catalog_draft(&mut tx, session.draft_plan.clone(), product_id, stage_kind, &node_id).await?;
+        let name = draft.nodes.iter().find(|node| node.id == node_id).map(|node| node.name.clone()).ok_or_else(|| AppError::Validation("The selected item could not be staged.".into()))?;
+        let assistant_message = format!("Staged existing {} {} for review.", kind.replace('_', " "), name);
+        let result = sqlx::query("UPDATE planner_sessions SET draft_plan_json=?, selected_draft_node_id=?, updated_at=datetime('now') WHERE id=?")
+            .bind(serde_json::to_string(&draft)?).bind(&node_id).bind(&session_id).execute(&mut *tx).await?;
+        if result.rows_affected() != 1 { return Err(AppError::NotFound("Planner session not found".into())); }
+        for (role, content) in [("user", spoken.as_str()), ("assistant", assistant_message.as_str())] {
+            sqlx::query("INSERT INTO planner_conversation_entries (id, session_id, role, content) VALUES (?, ?, ?, ?)")
+                .bind(uuid::Uuid::new_v4().to_string()).bind(&session_id).bind(role).bind(content).execute(&mut *tx).await?;
+        }
+        tx.commit().await?;
+        session.draft_plan = Some(draft);
+        session.selected_draft_node_id = Some(node_id);
+        session.conversation.push(PlannerConversationEntry { role:"user".into(), content:spoken });
+        session.conversation.push(PlannerConversationEntry { role:"assistant".into(), content:assistant_message.clone() });
+        planner_service.lock().await.save_session(&session_id, session.clone());
+        let mut response = build_session_state_response(session_id, "session_update", assistant_message, &session, vec![], vec![], trace);
+        response.view_hint = Some("draft".into());
+        return Ok(response);
+    }
 
     if session.draft_plan.is_none() && (is_draft_view_command || is_draft_selection_command) {
         let assistant_message = "There is no staged design tree yet.".to_string();

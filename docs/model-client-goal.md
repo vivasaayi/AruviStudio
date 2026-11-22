@@ -15,7 +15,7 @@ provider hosting into the model-host service as part of this work.
 - [ ] Finish the clean ARM64 and AMD64 builds and hosted checks for the latest
   runtime revision; test the verified Mac candidate and update the worktree.
 - [ ] Complete the action-by-action desktop/web/MCP parity inventory, including
-  direct voice selection, native dialogs and deliberately platform-specific
+  direct voice selection edge cases, native dialogs and deliberately platform-specific
   behavior. Validate actual native-window and physical audio interaction when
   the Mac window is accessible.
 - [ ] Validate live third-party provider and real Aruvici paths where available;
@@ -28,6 +28,20 @@ provider hosting into the model-host service as part of this work.
   connectivity checks. Production promotion and release require separate work.
 
 ## Checkpoints
+
+### Voice selection of existing catalog items (in validation)
+
+Planner voice now accepts an explicit request such as “Select existing product
+area Inventory” and resolves an exact unique name within the selected product.
+Product, area, capability, feature, story, task and work-item types are supported;
+story and task matches are type-specific. The shared staging transaction binds
+and snapshots the item and its ancestors, and records the voice exchange
+atomically. Missing, ambiguous and cross-product matches are rejected without
+staging a different item. ASCII case-insensitive matching is supported;
+non-ASCII names require their stored case. An isolated database test covers
+scope, duplicates, story/task identity and rollback on conversation failure. A
+native browser/MCP fixture stages an area and capability through voice
+transcripts. Physical microphone capture and clean image validation remain open.
 
 ### Current worktree deployment at `1215881`
 
@@ -90,8 +104,9 @@ reporter completed cleanly with all 80 passing. This has not been validated in
 a physical native window. An isolated native debug process later started with a
 temporary database, but the computer-control interface reported
 `cgWindowNotFound` and could not inspect the window; that process was stopped.
-Direct voice selection of existing catalog items remains a separate parity gap. Worktree deployment and clean image validation for this frontend
-change are pending.
+Direct voice selection now has scoped binding as described above; physical
+audio remains unverified. The desktop frontend change was included in the
+clean image and worktree deployment recorded above.
 
 ### Current worktree deployment at `79be018`
 
@@ -240,7 +255,7 @@ tests with eight ignored, including bounded ancestry, cross-product and
 unbound-draft handling. Worktree validation is pending.
 
 The desktop Product Book shortcuts now stage these bindings as described above;
-the direct voice selection flow does not yet do so. Selected existing work items now have the ID-bound path described
+direct voice selection now has the scoped binding described above. Selected existing work items now have the ID-bound path described
 above, but it has not completed the client and conflict validation matrix. New unbound
 hierarchy proposals still create nodes. Real-model behavior and the full client
 matrix remain unverified; do not claim complete selected-catalog parity.

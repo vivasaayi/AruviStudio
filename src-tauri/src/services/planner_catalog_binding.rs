@@ -65,19 +65,36 @@ pub(crate) async fn stage_catalog_node(
 ) -> Result<PlannerTurnResponse, AppError> {
     let _guard = lock_planner_session(&planner_service, db, &session_id).await?;
     let mut session = get_or_load_session(&planner_service, db, &session_id).await?;
-    if !matches!(node_type.as_str(), "product" | "product_area" | "capability" | "feature" | "work_item") {
+    let mut tx = db.begin_with("BEGIN IMMEDIATE").await?;
+    let draft = build_staged_catalog_draft(&mut tx, session.draft_plan.clone(), &product_id, &node_type, &node_id).await?;
+    session.draft_plan = Some(draft);
+    session.selected_draft_node_id = Some(node_id);
+    let updated = sqlx::query("UPDATE planner_sessions SET draft_plan_json=?, selected_draft_node_id=?, updated_at=datetime('now') WHERE id=?")
+        .bind(serde_json::to_string(&session.draft_plan)?).bind(session.selected_draft_node_id.as_deref()).bind(&session_id).execute(&mut *tx).await?;
+    if updated.rows_affected() != 1 { return Err(AppError::NotFound("Planner session not found".into())); }
+    tx.commit().await?;
+    planner_service.lock().await.save_session(&session_id, session.clone());
+    Ok(build_session_state_response(session_id, "session_update", "Existing catalog node staged for review.".into(), &session, vec![], vec![], vec![]))
+}
+
+/// Build a staged snapshot under the caller's database transaction. Callers
+/// can commit the draft and related session exchange atomically.
+pub(crate) async fn build_staged_catalog_draft(
+    conn: &mut SqliteConnection, existing_draft: Option<PlannerDraftPlan>,
+    product_id: &str, node_type: &str, node_id: &str,
+) -> Result<PlannerDraftPlan, AppError> {
+    if !matches!(node_type, "product" | "product_area" | "capability" | "feature" | "work_item") {
         return Err(AppError::Validation("Select a product, product area, capability, feature or work item.".into()));
     }
-    let mut tx = db.begin_with("BEGIN IMMEDIATE").await?;
-    let product = product_core_repo::get_product_in_conn(&mut tx, &product_id).await?;
+    let product = product_core_repo::get_product_in_conn(&mut *conn, product_id).await?;
     let product = &product;
-    if let Some(existing) = session.draft_plan.as_ref().filter(|draft| !draft.nodes.is_empty()) {
+    if let Some(existing) = existing_draft.as_ref().filter(|draft| !draft.nodes.is_empty()) {
         let roots: Vec<_> = existing.nodes.iter().filter(|node| node.node_type == "product" && node.parent_id.is_none()).collect();
         if roots.len() != 1 || roots[0].id != product.id {
             return Err(AppError::Validation("The current draft belongs to another or unidentified product; review it before staging a catalog node.".into()));
         }
     }
-    let mut draft = seed_draft_with_product(session.draft_plan.clone(), product);
+    let mut draft = seed_draft_with_product(existing_draft.clone(), product);
     let roots: Vec<_> = draft.nodes.iter().filter(|node| node.node_type == "product" && node.parent_id.is_none()).collect();
     if roots.len() != 1 || roots[0].id != product.id {
         return Err(AppError::Validation("The current draft belongs to another or unidentified product; review it before staging a catalog node.".into()));
@@ -99,12 +116,12 @@ pub(crate) async fn stage_catalog_node(
     if node_type == "product" && node_id != product.id { return Err(missing()); }
     let mut work_path: Vec<WorkItem> = Vec::new();
     if node_type == "work_item" {
-        let mut next = Some(node_id.clone());
+        let mut next = Some(node_id.to_string());
         let mut seen = HashSet::new();
         while let Some(id) = next {
             if work_path.len() >= 1000 || !seen.insert(id.clone()) { return Err(AppError::Validation("Work item ancestry is cyclic or exceeds the supported depth.".into())); }
             let work = sqlx::query_as::<_, WorkItem>("SELECT * FROM work_items WHERE id=?")
-                .bind(&id).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
+                .bind(&id).fetch_optional(&mut *conn).await?.ok_or_else(missing)?;
             if work.product_id.as_deref() != Some(product.id.as_str()) { return Err(missing()); }
             if let Some(selected) = work_path.first() {
                 if selected.product_area_id != work.product_area_id || selected.capability_id != work.capability_id { return Err(AppError::Validation("Work item ancestry has inconsistent catalog scope.".into())); }
@@ -114,20 +131,20 @@ pub(crate) async fn stage_catalog_node(
         }
         work_path.reverse();
     }
-    let hierarchy_id = if node_type == "product" { None } else if node_type == "work_item" { work_path.last().and_then(|item| item.capability_id.clone().or_else(|| item.product_area_id.clone())) } else { Some(node_id.clone()) };
+    let hierarchy_id = if node_type == "product" { None } else if node_type == "work_item" { work_path.last().and_then(|item| item.capability_id.clone().or_else(|| item.product_area_id.clone())) } else { Some(node_id.to_string()) };
     let hierarchy_is_area = node_type == "product_area" || (node_type == "work_item" && work_path.last().is_some_and(|item| item.capability_id.is_none()));
     let mut parent_id = product.id.clone();
     if let Some(hierarchy_id) = hierarchy_id {
         let (area, path) = if hierarchy_is_area {
             let area = sqlx::query_as::<_, ProductArea>("SELECT * FROM product_areas WHERE id=? AND product_id=?")
-                .bind(&hierarchy_id).bind(&product.id).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
+                .bind(&hierarchy_id).bind(&product.id).fetch_optional(&mut *conn).await?.ok_or_else(missing)?;
             (area, Vec::new())
         } else {
             let mut path = Vec::new(); let mut seen = HashSet::new(); let mut next = Some(hierarchy_id);
             while let Some(id) = next {
                 if path.len() >= 1000 || !seen.insert(id.clone()) { return Err(AppError::Validation("Catalog ancestry is cyclic or exceeds the supported depth.".into())); }
                 let capability = sqlx::query_as::<_, Capability>("SELECT * FROM capabilities WHERE id=?")
-                    .bind(&id).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
+                    .bind(&id).fetch_optional(&mut *conn).await?.ok_or_else(missing)?;
                 if path.is_empty() && node_type == "feature" && capability.node_kind.to_string() != "feature" { return Err(missing()); }
                 next = capability.parent_capability_id.clone(); path.push(capability);
             }
@@ -135,7 +152,7 @@ pub(crate) async fn stage_catalog_node(
             if path.iter().any(|capability| &capability.product_area_id != area_id) { return Err(missing()); }
             if let Some(work) = work_path.last() { if work.product_area_id.as_ref() != Some(area_id) { return Err(missing()); } }
             let area = sqlx::query_as::<_, ProductArea>("SELECT * FROM product_areas WHERE id=? AND product_id=?")
-                .bind(area_id).bind(&product.id).fetch_optional(&mut *tx).await?.ok_or_else(missing)?;
+                .bind(area_id).bind(&product.id).fetch_optional(&mut *conn).await?.ok_or_else(missing)?;
             path.reverse(); (area, path)
         };
         stage_node(&mut draft, PlannerDraftNode {
@@ -158,14 +175,7 @@ pub(crate) async fn stage_catalog_node(
         })?;
         parent_id = work.id.clone();
     }
-    session.draft_plan = Some(draft);
-    session.selected_draft_node_id = Some(node_id);
-    let updated = sqlx::query("UPDATE planner_sessions SET draft_plan_json=?, selected_draft_node_id=?, updated_at=datetime('now') WHERE id=?")
-        .bind(serde_json::to_string(&session.draft_plan)?).bind(session.selected_draft_node_id.as_deref()).bind(&session_id).execute(&mut *tx).await?;
-    if updated.rows_affected() != 1 { return Err(AppError::NotFound("Planner session not found".into())); }
-    tx.commit().await?;
-    planner_service.lock().await.save_session(&session_id, session.clone());
-    Ok(build_session_state_response(session_id, "session_update", "Existing catalog node staged for review.".into(), &session, vec![], vec![], vec![]))
+    Ok(draft)
 }
 
 pub(crate) fn check_bound_product(node: &PlannerDraftNode, current: Option<&Product>, required: bool) -> Result<(), AppError> {

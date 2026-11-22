@@ -811,6 +811,38 @@ test("planner shows selected node evidence and honors server-cleared selection",
   expect(requests[2].selected_draft_node_id).toBeNull();
 });
 
+test("voice stages an existing catalog node through browser and MCP", async ({ page, request }) => {
+  test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
+  async function mcp(name, action, arguments_) {
+    const response=await request.post("/api/mcp",{headers:{Authorization:`Bearer ${mcpToken}`,Accept:"application/json, text/event-stream"},data:{jsonrpc:"2.0",id:1,method:"tools/call",params:{name,arguments:{action,arguments:arguments_}}}});
+    const result=(await response.json()).result; expect(result.isError,JSON.stringify(result)).not.toBeTruthy(); return result.structuredContent?.result;
+  }
+  const product=await mcp("aruvi_catalog","create_product",{name:`Voice existing ${Date.now()}`});
+  try {
+    const area=await mcp("aruvi_catalog","create_product_area",{product_id:product.id,name:"Voice inventory"});
+    const capability=await mcp("aruvi_catalog","create_capability",{product_area_id:area.id,name:"Voice stock alerts"});
+    await page.goto("/remote"); await page.locator("#tokenInput").fill(token); await page.locator("#saveButton").click();
+    await page.locator("#plannerProductSelect").selectOption(product.id);
+    await page.getByRole("button",{name:"Voice",exact:true}).click();
+    await page.getByLabel("Send transcript to").selectOption("planner");
+    await page.locator("#voiceComposer").fill("Select existing product area Voice inventory.");
+    const submitted=page.waitForResponse(response=>response.url().endsWith("/voice-turn"));
+    await page.locator("#voiceSendButton").click();
+    const response=await submitted; expect(response.status()).toBe(200);
+    const staged=await response.json(); expect(staged.selected_draft_node_id).toBe(area.id);
+    await expect(page.locator("#voiceConversation")).toContainText("Staged existing product area");
+    const session=await mcp("aruvi_planner","create_planner_session",{});
+    const selected=await mcp("aruvi_planner","submit_planner_voice_turn",{session_id:session.session_id,product_id:product.id,transcript:"Select existing capability Voice stock alerts"});
+    expect(selected.selected_draft_node_id).toBe(capability.id);
+    const story=await mcp("aruvi_work_items","create_story",{product_id:product.id,product_area_id:area.id,title:"Shared voice title"});
+    const task=await mcp("aruvi_work_items","create_task",{story_id:story.id,title:"Shared voice title"});
+    const selectedStory=await mcp("aruvi_planner","submit_planner_voice_turn",{session_id:session.session_id,product_id:product.id,selected_draft_node_id:capability.id,transcript:"Select existing story Shared voice title"});
+    expect(selectedStory.selected_draft_node_id).toBe(story.id);
+    const selectedTask=await mcp("aruvi_planner","submit_planner_voice_turn",{session_id:session.session_id,product_id:product.id,selected_draft_node_id:story.id,transcript:"Select existing task Shared voice title"});
+    expect(selectedTask.selected_draft_node_id).toBe(task.id);
+  } finally { await mcp("aruvi_catalog","archive_product",{id:product.id}); }
+});
+
 test("MCP product-root staging rejects a concurrent product edit", async ({ request }) => {
   test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
   async function mcp(name, action, arguments_) {

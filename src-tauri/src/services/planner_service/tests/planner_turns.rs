@@ -3,6 +3,59 @@ use crate::persistence::{product_repo, work_item_repo};
 use serde_json::json;
 
 #[tokio::test]
+async fn voice_stages_existing_nodes_with_scope_and_atomic_exchange() {
+    use crate::services::planner_session::load_session_from_db;
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("voice_existing_catalog").await;
+    let product = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"voice-product", name:"Voice product", description:"", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let other = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"voice-other", name:"Other product", description:"", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let area_input = |id: &'static str, product_id: &'static str, name: &'static str| product_repo::CreateProductAreaInput { id, product_id, name, description:"", purpose:"", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" };
+    let area = product_repo::create_product_area(&state.db, area_input("voice-area", "voice-product", "Inventory")).await.unwrap();
+    product_repo::create_product_area(&state.db, area_input("voice-other-area", "voice-other", "Inventory")).await.unwrap();
+    let capability = product_repo::create_capability(&state.db, product_repo::CreateCapabilityInput { id:"voice-capability", product_area_id:&area.id, parent_capability_id:None, name:"Stock alerts", description:"", acceptance_criteria:"", priority:"medium", risk:"low", technical_notes:"", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let no_scope = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "Select existing product area Inventory".into(), None, None).await.unwrap_err();
+    assert!(no_scope.to_string().contains("Select a product"));
+    let selected = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "Select existing product area Inventory.".into(), None, Some(product.id.clone())).await.unwrap();
+    assert_eq!(selected.selected_draft_node_id.as_deref(), Some(area.id.as_str()));
+    let loaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert!(loaded.draft_plan.as_ref().unwrap().nodes.iter().any(|node| node.id==area.id && node.details.get("_catalog_binding").is_some()));
+    assert_eq!(loaded.conversation.len(), 2);
+    let selected = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "Select existing capability Stock alerts".into(), Some(area.id.clone()), Some(product.id.clone())).await.unwrap();
+    assert_eq!(selected.selected_draft_node_id.as_deref(), Some(capability.id.as_str()));
+    let before = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    product_repo::create_product_area(&state.db, area_input("voice-area-duplicate", "voice-product", "Inventory")).await.unwrap();
+    let duplicate = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "Select existing product area Inventory".into(), Some(capability.id.clone()), Some(product.id.clone())).await.unwrap_err();
+    assert!(duplicate.to_string().contains("Multiple existing items"));
+    let after = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(serde_json::to_value(&after.draft_plan).unwrap(), serde_json::to_value(&before.draft_plan).unwrap());
+    assert_eq!(after.conversation.len(), before.conversation.len());
+    let feature = product_repo::create_capability(&state.db, product_repo::CreateCapabilityInput { id:"voice-feature", product_area_id:&area.id, parent_capability_id:Some(&capability.id), name:"Stock alerts", description:"", acceptance_criteria:"", priority:"medium", risk:"low", technical_notes:"", node_kind:Some("feature"), explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let feature_session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let selected_feature = submit_planner_voice_turn(state.planner_service.clone(), &state, feature_session.session_id.clone(), "Select existing feature Stock alerts".into(), None, Some(product.id.clone())).await.unwrap();
+    assert_eq!(selected_feature.selected_draft_node_id.as_deref(), Some(feature.id.as_str()));
+    let draft_feature = submit_planner_voice_turn(state.planner_service.clone(), &state, feature_session.session_id.clone(), "Select feature Stock alerts".into(), Some(feature.id.clone()), Some(product.id.clone())).await.unwrap();
+    assert_eq!(draft_feature.selected_draft_node_id.as_deref(), Some(feature.id.as_str()));
+    use crate::persistence::work_item_write_repo;
+    let make_work = |id: &'static str, kind: &'static str, parent: Option<&'static str>| work_item_repo::CreateWorkItemInput { id, product_id:"voice-product", product_area_id:Some("voice-area"), capability_id:None, source_node_id:None, source_node_type:None, parent_work_item_id:parent, title:"Shared title", problem_statement:"", description:"", acceptance_criteria:"", constraints:"", work_item_type:kind, priority:"medium", complexity:"medium" };
+    let story = work_item_write_repo::create_work_item(&state.db, make_work("voice-story", "story", None)).await.unwrap();
+    let task = work_item_write_repo::create_work_item(&state.db, make_work("voice-task", "task", Some("voice-story"))).await.unwrap();
+    let work_session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let story_selected = submit_planner_voice_turn(state.planner_service.clone(), &state, work_session.session_id.clone(), "Select existing story Shared title".into(), None, Some(product.id.clone())).await.unwrap();
+    assert_eq!(story_selected.selected_draft_node_id.as_deref(), Some(story.id.as_str()));
+    let task_selected = submit_planner_voice_turn(state.planner_service.clone(), &state, work_session.session_id.clone(), "Select existing task Shared title".into(), Some(story.id.clone()), Some(product.id.clone())).await.unwrap();
+    assert_eq!(task_selected.selected_draft_node_id.as_deref(), Some(task.id.as_str()));
+    sqlx::query("CREATE TRIGGER fail_voice_catalog_exchange BEFORE INSERT ON planner_conversation_entries WHEN NEW.role='assistant' BEGIN SELECT RAISE(FAIL, 'fixture failure'); END").execute(&state.db).await.unwrap();
+    let failure = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "Select existing product Voice product".into(), Some(capability.id.clone()), Some(product.id.clone())).await;
+    assert!(failure.is_err());
+    let after = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(serde_json::to_value(&after.draft_plan).unwrap(), serde_json::to_value(&before.draft_plan).unwrap());
+    assert_eq!(after.selected_draft_node_id, before.selected_draft_node_id);
+    assert_eq!(after.conversation.len(), before.conversation.len());
+    assert_ne!(product.id, other.id);
+}
+
+#[tokio::test]
 async fn staged_product_root_checks_identity_and_concurrent_edits() {
     use crate::services::planner_catalog_binding::stage_catalog_node;
     use crate::services::planner_session::load_session_from_db;
