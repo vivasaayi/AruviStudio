@@ -60,6 +60,14 @@ jobs:
           printf 'APP_IMAGE=%s\n' "$ARUVI_TEST_APP_IMAGE" > "$ARUVI_TEST_ENV_FILE"
           bash scripts/test-host-browser-fixture.sh workflow
           bash scripts/test-host-browser-fixture.sh remote
+      - name: Upload browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-failure-${{ github.run_id }}-${{ github.run_attempt }}
+          path: test-results/
+          retention-days: 3
+          if-no-files-found: ignore
       - name: Export and checksum image
         run: |
           set -euo pipefail
