@@ -10,7 +10,7 @@ use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-#[derive(Serialize)]
+#[derive(Serialize, serde::Deserialize)]
 pub struct DesignReviewPacket {
     pub filename: String,
     pub html: String,

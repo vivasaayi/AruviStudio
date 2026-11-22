@@ -2060,6 +2060,10 @@
           return ok("/tmp/mock-repository");
         case "build_planner_review_packet_command":
           return ok({ filename: "shared-design-review-packet.html", html: "<!doctype html><h1>Shared packet fixture</h1>" });
+        case "render_planner_packet_snapshot_command": {
+          return import("/src/features/planner/lib/plannerPacketBackend.ts")
+            .then(({ renderJson }) => JSON.parse(renderJson(JSON.stringify(args.snapshot))));
+        }
         case "export_product_overview_html":
         case "export_product_overview_epub":
         case "export_product_overview_pdf":

@@ -302,3 +302,19 @@ test("product overview stages the product root before preparing its Planner requ
   const turn=await page.evaluate(() => window.__ARUVI_E2E__.getInvokeCalls("submit_planner_turn_command")[0].args);
   expect(turn.selectedDraftNodeId).toBe(staged.nodeId);
 });
+
+test("desktop no-session packet delegates its snapshot to the backend", async ({ page }) => {
+  await page.goto("/");
+  await page.evaluate(async () => {
+    const harness = await import("/e2e/support/planner-snapshot-harness.tsx");
+    harness.mountPlannerSnapshotHarness();
+    window.__ARUVI_E2E__.clearInvokeCalls();
+  });
+  await page.getByRole("button", { name: "Export snapshot fixture" }).click();
+  await expect(page.getByTestId("snapshot-path")).toContainText("design-review-packet.html");
+  const calls = await page.evaluate(() => ({ render: window.__ARUVI_E2E__.getInvokeCalls("render_planner_packet_snapshot_command"), save: window.__ARUVI_E2E__.getInvokeCalls("export_product_overview_html") }));
+  expect(calls.render).toHaveLength(1);
+  expect(calls.render[0].args.snapshot.title).toBe("<Inventory>");
+  expect(calls.save[0].args.html).toContain("caller-supplied snapshot");
+  expect(calls.save[0].args.html).toContain("&lt;Inventory&gt;");
+});

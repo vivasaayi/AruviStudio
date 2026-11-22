@@ -388,6 +388,20 @@ known ancestor names to exclude actions with conflicting scope, while retaining
 ambiguous actions that omit scope. Older callers may omit this field. Names can
 change or repeat, so matches are not stable identifiers or an audit record.
 
+`aruvi_planner` action `render_planner_packet_snapshot` renders a caller-supplied
+snapshot without a Planner session. Supply `snapshot` with string `title` and
+`generatedAt`, arrays `currentProducts`, `currentProductTrees`,
+`currentWorkItems` and `draftTreeNodes`, boolean `currentWorkItemsHasMore`, and
+`validation` containing `score` and `issues`; `plan`, `selectedNode`,
+`activeProductName` and `latestAssistantText` may be null. The result contains
+`filename` and `html`. The renderer does not read or verify catalog data, and the
+packet labels the supplied snapshot as potentially stale. It caps serialized
+input at 8 MiB, uses a 128 MiB JavaScript runtime limit, a 10-second execution
+limit and two concurrent render slots; transport limits may be lower. The legacy
+snapshot HTML retains its external Mermaid script reference. For a persisted
+staged design, prefer `export_planner_review_packet`, which reads the session
+and checks its state. The snapshot action does not create or change catalog data.
+
 On macOS, `bash scripts/test native-database-override /path/to/aruvi-studio-server`
 uses a disposable native server and temporary databases to check override,
 restart persistence, clearing, environment precedence, authentication and an

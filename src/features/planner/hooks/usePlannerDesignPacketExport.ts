@@ -5,12 +5,11 @@ import {
   buildPlannerReviewPacket,
   exportProductOverviewHtml,
   getProductTree,
+  renderPlannerPacketSnapshot,
 } from "../../../lib/tauri";
 import type { Product, ProductTree, WorkItem } from "../../../lib/types";
 import {
-  buildDesignReviewPacketHtml,
   makeId,
-  slugifyPacketName,
   type PlannerMessage,
   type PlannerPlan,
   type PlannerTreeNode,
@@ -69,15 +68,12 @@ export function usePlannerDesignPacketExport({
         const exportProductTrees = selectedProductId
           ? [await queryClient.fetchQuery({ queryKey: ["plannerProductTree", selectedProductId], queryFn: () => getProductTree(selectedProductId) })]
           : productTrees;
-        packet = {
-          filename: `${slugifyPacketName(packetRootName)}-design-review-packet.html`,
-          html: buildDesignReviewPacketHtml({
+        packet = await renderPlannerPacketSnapshot({
             title: packetRootName, generatedAt: new Date().toLocaleString(), activeProductName,
             currentProducts: products, currentProductTrees: exportProductTrees, currentWorkItems: workItems,
             currentWorkItemsHasMore: plannerWorkItemsHasMore, draftTreeNodes, plan: latestDraftPlan,
             validation: draftValidation, selectedNode: selectedDraftNode, latestAssistantText: latestAssistantMessage?.content ?? null,
-          }),
-        };
+        });
       }
       const path = await exportProductOverviewHtml({ fileName: packet.filename, html: packet.html });
       setDesignPacketPath(path);

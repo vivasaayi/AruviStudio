@@ -125,6 +125,7 @@ pub(super) fn legacy_tool_definitions() -> Vec<ToolDefinition> {
                 "suggest_planner_prompts",
                 "match_planner_actions",
                 "export_planner_review_packet",
+                "render_planner_packet_snapshot",
                 "submit_planner_turn",
                 "submit_planner_voice_turn",
                 "confirm_planner_plan",

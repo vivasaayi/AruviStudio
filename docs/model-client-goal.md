@@ -12,9 +12,9 @@ provider hosting into the model-host service as part of this work.
 
 ## Remaining acceptance work
 
-- [x] Build and check the current runtime revision on ARM64 and AMD64, and
-  validate and deploy the Mac worktree candidate. Repeat for later runtime
-  changes and for the eventual merged revision.
+- [ ] Build and check the latest runtime revision on ARM64 and AMD64, and
+  validate and deploy the Mac worktree candidate. Repeat for the eventual
+  merged revision; the previous `38d0acb` runtime passed these checks.
 - [ ] Complete the action-by-action desktop/web/MCP parity inventory, including
   direct voice selection edge cases, native dialogs and deliberately platform-specific
   behavior. Validate actual native-window and physical audio interaction when
@@ -29,6 +29,29 @@ provider hosting into the model-host service as part of this work.
   connectivity checks. Production promotion and release require separate work.
 
 ## Checkpoints
+
+### Planner no-session snapshot rendering
+
+Desktop no-session packet export now sends its explicit in-memory snapshot to a
+backend renderer rather than rendering in the frontend. The same bounded path
+is exposed as MCP `render_planner_packet_snapshot`; it does not query or modify
+the catalog and labels the snapshot as potentially stale. Serialized input is
+capped at 8 MiB, execution at 10 seconds, JavaScript memory at 128 MiB and
+concurrency at two; transport limits can be lower. The legacy TypeScript
+renderer is bundled in the backend and its HTML retains an external Mermaid
+script reference, so deleting the source and fully native Rust rendering remain
+open. Proposal buttons still use current state instead of the clicked historic
+proposal. Direct desktop IPC, a no-session desktop browser harness, authenticated
+and unauthorized MCP, invalid and oversized snapshots, and nonempty draft/action
+content passed. The full mocked desktop browser suite passed 82 tests, including
+14 Planner tests; a disposable native-server browser suite passed 44 tests and
+skipped 22 requiring additional fixtures. The Planner suite's first run
+failed because a new test mock had a syntax error; that was fixed and the suite
+rerun. The frontend suite passed 143 tests, including three focused renderer
+tests. The native Rust library suite passed
+368 tests with eight ignored, followed by focused packet checks after extending
+the test. Clean-image, full remote fixture, deployed and native-window checks
+remain pending.
 
 ### Planner packet fallback audit
 

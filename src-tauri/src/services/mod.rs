@@ -74,6 +74,7 @@ pub mod planner_voice_turn;
 pub mod planner_validation;
 pub mod planner_suggestions;
 pub mod planner_review_packet;
+pub mod planner_packet_snapshot;
 pub mod product_example_catalog;
 pub mod product_semantic_template;
 pub mod product_service;

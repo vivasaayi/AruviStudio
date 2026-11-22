@@ -6,6 +6,26 @@ import { createHmac } from "node:crypto";
 const token = process.env.ARUVI_MOBILE_API_TOKEN;
 const mcpToken = process.env.ARUVI_MCP_API_TOKEN;
 
+test("MCP renders a caller-supplied Planner packet without a session", async ({ request }) => {
+  test.skip(!mcpToken, "Requires an MCP token");
+  const snapshot = { title:"<Inventory>", generatedAt:"fixture", activeProductName:null, currentProducts:[], currentProductTrees:[],
+    currentWorkItems:[], currentWorkItemsHasMore:false, draftTreeNodes:[], plan:null, validation:{score:0,issues:[]}, selectedNode:null, latestAssistantText:null };
+  const payload = {jsonrpc:"2.0", id:1, method:"tools/call", params:{name:"aruvi_planner", arguments:{action:"render_planner_packet_snapshot", arguments:{snapshot}}}};
+  expect((await request.post("/api/mcp", {data:payload})).status()).toBe(401);
+  const response = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`}, data:payload});
+  expect(response.ok()).toBeTruthy();
+  const body = await response.json();
+  expect(body.result.isError, JSON.stringify(body.result)).not.toBeTruthy();
+  const packet = body.result.structuredContent.result;
+  expect(packet.filename).toBe("inventory-design-review-packet.html");
+  expect(packet.html).toContain("&lt;Inventory&gt;");
+  expect(packet.html).not.toContain("<Inventory>");
+  expect(packet.html).toContain("caller-supplied snapshot");
+  payload.params.arguments.arguments.snapshot = {};
+  const invalid = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`}, data:payload});
+  expect((await invalid.json()).result.isError).toBeTruthy();
+});
+
 test("Docs exports keep unsafe reference URLs as text", async ({ page, request }) => {
   test.skip(!token || !mcpToken, "Requires mobile and MCP tokens");
   async function call(action, args) {

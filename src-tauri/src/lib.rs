@@ -238,6 +238,7 @@ pub fn run() {
             commands::model_commands::stream::cancel_model_chat_stream,
             // Planner commands
             commands::planner_commands::build_planner_review_packet_command,
+            commands::planner_commands::render_planner_packet_snapshot_command,
             commands::planner_commands::validate_planner_tree_command,
             commands::planner_commands::planner_suggested_prompts_command,
             commands::planner_commands::planner_relevant_actions_command,

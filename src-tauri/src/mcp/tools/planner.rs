@@ -58,6 +58,10 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             )
             .await?,
         ),
+        "render_planner_packet_snapshot" => action_result(
+            "render_planner_packet_snapshot",
+            crate::services::planner_packet_snapshot::render_snapshot(args.required_deserialize(&["snapshot"], "snapshot")?).await?,
+        ),
         "export_planner_review_packet" => action_result(
             "export_planner_review_packet",
             build_planner_review_packet(state.planner_service.clone(), &state.db, args.required_string(&["session_id", "sessionId"], "session_id")?).await?,
