@@ -13,8 +13,8 @@ restart checks, phone and desktop layout, published-port MCP origin checks,
 real local coding, and synthetic speech and browser voice. On the development
 branch, the web work-item Planner shortcut and MCP can stage an existing item
 by ID, update it after confirmation, and preserve a parent-child hierarchy.
-Native browser/MCP and real Model Host fixtures passed; the newer work-item
-changes have not yet been deployed to the worktree or staging. Desktop overview
+Native and packaged browser/MCP and real Model Host fixtures passed; the newer
+work-item changes are deployed to the Mac worktree, not staging. Desktop overview
 and voice selection still need equivalent binding and validation. This is not a
 claim that desktop-to-web parity or staging acceptance is complete.
 

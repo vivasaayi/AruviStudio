@@ -12,6 +12,30 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Current worktree deployment at `79be018`
+
+Clean ARM64 and AMD64 images for source `79be018` passed the hosted full
+workflow, remote-browser and CI fixtures. The Mac worktree runs a derived
+candidate with the checksum-verified ARM64 server from that build, layered on
+the previous runtime with matching configuration; it is not the identical
+clean image. Server SHA-256:
+`c55ff86b85512fe654f62b7fe54e348b1361a8809dd31992742b29083c6ee667`.
+A verified SQLite backup was taken after active jobs were checked; the app and
+PDF services passed product persistence, authorization and PDF acceptance after
+restart. Before deployment the candidate passed 61 local browser tests (one
+skip), 62 workflow tests, CI, packaged model quick starts and scoped credential
+checks. A packaged real Model Host fixture updated the selected child work item
+without changing its parent or creating duplicates; a separate real model
+browser fixture proposed and confirmed an existing-area capability. After
+deployment five focused browser/MCP Planner tests passed, along with 13-section
+phone/desktop layout, published-port MCP origin, real MCP coding and synthetic
+Piper/Whisper browser voice. A packaged independent model client passed 67
+tests and its pinned consumer passed real Model Host discovery, completion,
+streaming, JSON mode and token-limit checks. Full parity, physical audio and
+native-window checks, live external providers, Mac integration, and VPS staging
+remain open. Branch commits after `79be018` at this checkpoint change docs only.
+The backup is `/private/tmp/aruvi-deploy-79be018/pre-deploy.db`.
+
 ### Interim worktree deployment at `24ef166`
 
 The earlier clean ARM64/AMD64 image build and browser fixtures passed. The Mac
