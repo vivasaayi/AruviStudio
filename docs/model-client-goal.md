@@ -39,7 +39,8 @@ artifact, checked next/previous pages and rejection of a changed file, and
 confirmed the other workflow's artifact was excluded. The first
 test attempt asserted the page status before the asynchronous request finished;
 the corrected test waits for the status and passed. Clean-image and worktree
-deployment validation remain pending.
+deployment validation remain pending. The full native Rust library suite also
+passed 366 tests, with eight ignored.
 
 ### Current worktree deployment at `227fde4`
 
