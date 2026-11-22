@@ -9,15 +9,25 @@ import { chromium } from "@playwright/test";
 const root = process.cwd();
 const host = resolve(process.env.ARUVI_TEST_MODEL_HOST || "../aruvi-model-host-studio-validation");
 const model = process.env.ARUVI_CODING_TEST_MODEL || "qwen25-coder-7b-q4";
-const packaged = process.argv.includes("--packaged");
+const arguments_ = process.argv.slice(2);
+const packaged = arguments_.includes("--packaged");
+const scopeIndex = arguments_.indexOf("--credential-scope");
+const credentialScope = scopeIndex < 0 ? "management" : arguments_[scopeIndex + 1];
+if (!["management", "inference"].includes(credentialScope)) throw new Error("Credential scope must be management or inference");
+if (arguments_.filter((value) => value === "--credential-scope").length > 1 || arguments_.some((value, index) => value !== "--packaged" && value !== "--credential-scope" && !(scopeIndex >= 0 && index === scopeIndex + 1))) throw new Error("Usage: host-model-quickstart [--packaged] [--credential-scope management|inference]");
 const nativeEnv = { ...process.env, ARUVI_MODEL_HOST_ENV: "native" };
 const hostPlan = JSON.parse(execFileSync("bash", ["scripts/env", "worktree", "plan"], { cwd: host, env: nativeEnv, encoding: "utf8" }));
 const hostStatus = JSON.parse(execFileSync("bash", ["scripts/env", "worktree", "status"], { cwd: host, env: nativeEnv, encoding: "utf8" }));
 const endpoint = new URL(hostStatus.endpoint?.url || "");
 if (!hostStatus.registered || endpoint.protocol !== "http:" || endpoint.hostname !== "127.0.0.1" || !endpoint.port) throw new Error("A running loopback native Model Host worktree is required");
-const hostLine = readFileSync(`${hostPlan.state}/environment.env`, "utf8").split("\n").find((line) => line.startsWith("MODEL_HOST_TOKEN="));
-if (!hostLine || !hostLine.slice("MODEL_HOST_TOKEN=".length)) throw new Error("Model Host credential is unavailable");
-const hostToken = hostLine.slice("MODEL_HOST_TOKEN=".length);
+const credentialName = credentialScope === "inference" ? "MODEL_HOST_INFERENCE_TOKEN" : "MODEL_HOST_TOKEN";
+const hostLine = readFileSync(`${hostPlan.state}/environment.env`, "utf8").split("\n").find((line) => line.startsWith(`${credentialName}=`));
+if (!hostLine || !hostLine.slice(credentialName.length + 1)) throw new Error(`Model Host ${credentialScope} credential is unavailable`);
+const hostToken = hostLine.slice(credentialName.length + 1);
+if (credentialScope === "inference") {
+  const denied = await fetch(`${endpoint.origin}/api/models`, { headers: { Authorization: `Bearer ${hostToken}` }, redirect: "manual", signal: AbortSignal.timeout(10000) });
+  if (denied.status !== 403) throw new Error("Inference credential was not denied Model Host management access");
+}
 const plan = JSON.parse(execFileSync("bash", ["scripts/env", "worktree", "plan"], { cwd: root, encoding: "utf8" }));
 const image = process.env.ARUVI_TEST_APP_IMAGE || readFileSync(`${plan.state}/environment.env`, "utf8").split("\n").find((line) => line.startsWith("APP_IMAGE="))?.slice("APP_IMAGE=".length);
 if (!image) throw new Error("Studio candidate image is unavailable");
@@ -91,7 +101,7 @@ try {
   const reply = await completion;
   if (!reply.ok()) throw new Error(`Model Host completion failed (${reply.status()})`);
   assert.match((await reply.json()).content, /sumEven/);
-  console.log(`Disposable ${packaged ? "packaged" : "source-HTML"} quick start discovered a real Model Host model, registered it through the browser, listed it through MCP, and completed browser coding chat.`);
+  console.log(`Disposable ${packaged ? "packaged" : "source-HTML"} ${credentialScope}-credential quick start discovered a Model Host model, registered it through the browser, listed it through MCP, and completed browser coding chat.`);
 } finally {
   try { if (browser) await browser.close(); }
   finally { if (created) execFileSync("docker", ["rm", "-f", name], { stdio: "ignore" }); }

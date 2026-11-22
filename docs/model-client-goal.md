@@ -12,6 +12,19 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Scoped quick-start fixture
+
+The reusable quick-start check accepts `--credential-scope inference`, requires
+`MODEL_HOST_INFERENCE_TOKEN`, and rejects a token unless a management endpoint
+returns 403 before Studio receives it. It never falls back to the management
+credential. With the packaged branch candidate and a disposable simulated
+scoped Model Host, browser setup, MCP listing and coding chat passed; missing
+inference credentials and a management-capable credential were rejected. The
+fixture uses the separate Model Host draft checkout and its existing native
+binary and can be repeated with `bash scripts/test scoped-model-quickstart`.
+This checks one management endpoint and simulated inference, not the deployed
+host's full authorization policy or a deployed inference-only credential.
+
 ### Provider quick-start branch deployment
 
 Hosted matrix run `44993086025` passed on ARM64 and AMD64 at source revision
