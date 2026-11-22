@@ -26,8 +26,10 @@ The broader native browser run passed 31 tests and skipped 22 fixture-dependent
 cases. An earlier attempt enabled all disposable-container cases against the
 native fixture: 44 passed, five skipped and four failed because that fixture
 lacked the packaged Monaco assets, repository paths and configured proxy origin.
-Those cases require the configured container suite; they are not counted as
-passing for this change until that suite runs.
+All four subsequently passed against the native server with the required assets,
+temporary repository paths and origin configuration. The workspace-choice test
+now accepts fixture paths while retaining its container defaults. Full
+clean-image validation remains pending.
 
 ### Independent model-client revalidation
 

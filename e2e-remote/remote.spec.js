@@ -427,8 +427,8 @@ test("work item workspace can be assigned in browser and MCP with conflict prote
   }
   const product = await create("/api/mobile/products", { name: "Workspace selection fixture" });
   const item = await create("/api/mobile/work-items", { product_id: product.id, title: "Workspace task" });
-  const first = await create("/api/mobile/repositories", { name: "Choice A", local_path: "/repositories/workspace-choice-a" });
-  const second = await create("/api/mobile/repositories", { name: "Choice B", local_path: "/repositories/workspace-choice-b" });
+  const first = await create("/api/mobile/repositories", { name: "Choice A", local_path: process.env.ARUVI_TEST_WORKSPACE_CHOICE_A || "/repositories/workspace-choice-a" });
+  const second = await create("/api/mobile/repositories", { name: "Choice B", local_path: process.env.ARUVI_TEST_WORKSPACE_CHOICE_B || "/repositories/workspace-choice-b" });
   const mcp = async (arguments_) => {
     const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${mcpToken}` }, data: { jsonrpc:"2.0", id:1, method:"tools/call", params:{name:"aruvi_work_items", arguments:{action:"assign_work_item_workspace", arguments:arguments_}} } });
     return (await response.json()).result;
