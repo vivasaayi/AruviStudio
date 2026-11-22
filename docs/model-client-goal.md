@@ -36,8 +36,10 @@ Browser Products now displays all products or those linked within a selected
 strategy subtree, and shows the unlinked count. Clicking a result loads its
 product summary. A disposable native-server browser/MCP fixture passed parent
 and child scope filtering, navigation, and refresh after the selected strategy
-was deleted. This covers a desktop portfolio action but is not a complete
-portfolio audit. Clean images and worktree deployment remain pending; the Docker
+was deleted. The broader disposable native-server browser suite passed 43 tests
+and skipped 22 requiring additional fixtures. The frontend suite passed 140
+tests and the terminology check passed. This covers a desktop portfolio action
+but is not a complete portfolio audit. Clean images and worktree deployment remain pending; the Docker
 disk condition below still prevents a safe restart.
 
 ### Workflow-stage artifact paging
