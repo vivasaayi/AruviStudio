@@ -8,6 +8,12 @@ planner concurrency fixture. These are specific scenarios, not proof of full par
 Physical desktop interaction and audio devices, live third-party providers, and a
 real Aruvici connection remain unverified.
 
+An isolated startup fixture reconstructed a populated migration-42 database and
+verified product hierarchy, story, model and agent binding through the current
+native and Linux servers across restart. The browser product API rejected
+unauthenticated access and returned the preserved product with a token. This is
+synthetic historical data and does not establish all desktop database upgrades.
+
 A disposable real-model coding workflow now also links an enabled and a disabled
 skill to the coding agent through MCP. Its recorded coding requests included the
 enabled instruction but not the disabled one, and the generated file followed

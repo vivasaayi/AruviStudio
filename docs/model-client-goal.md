@@ -12,6 +12,24 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Historical desktop data startup upgrade
+
+`bash scripts/test legacy-migration NATIVE_SERVER --image IMAGE` reconstructs a
+synthetic migration-42 SQLite database from the checked-in migration SQL and
+SQLx checksums. It seeds a product, legacy module, capability, story, model
+provider and agent binding, then starts each isolated server twice. The
+authenticated browser product API and MCP returned the preserved records after
+both starts; unauthenticated product access was rejected. SQLite `quick_check`,
+foreign-key checks, the latest migration version and the synthetic credential
+reference were also verified. Both a native server built from `bd06190` with a
+debug-reduced `rlib` configuration and the `9c412bb`-based branch Linux image
+passed. Temporary databases and containers were removed.
+
+The database was reconstructed using Python's SQLite, not captured from an
+actual historical installation. This exercises one populated migration-42
+shape through the current startup path; it does not prove upgrades for every
+historic database, desktop session, concurrent user or staging deployment.
+
 ### Real CI service and container relay revalidation
 
 Studio source `bd06190` was built as a native Mac server with only the `rlib`
