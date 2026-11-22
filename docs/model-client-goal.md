@@ -32,7 +32,9 @@ rollback when history insertion fails, and checks the result and history. The
 full native Rust library suite passed 348 tests (eight ignored), and the
 frontend build passed. `bash scripts/test native-workflow-recovery` passed
 against a disposable native server and a synthetic running workflow: it checked
-browser cancellation and confirmation and the resulting MCP history. The
+browser cancellation and confirmation and the resulting MCP history. It also
+marked a separate synthetic paused workflow failed through MCP with an explicit
+stage and status, then verified the run and history. The
 separate clean-image workflow test also exercises this control; its results and
 deployment of this change remain pending.
 

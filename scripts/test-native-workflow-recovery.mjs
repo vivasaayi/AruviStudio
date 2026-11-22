@@ -40,7 +40,13 @@ try {
   assert.equal(run.status, 'failed'); assert.equal(run.current_stage, 'failed'); assert.equal(run.error_message, 'Fixture recovery');
   const history = await call('aruvi_workflows', 'get_workflow_history', { workflow_run_id:'recovery' });
   assert.equal(history.filter(entry => entry.trigger === 'user_override' && entry.to_stage === 'failed').length, 1);
-  console.log('Native browser recovery confirmation, cancellation and MCP history passed.');
+  execFileSync('python3', ['-c', 'import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); c.execute("INSERT INTO workflow_runs(id,work_item_id,status,current_stage) VALUES(?,?,?,?)",("mcp-recovery",sys.argv[2],"paused","coding")); c.commit()', db, task.id]);
+  await call('aruvi_workflows', 'mark_workflow_run_failed', { workflow_run_id:'mcp-recovery', expected_stage:'coding', expected_status:'paused', reason:'MCP fixture recovery' });
+  const mcpRun = await call('aruvi_workflows', 'get_workflow_run', { workflow_run_id:'mcp-recovery' });
+  assert.equal(mcpRun.status, 'failed'); assert.equal(mcpRun.error_message, 'MCP fixture recovery');
+  const mcpHistory = await call('aruvi_workflows', 'get_workflow_history', { workflow_run_id:'mcp-recovery' });
+  assert.equal(mcpHistory.filter(entry => entry.trigger === 'user_override' && entry.to_stage === 'failed').length, 1);
+  console.log('Native browser and MCP recovery, cancellation and history passed.');
 } finally {
   await browser?.close();
   if (server && server.exitCode === null) { server.kill(); await new Promise(done => server.once('exit', done)); }
