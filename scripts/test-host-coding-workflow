@@ -19,6 +19,7 @@ root = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("host", nargs="?", type=Path, default=root.parent / "aruvi-model-host-studio-validation")
 parser.add_argument("--scenario", choices=("new-module", "extend-module", "multi-file"), default="new-module")
+parser.add_argument("--require-missing-tree", action="store_true", help="Require the model to inspect the absent src directory before creating the module")
 parser.add_argument("--json-mode", action="store_true", help="Opt the disposable coding agent into JSON-object output")
 parser.add_argument("--browser-approvals", action="store_true", help="Approve the plan and test gates through a headless browser")
 parser.add_argument("--prompt-template", action="store_true", help="Assign and verify a managed coding prompt template in the disposable fixture")
@@ -31,6 +32,8 @@ parser.add_argument("--other-stage-model", help="Use another installed model for
 parser.add_argument("--workspace-override", action="store_true", help="Run against a work-item workspace distinct from the product default")
 parser.add_argument("--non-coding-max-tokens", type=int, help="Set the response budget for non-coding agents in the disposable fixture")
 args = parser.parse_args()
+if args.require_missing_tree and args.scenario != "new-module":
+    parser.error("--require-missing-tree requires new-module")
 if args.verify_duplicate_rejection and (args.scenario != "extend-module" or args.verify_behavior_rejection or args.verify_gate_rejects_invalid):
     parser.error("--verify-duplicate-rejection requires extend-module without other rejection flags")
 if args.scenario == "multi-file" and (args.verify_behavior_rejection or args.verify_gate_rejects_invalid):
@@ -170,6 +173,8 @@ try:
     else:
         title = "Add sumEven"
         description = "Create src/math.js containing function sumEven(numbers) that returns the sum of even integers, and export it as module.exports = { sumEven }. Return 0 for an empty array."
+    if args.require_missing_tree:
+        description += " Before writing files, use repo.list_tree to inspect the src directory."
     item = call("aruvi_work_items", "create_work_item", {"product_id": product["id"], "title": title, "description": description, "work_item_type": "task"})
     if args.workspace_override:
         assigned = call("aruvi_work_items", "assign_work_item_workspace", {"id": item["id"], "repository_id": repo["id"], "branch_name": "main"})
@@ -208,6 +213,8 @@ try:
             if artifact.get("artifact_type") == "coding_tool_trace":
                 trace = call("aruvi_checkpoints", "read_artifact_content", {"artifact_id": artifact["id"]})
                 print("Coding trace:", trace["content"][:5000], flush=True)
+                return json.loads(trace["content"])
+        return []
     def verify_prompt_template():
         if not args.prompt_template: return
         artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
@@ -285,7 +292,16 @@ try:
     if args.verify_gate_rejects_missing: raise ValueError("Expected the missing-file test gate to fail")
     if not remote_unchanged(): raise ValueError("The disposable remote changed before test review")
     print("Disposable remote remained unchanged before test review", flush=True)
-    print_coding_trace()
+    trace = print_coding_trace()
+    if args.require_missing_tree:
+        observations = []
+        for entry in trace:
+            if entry.get("kind") != "tool_result": continue
+            try: observations.append(json.loads(entry["payload"]))
+            except (KeyError, TypeError, json.JSONDecodeError): continue
+        if not any(result.get("path") == "src" and result.get("exists") is False for result in observations if isinstance(result, dict)):
+            raise ValueError("Coding trace did not show the missing src directory response")
+        print("Real coding workflow observed the missing src directory response", flush=True)
     verify_edit_guidance()
     artifacts = call("aruvi_checkpoints", "list_work_item_artifacts", {"work_item_id": item["id"]})
     verify_prompt_template()

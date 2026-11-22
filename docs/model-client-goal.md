@@ -67,9 +67,31 @@ root remains an error. Local agent tests cover these cases, the trace and the
 next model prompt. The full native Rust suite passed 341 tests with eight
 ignored using two test threads. An earlier parallel run hit disk exhaustion
 and failed while creating temporary databases; Cargo package build outputs were
-cleaned before the successful rerun. Whether this changes real-model behavior
-remains unverified until the new Linux candidate is tested; the running branch
-predates it.
+cleaned before the successful rerun.
+
+The Linux candidate at `9c412bb` subsequently passed both hosted test runs
+and a clean ARM64 build. Its checksummed build artifact recorded image ID
+`sha256:77237a388ef464d4b5737ae9e9c58efb436fd7d3168ba73b4df98cf40b20bf61`.
+With limited host disk, the branch deployment uses a derived image containing
+the verified server binary from that artifact on the previous branch runtime;
+its image ID is `sha256:a711e33d804a8e78bbe11aa497bd21b65368b1eb9718e31b80172d3958f65f60`.
+The candidate passed 57 isolated workflow tests and 45 remote UI tests (one
+skipped). In a disposable real-model new-module workflow, the model inspected
+the absent `src`, observed the structured result, created the module, and
+passed syntax and independent behavior checks. Browser approvals completed
+delivery; the remote remained unchanged before review and the product's
+default workspace was untouched. This is one successful sample, not a model
+reliability guarantee. Repeat it with the earlier workflow command, replacing
+`--scenario multi-file` with `--scenario new-module --require-missing-tree`.
+
+Before restarting the branch services, active jobs were checked, a SQLite
+backup passed `quick_check`, and the previous image was retained. Environment
+acceptance verified the derived image ID, MCP and mobile authorization,
+product persistence and PDF export across restart. Browser-origin MCP,
+real-model coding through MCP, a synthetic Piper/Whisper MCP speech round
+trip and continuous browser voice with synthetic audio also passed. This is a
+worktree deployment, not Mac integration or VPS staging; physical audio,
+desktop-window comparison and complete migration parity remain open.
 
 ### Static GIF Product Book images
 
