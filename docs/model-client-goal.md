@@ -39,8 +39,29 @@ application, capability conversion, and report scope; it also restricts the
 capability creation scope to product and area. Focused Rust cases cover these
 examples, and the persisted-session fixture verifies the actual action summary
 through desktop, browser API and MCP. The full native Rust suite passed 369 tests
-with eight ignored. Further action-by-action comparison, clean-image and deployed
-validation remain open; this is not complete packet-renderer parity.
+with eight ignored. Further action-by-action comparison and native-window validation remain open; this is not complete packet-renderer parity.
+
+Both ARM64 and AMD64 clean-image jobs and hosted tests passed for
+`f1f9a0b07fd218041971e7758be5b670030cb565`. Its ARM64 archive checksum,
+revision, configuration and layers were verified; Docker imported it as
+`sha256:7cb58a911ea9d21233c69762922ef759a69771b495c8ea1cf66ec210429a649d`
+(hosted ID `sha256:141f2ad9f943edb233aefe000692e409aacdc19f29b9b93a7609b036240dad79`).
+The packaged browser fixture passed 65 tests with one skipped, workflow passed
+62, CI passed one, and PDF isolation and outage checks passed. After a checked
+SQLite backup at `/private/tmp/aruvi-deploy-f1f9a0b`, the worktree was updated;
+`aruvi-studio-worktree-backup:pre-f1f9a0b` retains the previous image. Exact
+image identity, persistence, authenticated MCP/mobile and PDF passed across
+restart. The deployed MCP/browser injection regression, published-port origin,
+13-section phone/desktop layout, real local coding and synthetic speech through
+MCP passed. A disposable real-model Planner fixture staged an existing area in
+the browser and confirmed it through MCP after one format retry. The action
+summary content itself is directly covered by the native persisted-session test,
+not by that real-model sample. This is not a staging deployment.
+
+To preserve Docker space before loading this image, two tags for the unused
+`c518bca` image were removed after verifying its retained archive at
+`/private/tmp/aruvi-verified-c518bca` against the local configuration and layers;
+no container used it. The immediate rollback image remains available.
 
 ### Planner snapshot readiness escaping
 
