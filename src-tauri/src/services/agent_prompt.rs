@@ -26,6 +26,12 @@ pub(crate) fn build_agent_prompt(
         ));
     }
 
+    if let Some(instructions) = context.get("prompt_template_instructions") {
+        prompt.push_str("\nAgent template instructions:\n");
+        prompt.push_str(instructions);
+        prompt.push_str("\n\n");
+    }
+
     append_stage_instructions(&mut prompt, stage_name);
     append_context(&mut prompt, context, stage_name);
     append_boundaries(&mut prompt, boundaries);
@@ -155,7 +161,7 @@ fn append_context(prompt: &mut String, context: &HashMap<String, String>, stage_
     } else {
         prompt.push_str("Context:\n");
         for (key, value) in context {
-            prompt.push_str(&format!("{}: {}\n", key, value));
+            if key != "prompt_template_instructions" { prompt.push_str(&format!("{}: {}\n", key, value)); }
         }
     }
 }
@@ -165,6 +171,7 @@ fn append_context(prompt: &mut String, context: &HashMap<String, String>, stage_
 pub(crate) fn coding_task_recap(context: &HashMap<String, String>) -> String {
     let mut recap = String::new();
     for (key, limit) in [
+        ("prompt_template_instructions", 1_000),
         ("work_item_title", 200), ("work_item_type", 40),
         ("work_item_problem_statement", 300), ("work_item_description", 350),
         ("work_item_acceptance_criteria", 550), ("work_item_constraints", 450),

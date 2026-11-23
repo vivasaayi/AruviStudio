@@ -2,7 +2,7 @@ use crate::domain::product::HierarchyNodeKind;
 use crate::error::AppError;
 use crate::services::planner_action_fields::{copy_analysis, string_array_field, string_field};
 use crate::services::planner_draft::{
-    draft_node_kind, find_draft_ancestor_name, find_draft_node, find_draft_node_by_id,
+    draft_node_kind, find_draft_ancestor_name, find_draft_ancestor_node_by_type, find_draft_node, find_draft_node_by_id,
     node_kind_field, parse_node_kind_value, resolve_draft_capability_node_id,
     resolve_draft_product_area_name, resolve_draft_product_area_node_id,
     resolve_draft_product_name,
@@ -194,7 +194,16 @@ pub(crate) fn apply_create_draft_action(
                 resolve_draft_product_area_node_id(draft_plan, selected_draft_node_id, action)?;
             let capability_id =
                 resolve_draft_capability_node_id(draft_plan, selected_draft_node_id, action)?;
-            let parent_id = if let Some(capability_id) = capability_id.clone() {
+            let selected_work = find_draft_node_by_id(draft_plan, selected_draft_node_id)
+                .filter(|node| node.node_type == "work_item");
+            let parent_id = if let Some(work) = selected_work {
+                let area = find_draft_ancestor_node_by_type(draft_plan, work, "product_area").map(|node| &node.id);
+                let capability = find_draft_ancestor_node_by_type(draft_plan, work, "capability").map(|node| &node.id);
+                if product_area_id.as_ref().is_some_and(|id| Some(id) != area) || capability_id.as_ref().is_some_and(|id| Some(id) != capability) {
+                    return Err(AppError::Validation("The requested work item scope conflicts with the selected parent.".into()));
+                }
+                Some(work.id.clone())
+            } else if let Some(capability_id) = capability_id.clone() {
                 Some(capability_id)
             } else if let Some(product_area_id) = product_area_id.clone() {
                 Some(product_area_id)
@@ -231,7 +240,7 @@ pub(crate) fn apply_create_draft_action(
                     "constraints": string_field(action, "constraints"),
                     "workItemType": string_field(action, "workItemType")
                         .or_else(|| string_field(action, "work_item_type"))
-                        .unwrap_or_else(|| "story".to_string()),
+                        .unwrap_or_else(|| if selected_work.is_some() { "task".to_string() } else { "story".to_string() }),
                     "priority": string_field(action, "priority")
                         .unwrap_or_else(|| "medium".to_string()),
                     "complexity": string_field(action, "complexity")

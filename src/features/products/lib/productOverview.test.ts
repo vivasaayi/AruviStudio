@@ -17,6 +17,7 @@ import {
 } from "./productOverview";
 import type { Capability, CapabilityTree, ProductArea, ProductAreaTree, ProductTree, WorkItem } from "../../../lib/types";
 import type { ProductReference } from "../../../lib/types";
+import { renderReferenceListHtml } from "./productOverviewRenderHelpers";
 
 function makeWorkItem(overrides: Partial<WorkItem> = {}): WorkItem {
   return {
@@ -179,6 +180,18 @@ function makeReference(overrides: Partial<ProductReference> = {}): ProductRefere
 }
 
 describe("productOverview helpers", () => {
+  it("renders only safe reference links in Docs HTML", () => {
+    for (const uri of ["javascript:alert(1)", "data:text/html,evil", "//example.org/a", "https://example.org/a\n<script>"]) {
+      const html = renderReferenceListHtml([makeReference({ uri })]);
+      expect(html).not.toContain("href=");
+      expect(html).not.toContain("<script>");
+    }
+    expect(renderReferenceListHtml([makeReference({ uri: "https://example.org/docs" })]))
+      .toContain('href="https://example.org/docs"');
+    expect(renderReferenceListHtml([makeReference({ uri: "docs/architecture.md" })]))
+      .toContain('href="docs/architecture.md"');
+  });
+
   it("sorts and nests work items deterministically", () => {
     const root = makeWorkItem({ id: "root", title: "B task", sort_order: 1 });
     const earlier = makeWorkItem({

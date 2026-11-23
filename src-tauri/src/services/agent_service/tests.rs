@@ -18,6 +18,25 @@ fn make_temp_dir(name: &str) -> PathBuf {
 }
 
 #[tokio::test]
+async fn wildcard_test_model_responses_are_scoped_to_the_pool() {
+    let first_dir = make_temp_dir("mock_scope_a");
+    let second_dir = make_temp_dir("mock_scope_b");
+    let first = db_service::create_pool(&format!("sqlite:{}", first_dir.join("db").display())).await.unwrap();
+    let second = db_service::create_pool(&format!("sqlite:{}", second_dir.join("db").display())).await.unwrap();
+    let first_key = super::test_pool_key(&first);
+    let second_key = super::test_pool_key(&second);
+    assert_eq!(first_key, super::test_pool_key(&first.clone()));
+    assert_ne!(first_key, second_key);
+    AgentService::set_test_model_outputs_for_any_workflow(&first, vec!["first-only".into()]);
+    {
+        let queues = super::TEST_MODEL_OUTPUTS.get().unwrap().lock().unwrap();
+        assert_eq!(queues.get(&first_key).unwrap().front().unwrap(), "first-only");
+        assert!(!queues.contains_key(&second_key));
+    }
+    AgentService::set_test_model_outputs_for_any_workflow(&first, Vec::new());
+}
+
+#[tokio::test]
 async fn agent_model_calls_revalidate_selected_model_and_provider() {
     use crate::domain::agent::{AgentRun, AgentRunStatus};
     let temp = tempfile::tempdir().unwrap();
@@ -93,7 +112,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
     .expect("failed to bind coding agent to test model");
     sqlx::query(
             "UPDATE agent_definitions
-             SET boundaries='{\"max_tool_steps\":15,\"keep_workspace\":false,\"max_file_chars\":4000}',
+             SET boundaries='{\"max_tool_steps\":19,\"keep_workspace\":false,\"max_file_chars\":4000}',
                  enabled=1,
                  employment_status='active'
              WHERE id='coding-agent'",
@@ -101,6 +120,9 @@ async fn coding_stage_creates_tool_trace_artifact() {
         .execute(&pool)
         .await
         .expect("failed to update coding agent boundaries");
+    let template = crate::persistence::prompt_template_repo::create(&pool, "Coding fixture", "coding", "TEMPLATE_MARKER: document the change").await.unwrap();
+    sqlx::query("UPDATE agent_definitions SET prompt_template_ref=? WHERE id='coding-agent'")
+        .bind(format!("template:{}", template.id)).execute(&pool).await.unwrap();
 
     let product = product_repo::create_product(
         &pool,
@@ -207,9 +229,12 @@ async fn coding_stage_creates_tool_trace_artifact() {
                 }
             })
             .to_string(),
+            json!({"type":"tool_call", "tool":"repo.read_file", "arguments":{"path":"hello.txt"}}).to_string(),
             json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"hello.txt","start_line":1,"end_line":1,"content":"hello from tool loop\nsecond line\n"}}).to_string(),
+            json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"hello.txt","start_line":1,"end_line":1,"content":"stale different edit"}}).to_string(),
             json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"hello.txt","start_line":1,"end_line":1,"content":"hello from tool loop\nsecond line"}}).to_string(),
             json!({"type":"tool_call", "tool":"repo.write_file", "arguments":{"path":"adjacent.js","content":format!("{adjacent_line}\nold\n")}}).to_string(),
+            json!({"type":"tool_call", "tool":"repo.read_file", "arguments":{"path":"adjacent.js"}}).to_string(),
             json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"adjacent.js","start_line":2,"end_line":2,"content":format!("{adjacent_line}\nnew\n")}}).to_string(),
             json!({"type":"tool_call", "tool":"repo.replace_range", "arguments":{"path":"adjacent.js","start_line":2,"end_line":2,"content":format!("{adjacent_line}\nnew\n"),"allow_adjacent_duplicate":true}}).to_string(),
             json!({"type":"repo.write_file", "path":"flat-must-not-exist.txt", "content":"not executed"}).to_string(),
@@ -256,6 +281,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
     assert!(prompt_content.contains("PROBLEM_MARKER: preserve existing behavior"));
     assert!(prompt_content.contains("ACCEPTANCE_MARKER: provide tested output"));
     assert!(prompt_content.contains("CONSTRAINT_MARKER: do not modify configuration"));
+    assert!(prompt_content.contains("TEMPLATE_MARKER: document the change"));
     let trace_artifact = artifacts
         .iter()
         .find(|artifact| artifact.artifact_type == "coding_tool_trace")
@@ -277,9 +303,16 @@ async fn coding_stage_creates_tool_trace_artifact() {
     assert!(trace_content.contains("MODEL_CANDIDATE_MARKER"));
     assert!(trace_content.contains("No files were changed"));
     assert!(trace_content.contains("replacement already succeeded"));
+    assert!(trace_content.contains("earlier line numbers may have shifted"));
     assert!(trace_content.contains("Replacement repeats unchanged neighboring line"));
     assert_eq!(std::fs::read_to_string(repo_dir.join("adjacent.js")).unwrap(), format!("{adjacent_line}\n{adjacent_line}\nnew\n"));
     assert!(trace_content.contains("repo.write_file creates parent directories"));
+    let trace: Vec<serde_json::Value> = serde_json::from_str(&trace_content).unwrap();
+    let missing = trace.iter().find(|entry| entry["kind"] == "tool_result" && entry["payload"].as_str().is_some_and(|payload| payload.contains("missing-directory"))).expect("missing directory result");
+    let result: serde_json::Value = serde_json::from_str(missing["payload"].as_str().unwrap()).unwrap();
+    assert_eq!(result["exists"], false);
+    assert_eq!(result["entries"], json!([]));
+    assert!(!repo_dir.join("missing-directory").exists());
     assert!(
         trace_content.contains("tool_result"),
         "trace artifact did not include tool_result entry"
@@ -335,6 +368,7 @@ async fn coding_stage_creates_tool_trace_artifact() {
             let prompt = request["messages"][0]["content"].as_str().unwrap();
             assert!(prompt.contains("ACCEPTANCE_MARKER: provide tested output"));
             assert!(prompt.contains("CONSTRAINT_MARKER: do not modify configuration"));
+            assert!(prompt.contains("TEMPLATE_MARKER: document the change"));
             if step == 3 { assert!(prompt.contains("identify unfinished or unverified requirements")); }
             let content = if step == 1 {
                 json!({"type":"tool_call", "tool":"repo.write_file", "arguments":{"path":"forced-final.txt", "content":"fixture content"}}).to_string()

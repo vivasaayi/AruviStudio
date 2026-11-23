@@ -17,6 +17,10 @@ try {
     const context = await browser.newContext({ viewport });
     try {
       const page = await context.newPage();
+      if (process.env.ARUVI_TEST_REMOTE_HTML_SOURCE === "1") {
+        const html = readFileSync("src-tauri/src/services/remote_app.html", "utf8");
+        await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
+      }
       page.on("pageerror", (error) => problems.push(`${viewport.width}: ${error.message}`));
       await page.goto(`http://${port}/remote`);
       await page.locator("#tokenInput").fill(token);
@@ -26,10 +30,12 @@ try {
         await page.locator(`#tab-${name.toLowerCase()}`).waitFor({ state: "visible" });
         const width = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, client: document.documentElement.clientWidth }));
         if (width.scroll > width.client + 1) problems.push(`${viewport.width} ${name}: horizontal overflow ${width.scroll - width.client}px`);
+        const oversized = await page.locator('input[type="checkbox"]:visible').evaluateAll((inputs) => inputs.filter((input) => input.getBoundingClientRect().width > 30).length);
+        if (oversized) problems.push(`${viewport.width} ${name}: ${oversized} oversized checkbox(es)`);
       }
       console.log(`${viewport.width}x${viewport.height}: checked ${sections.length} sections`);
     } finally { await context.close(); }
   }
 } finally { await browser.close(); }
 if (problems.length) { console.error(problems.join("\n")); process.exitCode = 1; }
-else console.log("No page errors or document-level horizontal overflow.");
+else console.log("No page errors, document-level horizontal overflow, or oversized visible checkboxes.");

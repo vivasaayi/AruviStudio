@@ -10,7 +10,4425 @@ use it in AruviStudio while preserving existing desktop, web, MCP and workflow
 behavior. Route local model inference to Aruvi Model Host. Do not move third-party
 provider hosting into the model-host service as part of this work.
 
+## Remaining acceptance work
+
+- [ ] Build and check the latest runtime revision on ARM64 and AMD64, and
+  validate and deploy the Mac worktree candidate. Repeat for the eventual
+  merged revision; the previous `38d0acb` runtime passed these checks.
+- [ ] Complete the action-by-action desktop/web/MCP parity inventory, including
+  direct voice selection edge cases, native dialogs and deliberately platform-specific
+  behavior. Validate actual native-window and physical audio interaction when
+  the Mac window is accessible.
+- [ ] Validate live third-party provider and real Aruvici paths where available;
+  retain explicit limitations where credentials or external services are absent.
+- [ ] Reconcile the final branch with `main` and run all required checks. Merge
+  only when the parity and validation work is ready, then build the exact merged
+  revision and pass the Mac integration environment acceptance.
+- [ ] Promote that accepted revision to the isolated VPS staging environment,
+  including ingress, persistence, authentication, MCP, PDF and Model Host
+  connectivity checks. Production promotion and release require separate work.
+
 ## Checkpoints
+
+### Native Planner snapshot rendering
+
+The no-session and proposal snapshot path now renders in Rust rather than
+executing the bundled TypeScript in QuickJS. It preserves the ten packet
+sections, offline diagram and complete hierarchy, action summaries, caller
+snapshot labeling, and structured change set. The old renderer remains in the
+repository solely as a test oracle; Product Book still uses its separate
+QuickJS renderer. Native Rust tests compare representative action summaries
+against the oracle, exercise escaping, malformed and bounded trees, and cover
+desktop IPC. A native authenticated MCP/browser comparison checks the text,
+structured data, and header/diagram screenshots for empty, proposal, unusual
+and over-100-node snapshots. The frontend suite passed 146 tests; the frontend
+build passed; the mocked desktop suite passed 84; and the native browser suite
+passed 45 with 22 fixture-dependent skips. The full native Rust suite passed 372 tests with eight ignored after the
+limit and coercion refinements; the terminology guard also passed. The running worktree still uses `f1f9a0b`;
+clean-image, deployed and physical native-window validation remain open.
+
+The new implementation retains the 8 MiB serialized input cap and two render
+slots, adds a 64 MiB output cap, a 32 MiB combined action-summary cap and
+350,000-node/action/issue bounds, and
+checks a ten-second deadline cooperatively. Unlike the previous QuickJS
+runtime, it does not impose a separate hard per-render heap cap or forcibly
+interrupt every operation. The output and item limits can reject unusually
+large inputs that were previously accepted; transport limits may be lower.
+Draft tree nodes now require string labels and children arrays; malformed nodes
+are rejected instead of being coerced. Structured JSON preserves the legacy key
+order and common integral-number spelling, but very large or exponential numeric
+values may be spelled differently from JavaScript's JSON output. This snapshot work does not remove Product
+Book's separate embedded renderer.
+
+### Planner session summary parity finding
+
+A source comparison found that Rust session-packet action summaries omitted
+fallback descriptions present in the snapshot/desktop renderer. The branch
+change restores fallbacks for capability and work-item creation, template
+application, capability conversion, and report scope; it also restricts the
+capability creation scope to product and area. Focused Rust cases cover these
+examples, and the persisted-session fixture verifies the actual action summary
+through desktop, browser API and MCP. The full native Rust suite passed 369 tests
+with eight ignored. Further action-by-action comparison and native-window validation remain open; this is not complete packet-renderer parity.
+
+Both ARM64 and AMD64 clean-image jobs and hosted tests passed for
+`f1f9a0b07fd218041971e7758be5b670030cb565`. Its ARM64 archive checksum,
+revision, configuration and layers were verified; Docker imported it as
+`sha256:7cb58a911ea9d21233c69762922ef759a69771b495c8ea1cf66ec210429a649d`
+(hosted ID `sha256:141f2ad9f943edb233aefe000692e409aacdc19f29b9b93a7609b036240dad79`).
+The packaged browser fixture passed 65 tests with one skipped, workflow passed
+62, CI passed one, and PDF isolation and outage checks passed. After a checked
+SQLite backup at `/private/tmp/aruvi-deploy-f1f9a0b`, the worktree was updated;
+`aruvi-studio-worktree-backup:pre-f1f9a0b` retains the previous image. Exact
+image identity, persistence, authenticated MCP/mobile and PDF passed across
+restart. The deployed MCP/browser injection regression, published-port origin,
+13-section phone/desktop layout, real local coding and synthetic speech through
+MCP passed. A disposable real-model Planner fixture staged an existing area in
+the browser and confirmed it through MCP after one format retry. The action
+summary content itself is directly covered by the native persisted-session test,
+not by that real-model sample. This is not a staging deployment.
+
+To preserve Docker space before loading this image, two tags for the unused
+`c518bca` image were removed after verifying its retained archive at
+`/private/tmp/aruvi-verified-c518bca` against the local configuration and layers;
+no container used it. The immediate rollback image remains available.
+
+### Planner snapshot readiness escaping
+
+The caller-supplied readiness score was interpolated into the snapshot HTML
+without escaping, although MCP accepts a caller-supplied validation object. It
+is now HTML-escaped. Focused frontend and native Rust tests pass for an HTML
+injection payload; an authenticated native MCP/browser test verifies that the
+payload is displayed as text and creates no image element. The frontend build
+passed. Both ARM64 and AMD64 clean-image jobs and hosted tests passed for
+`2c4c79f32906f7312255cd9c849ad5d1f8519895`. The ARM64 archive checksum,
+source revision, configuration and layers were verified; Docker imported it as
+`sha256:2275039f20c15e84759eb5284e1e1f0b2871efec58d5db26eb447c0de920fdc2`
+(hosted ID `sha256:62c4d5db45b6c9f01a91b9b01055e72569f32380ad34c85765a6cfdea010c17a`).
+Local packaged browser passed 65 tests with one skipped, workflow passed 62,
+CI passed one, and PDF isolation and outage checks passed. After a checked
+SQLite backup at `/private/tmp/aruvi-deploy-2c4c79f`, the worktree was updated;
+`aruvi-studio-worktree-backup:pre-2c4c79f` retains the previous image. Exact
+image identity, persistence, authenticated MCP/mobile and PDF passed across
+restart. The deployed MCP/browser injection test passed, as did origin, 13-section
+phone/desktop layout, real local coding and synthetic speech through MCP.
+This is not a staging deployment.
+
+Importing the candidate reduced Docker free space to 4.4 GB. Two tags for the
+unused `227fde4` image were removed after verifying its retained archive at
+`/private/tmp/aruvi-verified-227fde4` against the local configuration and layers;
+no container used it. Free space increased to 6.7 GB. The immediate rollback
+image remains available.
+
+### Worktree deployment at `4576218`
+
+The clean ARM64 and AMD64 image jobs and both hosted test workflows passed for
+`4576218102304e4d98ffe0d4d3e0e8f1f26e725c`. The ARM64 archive checksum and
+source revision were verified; its exported configuration and layer digests
+matched the imported Docker image `sha256:1068980450ccd55e315e59627f698869042f1681fec9553d01c18251709d0cfa`
+(hosted image ID `sha256:ebf8072e1006f3f77f0458525bc1b8af85b4332590d633de116af9db4485b3c4`).
+The isolated local packaged browser fixture passed 65 tests with one skipped;
+workflow passed 62, CI passed one, and PDF isolation and outage checks passed.
+The latest native Rust suite passed 368 tests with eight ignored; frontend passed
+145, mocked desktop browser passed 84, and the native server browser fixture
+passed 44 with 22 skips. The first desktop rerun used the wrong Chrome path
+variable and failed to start the browser; the corrected run passed.
+
+With no active workflow, CLI or import jobs, an online SQLite backup passed
+`quick_check` and was retained under `/private/tmp/aruvi-deploy-4576218` before
+deploying. The previous image is tagged `aruvi-studio-worktree-backup:pre-4576218`.
+App and PDF health, exact running image, persistent product and authenticated
+MCP/mobile/PDF checks passed across restart. Published-port MCP origin checks,
+phone and desktop layout for 13 sections, real local coding through MCP and
+browser streaming, synthetic Piper/Whisper speech through MCP and continuous
+browser voice all passed. The deployed MCP snapshot test returned an escaped,
+offline hierarchy without scripts. A disposable real-model Planner fixture
+staged an existing area in the browser and confirmed via MCP; it needed one
+model-format retry. Physical microphone and native-window behavior remain
+unverified. This is a worktree deployment, not Mac integration or VPS staging.
+
+### Offline Planner snapshot diagrams
+
+The no-session snapshot packet now renders a self-contained SVG overview and a
+complete text hierarchy instead of loading Mermaid from a public CDN. The SVG
+shows at most 100 nodes; the text retains all nodes and the existing serialized
+change set remains available. Labels are escaped. A focused frontend test checks
+the over-limit tree and malicious markup, and headless Chrome rendered the
+packet with networking disabled and made no requests. The frontend build passed.
+At that checkpoint the legacy TypeScript renderer still ran inside the bounded
+Rust service; the later native snapshot checkpoint supersedes that implementation.
+
+### Planner proposal packet identity
+
+Desktop proposal messages now retain independent copies of the plan and staged
+tree returned with each message. Exporting from a proposal passes that message's
+snapshot to the bounded backend renderer; if no draft was recorded, it uses an
+empty draft rather than substituting the current one. The packet distinguishes
+the selected proposal from catalog context collected at export time. These
+snapshots exist only in the current UI session and are not a persisted audit
+record. Proposal-card apply/clear labels now explicitly refer to current Planner
+state. A desktop browser fixture exported the first of two proposals and
+verified its earlier draft and actions; a second fixture covered a proposal
+without a draft. The full mocked desktop browser suite passed 84 tests; the
+disposable native-server browser suite passed 44 with 22 fixture-dependent
+skips. Frontend tests passed 144 tests, the production frontend build and
+terminology guard passed, and focused Rust packet/IPC tests passed. The first
+type-check failed on an incorrect test fixture type; it was corrected and the
+build rerun. The full native Rust library suite passed 368 tests with eight
+ignored. Current-draft session export remains on the persisted backend path.
+Native-window, clean-image and deployed validation remain open.
+
+### Planner no-session snapshot rendering
+
+Desktop no-session packet export now sends its explicit in-memory snapshot to a
+backend renderer rather than rendering in the frontend. The same bounded path
+is exposed as MCP `render_planner_packet_snapshot`; it does not query or modify
+the catalog and labels the snapshot as potentially stale. Serialized input is
+was capped at 8 MiB, execution at 10 seconds, JavaScript memory at 128 MiB and
+concurrency at two; transport limits can be lower. The later native snapshot
+checkpoint supersedes the bundled renderer and its resource limits. The later offline-diagram checkpoint removes the
+external Mermaid script. Proposal identity handling is recorded above. Direct desktop IPC, a no-session desktop browser harness, authenticated
+and unauthorized MCP, invalid and oversized snapshots, and nonempty draft/action
+content passed. The full mocked desktop browser suite passed 82 tests, including
+14 Planner tests; a disposable native-server browser suite passed 44 tests and
+skipped 22 requiring additional fixtures. The Planner suite's first run
+failed because a new test mock had a syntax error; that was fixed and the suite
+rerun. The frontend suite passed 143 tests, including three focused renderer
+tests. The native Rust library suite passed
+368 tests with eight ignored, followed by focused packet checks after extending
+the test. Clean-image, full remote fixture, deployed and native-window checks
+remain pending.
+
+### Planner packet fallback audit
+
+The desktop no-session export previously built a packet from in-memory product,
+tree, work, draft, plan, validation and assistant-message snapshots. The shared
+Rust session renderer requires a persisted staged draft, so it cannot replace
+that fallback without losing the no-session behavior. Proposal-message buttons
+also previously invoked one shared exporter using current state instead of the
+clicked message's plan. The snapshot-rendering and proposal-identity changes
+recorded above address those paths; fully native rendering remains open.
+
+### Current worktree deployment at `38d0acb`
+
+Clean ARM64 and AMD64 images and both hosted test runs passed for `38d0acb`.
+The checksum-verified ARM64 archive was imported with local image ID
+`sha256:01f881adb4d706640cffb7b2da9f16580221aa4879ed3be09e81755b96c04587`;
+its configuration and filesystem layer diff IDs matched the exported image,
+whose hosted ID was
+`sha256:5a5864a257dc54de767cf76f1a90a0d6bd55f84ce2506616ed6f26aef5e9c2b8`.
+Only checkpoint documentation differed from the tested runtime at deployment.
+Local isolated remote (64 passed, one skipped), workflow (62 passed), CI and
+PDF isolation/outage fixtures passed. A fresh database backup passed
+`quick_check` at `/private/tmp/aruvi-deploy-38d0acb/pre-deploy.db`; active
+workflow, CLI and import checks were clear before deployment. The previous
+image remains tagged `aruvi-studio-worktree-backup:pre-38d0acb`.
+Restart acceptance passed persistence, MCP/mobile authorization and PDF;
+published-port MCP origin and 13-section phone/desktop layout passed. Real
+local coding and synthetic Piper/Whisper speech passed through MCP. The
+deployed portfolio browser/MCP fixture passed scope filtering, descendant
+links, deduplication, navigation, refresh and narrow-screen checks. Physical
+audio, native-window interaction, full parity, integration and staging remain
+open.
+
+A subsequent disposable container using the deployed image exercised an
+existing-area Planner turn in the browser with the real `qwen25-coder-7b-q4`
+host. The proposal required one format retry, remained uncommitted before
+review, and was confirmed through MCP. This is one successful model sample;
+the Mac console still reported locked, so native-window comparison remains open.
+
+### Dependency audit after interim deployment
+
+`npm audit --audit-level=low` reported zero vulnerabilities. With the locally
+available Rust advisory database at `d1fe6ac3e`, the Studio lockfile audit
+reported `RUSTSEC-2023-0071` and 16 warnings; the independent consumer audit
+exited successfully. The audit tool could not open the crates.io index, so this
+is a recheck against that local advisory snapshot, not proof of current online
+advisory completeness. The unresolved lockfile advisory and release review are
+described below.
+
+### Docker capacity recovery and interim worktree deployment
+
+At the user's request to clean Docker, a BuildKit cache cleanup limited to
+entries older than 24 hours reclaimed 14.22 GB; volumes, containers and images
+were not removed by that cleanup. Docker then reported approximately 12 GB
+available and the existing worktree passed a product write/archive, MCP, mobile
+authorization and PDF check. Superseded branch push and pull-request workflow
+runs were cancelled to let the current revision run; the latest runs remain.
+
+The already-tested `c518bca` ARM64 image was deployed as an interim update;
+the later portfolio runtime is still awaiting clean-image validation and
+deployment. A fresh SQLite backup passed `quick_check` at
+`/private/tmp/aruvi-deploy-c518bca/pre-deploy-final.db`; no workflows, CLI runs
+or imports were active immediately before the switch. The prior running image
+was retained as `aruvi-studio-worktree-backup:pre-c518bca`. Restart acceptance
+passed persistence, MCP and mobile authorization, and PDF; published-port MCP
+origin checks and 13-section phone/desktop layout passed. Real Model Host coding
+and a synthetic Piper/Whisper speech round trip passed through MCP. This does
+not establish physical audio, native-window parity, integration or VPS staging.
+Subsequent authenticated browser checks also passed real coding-model streaming
+chat and continuous synthetic Piper audio through Whisper and a local model.
+
+### Shared client packaging recheck
+
+With the portfolio work on the branch, the offline package check again passed
+all 67 client tests, and the independent pinned consumer passed all 32 tests
+offline on the Mac. The pin check confirmed its revision matches the current
+client manifest, license and sources. This does not establish live third-party
+provider behavior or an independently published release.
+
+### Native Model Host revalidation with portfolio revision
+
+A disposable current native server passed Model Host discovery, coding and
+general Copilot through MCP, browser general Copilot, and a synthetic
+Piper/Whisper speech round trip. Coding used `qwen25-coder-7b-q4` on the
+validation worktree; speech used the integration host. Two preceding attempts
+with the integration host's `qwen-05b-comparison` returned coding output but
+hit the configured token limit on the general Copilot prompt, so they did not
+reach browser or speech checks. This records individual model outcomes, not a
+guarantee for other prompts, physical audio or deployed Docker behavior.
+
+### Portfolio strategy scope
+
+Browser Products now displays all products or those linked within a selected
+strategy subtree, and shows the unlinked count. Scope choices include ancestor
+names to distinguish identically named nodes. Clicking a result loads its
+product summary. A disposable native-server browser/MCP fixture passed parent
+and child scope filtering, navigation, and refresh after the selected strategy
+was deleted; the fixture also verifies empty scope messaging, counts,
+deduplication when a product is linked at multiple levels, selection retained
+on refresh, and product selection at phone width without document-level
+horizontal overflow.
+The broader disposable native-server browser suite passed 43 tests
+and skipped 22 requiring additional fixtures. The frontend suite passed 140
+tests, the terminology check passed, and the native Rust library suite passed
+366 tests with eight ignored. The locked Rust `--tests` target also passed 366
+tests with eight ignored; the binary targets contained no tests. This covers a
+desktop portfolio action but is not a complete portfolio audit. Clean-image
+and worktree deployment evidence is recorded above.
+
+### Workflow-stage artifact paging
+
+The browser workflow-stage view now offers the same bounded artifact paging
+controls as the general artifact list, scoped to the selected work item and
+artifact. A disposable native-server browser test passed with a real recorded
+artifact, checked next/previous pages and rejection of a changed file, and
+confirmed the other workflow's artifact was excluded. The first
+test attempt asserted the page status before the asynchronous request finished;
+the corrected test waits for the status and passed. The deployment evidence is
+recorded above. The full native Rust library suite also
+passed 366 tests, with eight ignored.
+
+Clean ARM64 and AMD64 hosted image checks and both hosted test runs passed for
+`c518bca`. The checksum-verified ARM64 image's imported filesystem layers and
+configuration matched the exported image; its local image ID is
+`sha256:05b296de2dbaf624d2241f7bc5f375b5c5221a1559c1542b135defbf85737393`.
+Local isolated workflow (62 passed), remote (64 passed, one skipped), CI and
+PDF sidecar checks passed. A focused workflow test passed but its wrapper's
+full-suite postcondition failed; the subsequent full fixture passed. A backup
+attempt before deployment failed with SQLite disk full: Docker's `/data` mount
+reported zero bytes available to the app user. The old worktree app and PDF
+containers remained healthy on `227fde4`; no new deployment was made. The empty
+failed backup file was removed. Two unused, unreferenced candidate image leaves
+created during this work (`fa06a06` and `a2fcb8e`) were removed, but available
+space remained zero. Retained rollback images and other projects were not
+removed. A later SQLite online backup through the container's memory-backed
+`/dev/shm` was streamed to `/private/tmp/aruvi-deploy-c518bca/pre-deploy.db`
+and passed `quick_check` in immutable read-only mode. `docker cp` could not
+access that temporary mount, so the successful transfer used `docker exec cat`.
+At that point Docker's disk still reported zero available bytes.
+To recover project-owned space, 123 historical candidate and rollback tags were
+saved in `/private/tmp/aruvi-deploy-c518bca/historical-images.tar.gz`; the
+archive's manifest contains every selected tag, gzip integrity passed, and its
+SHA-256 is `b9d08cd9854e114baa0b3812311a4a25b4e6426102b7317ed560abb2e0536ed1`.
+The tags were then removed locally and one rebuildable server-specific BuildKit
+cache entry was pruned using a description filter. The immediate running image
+and tested candidate were retained. Reclaimed space was insufficient: the app
+still reported zero available bytes. Historical tags can be restored with
+`docker load -i /private/tmp/aruvi-deploy-c518bca/historical-images.tar.gz`.
+The subsequent user-authorized cache cleanup and deployment are recorded above.
+
+### Current worktree deployment at `227fde4`
+
+Both hosted clean-image architectures and both hosted test runs passed. The
+Mac worktree runs the downloaded ARM64 image from run `45072084045`. Its
+archive checksum and revision were verified. Docker imported it with local ID
+`sha256:420e1295e69f4c431f385ad5a8efcd50e535f32ea4e1889339b140a81aaf4e55`
+rather than the hosted ID
+`sha256:7aa924f2b01629a7c00860c37c78a54162aefdccbaf7aaa4651987184132e90c`;
+the imported configuration and all ten filesystem layer diff IDs matched the
+exported image. Branch changes after this runtime are test and documentation
+only. A checked SQLite backup was saved to
+`/private/tmp/aruvi-deploy-227fde4/pre-deploy.db`, and the prior image was
+retained as `aruvi-studio-worktree-backup:pre-227fde4`. The new image passed
+the local remote suite (64 passed, one skipped), workflow suite (62 passed),
+CI fixture and the targeted Docs export regression. After deployment, restart
+acceptance passed persistence, mobile and MCP authentication, and PDF;
+published-port MCP origin checks and 13-section phone/desktop layout passed.
+MCP real local-model coding and synthetic Piper/Whisper speech passed. The
+first deployed Docs export check overlapped the restart and failed; a sequential
+retry passed. Physical audio, native window, full parity and staging remain open.
+
+### Docs export reference URLs
+
+Docs HTML previously escaped reference text but allowed unsafe URL schemes in
+links. It now shares Book HTML's reference URL policy: unsafe or malformed
+URLs remain visible as text, while supported external and relative links remain
+clickable. Focused frontend tests (11), the production frontend build, three
+mocked desktop export tests and the embedded Rust renderer's desktop-fixture
+comparison passed, including an unsafe URL in the backend-rendered output.
+The complete frontend suite passed 140 tests and the native Rust library suite
+passed 366 tests (eight ignored). Clean-image and worktree deployment evidence
+is recorded above.
+An additional disposable native-server browser regression checked authenticated
+MCP and mobile Docs exports, rendering the returned HTML and verifying unsafe
+URLs are text while safe external and relative URLs remain links.
+The complete mocked desktop UI suite also passed 81 tests on this branch; it
+does not replace native-window interaction.
+
+### Voice selection of existing catalog items (in validation)
+
+Planner voice now accepts an explicit request such as “Select existing product
+area Inventory” and resolves an exact unique name within the selected product.
+Product, area, capability, feature, story, task and work-item types are supported;
+story and task matches are type-specific. The shared staging transaction binds
+and snapshots the item and its ancestors, and records the voice exchange
+atomically. Missing, ambiguous and cross-product matches are rejected without
+staging a different item. ASCII case-insensitive matching is supported;
+non-ASCII names require their stored case. An isolated database test covers
+scope, duplicates, story/task identity and rollback on conversation failure. A
+native browser/MCP fixture stages an area, capability, story and task through
+voice transcripts and verifies that an ambiguous request preserves its text
+for correction. A separate real Piper/Whisper synthetic-speech round trip produced
+“Select existing product area Inventory” and staged the intended area in a
+disposable native server. A follow-up real coding-model proposal updated that
+same area after MCP confirmation without creating a duplicate. The full native Rust suite passed 366 tests with eight
+ignored. Physical microphone capture remains open; clean image and worktree checks are
+recorded above.
+
+### Current worktree deployment at `1215881`
+
+Hosted clean ARM64/AMD64 images passed workflow, remote-browser and CI fixtures,
+and both hosted test runs passed. The Mac worktree runs a derived candidate
+containing the checksum-verified ARM64 server from that build on the matching
+existing runtime; it is not the identical clean image. Server SHA-256:
+`4d6cac85aac8e707b0df04373d6c741755a23f3f7da1abc0688c3f9b591cc3e1`.
+The branch tip at deployment differed only in checkpoint documentation.
+A verified SQLite backup was taken with no active workflows, CLI runs or imports.
+The candidate passed 62 local browser tests (one skip), 62 workflow tests, the
+CI fixture, packaged model quick starts and scoped credential checks. Separate
+packaged real Model Host fixtures updated a selected product and child work item
+and created one task under a selected story, all only after confirmation.
+After deployment, restart acceptance verified persistence, authenticated MCP,
+mobile and PDF; six focused Planner tests, 13-section phone/desktop layout,
+published-port MCP origin, real MCP coding and synthetic Piper/Whisper browser
+voice passed. The backup is `/private/tmp/aruvi-deploy-1215881/pre-deploy.db`.
+These are representative checks, not full parity or VPS staging acceptance.
+
+### VPS staging read-only recheck
+
+On 2026-11-22 the existing native staging and production services were both
+active and their loopback health endpoints returned HTTP 200. Their running
+binaries still resolved to revision `2d1130f921e9967cc8dffa77953ebc1355802e25`.
+This is the older native deployment, not the branch or the new staging Compose
+adapter. No VPS configuration, ingress, data, or services were changed.
+
+### Real CI relay revalidation
+
+Using the deployed worktree's `f736e10` candidate and the separate Aruvici
+protocol branch `33e5a08`, a disposable native service and Docker Studio fixture
+passed authenticated relay health, target binding, browser cancellation of a
+running test, retry, a separate browser-queued build and OCI artifact integrity
+checks. Invalid relay credentials and deployment requests were rejected. This
+used a synthetic repository and the unmerged protocol candidate; it does not
+establish live product CI, a deployed Aruvici service or staging integration.
+The first fixture attempt failed at browser startup because the Chrome path was
+supplied under the wrong option; the corrected repeat passed. Gitleaks 8.30.1
+was downloaded from its release and checked against its published checksum.
+
+### Current worktree deployment at `f736e10`
+
+Hosted clean ARM64/AMD64 images and both hosted test runs passed. The Mac
+worktree runs a derived candidate containing the checksum-verified ARM64
+server from that build on the matching existing runtime; it is not the identical
+clean image. Server SHA-256:
+`6f12ffc6647d7641a23d5ded6328ae2dfcc269e5128d88217323072e835ede73`.
+The branch tip at deployment differed only in checkpoint documentation. A
+verified SQLite backup was taken with no active workflows, CLI runs or imports.
+The candidate passed 63 local browser tests (one skip), 62 workflow tests, the
+CI fixture, packaged model quick starts and scoped credential checks. One
+packaged synthetic voice selection was safely rejected as unmatched; its
+transcript was not recorded, so its cause is unknown. A repeat transcribed the
+request, selected the intended area and used the real coding model and MCP to
+update it after confirmation. After deployment, restart acceptance verified
+persistence, authenticated MCP, mobile and PDF; seven focused Planner tests,
+13-section phone/desktop layout, published-port MCP origin, real MCP coding,
+and synthetic Piper/Whisper browser voice passed. The backup is
+`/private/tmp/aruvi-deploy-f736e10/pre-deploy.db`. Physical audio and native
+window interaction, full parity and VPS staging acceptance remain open.
+
+### Nested product and hierarchy updates (in validation)
+
+A real local model placed an update to the selected product description in
+`details`; an earlier disposable confirmation reported success without changing
+it. Product, area and capability update actions now normalize supported fields
+from `fields`, `details`, or the top level and reject empty, conflicting,
+malformed or unsupported update fields. After the fix, separate native real Model Host proposals updated the original
+selected product, area, capability and child work item only after confirmation.
+The full native Rust suite passed 365 tests with eight ignored; packaged-image
+validation remains. Each real-model result is a single sample. One two-worker desktop run reported all 81 tests passing after its runner
+was interrupted during teardown. A subsequent single-worker run completed
+cleanly with all 81 passing.
+
+### Product-root Planner binding (in validation)
+
+The shared `stage_catalog_node` operation now accepts a product root by its
+exact ID and snapshots it before planning. Web and desktop product-level
+shortcuts use this path, as can MCP. A changed or mismatched product is rejected
+without applying the staged update. An isolated database test covered wrong ID,
+concurrent edit, rollback and successful retry; native browser/MCP fixtures
+covered the product shortcut and a concurrent MCP edit. The desktop mocked
+browser test verifies the product ID is passed through to the next turn. The
+frontend build and 139 frontend tests passed. Broader tests and a clean image
+build passed and this change is deployed to the Mac worktree as recorded above.
+
+### Desktop Product Book selection binding (in validation)
+
+Desktop Product Book area, capability and work-item shortcuts now carry the
+selected product and node IDs into Planner. Planner stages the existing node
+through the shared Rust command before enabling its actions, preserves text
+typed while staging, rejects a failed staging/session request, and ignores a
+late response after navigation. Product and model selectors are disabled while
+Planner is busy. The desktop draft editor also permits work-item children.
+Mocked-Tauri browser tests cover staging, selection passed to the next turn,
+failed staging/session creation, navigation races and unsent text preservation;
+the frontend build and 139 frontend tests passed. The focused desktop Planner
+suite passed all 12 tests. A wider run reported 80 passing tests only after the
+Playwright runner was interrupted during teardown; a second run with the list
+reporter completed cleanly with all 80 passing. This has not been validated in
+a physical native window. An isolated native debug process later started with a
+temporary database, but the computer-control interface reported
+`cgWindowNotFound` and could not inspect the window; that process was stopped.
+Direct voice selection now has scoped binding as described above; physical
+audio remains unverified. The desktop frontend change was included in the
+clean image and worktree deployment recorded above.
+
+### Current worktree deployment at `79be018`
+
+Clean ARM64 and AMD64 images for source `79be018` passed the hosted full
+workflow, remote-browser and CI fixtures. The Mac worktree runs a derived
+candidate with the checksum-verified ARM64 server from that build, layered on
+the previous runtime with matching configuration; it is not the identical
+clean image. Server SHA-256:
+`c55ff86b85512fe654f62b7fe54e348b1361a8809dd31992742b29083c6ee667`.
+A verified SQLite backup was taken after active jobs were checked; the app and
+PDF services passed product persistence, authorization and PDF acceptance after
+restart. Before deployment the candidate passed 61 local browser tests (one
+skip), 62 workflow tests, CI, packaged model quick starts and scoped credential
+checks. A packaged real Model Host fixture updated the selected child work item
+without changing its parent or creating duplicates; a separate real model
+browser fixture proposed and confirmed an existing-area capability. After
+deployment five focused browser/MCP Planner tests passed, along with 13-section
+phone/desktop layout, published-port MCP origin, real MCP coding and synthetic
+Piper/Whisper browser voice. A packaged independent model client passed 67
+tests and its pinned consumer passed real Model Host discovery, completion,
+streaming, JSON mode and token-limit checks. Full parity, physical audio and
+native-window checks, live external providers, Mac integration, and VPS staging
+remain open. Later branch commits include desktop and product-root Planner
+binding; their clean build and worktree deployment remain pending.
+The backup is `/private/tmp/aruvi-deploy-79be018/pre-deploy.db`.
+
+### Interim worktree deployment at `24ef166`
+
+The earlier clean ARM64/AMD64 image build and browser fixtures passed. The Mac
+worktree now runs a derived candidate containing the checksum-verified ARM64
+server from that build, layered onto the existing runtime with matching runtime
+configuration. This is not the identical clean image. Before restart, a SQLite
+backup passed `quick_check` and active workflow, CLI and import counts were zero.
+After restart, environment acceptance verified persistence, authenticated
+mobile/MCP access and PDF export. The derived candidate passed 59 isolated
+remote browser tests (one skip; two newer work-item tests excluded), workflow
+and CI fixtures, a real Model Host Planner proposal and confirmation, and the
+packaged management/scoped model quick starts. The deployed stack passed three
+existing-catalog browser/MCP tests, 13-section phone/desktop layout, published
+port MCP origin checks, real coding through MCP and synthetic Piper/Whisper and
+browser voice. The worktree runs source `24ef166`, not the later work-item
+changes; the clean image build and deployed checks for those changes remain open.
+The backup is in `/private/tmp/aruvi-deploy-24ef166/pre-deploy.db`.
+
+### Nested model-generated work-item updates (in validation)
+
+A real `qwen25-coder-7b-q4` proposal put the requested acceptance criteria
+inside `details`. Before this fix, confirmation reported success but left the
+criteria unchanged in the disposable database. Work-item update normalization
+now accepts supported fields from `fields`, `details` or the top level, rejects
+conflicting or malformed values, and rejects empty updates instead of silently
+doing nothing. Parser and draft tests cover the nested shape. Repeating the same
+real Model Host and MCP scenario with a rebuilt native server updated the
+original story after confirmation, with no duplicate. This is one successful
+sample; packaged-image and broader real-model reliability validation remain.
+At source `a8cc6bd`, the native server repeated the real-model child update
+successfully; two focused native browser/MCP checks and the frontend build,
+139 frontend tests, terminology guard and production npm audit also passed.
+The full native Rust suite passed 363 tests with eight ignored immediately
+before the final target-mismatch guard; that guard passed its focused test.
+The clean ARM64 and AMD64 image build for this source is still pending.
+A deeper parent/child test then exposed selection inference walking past the
+selected child to its parent. The inference now keeps the closest work item and
+capability; the database regression confirms the selected child, active-run
+guard and new descendant all use the intended identity. A further disposable
+real Model Host run updated a selected child task, left its parent unchanged and
+created no duplicates. A bound selected work item also rejects an explicit model
+target naming a different work item; a focused test covers that conflict. A model-created
+child with no explicit work type defaults to a task under the selected work
+item; a database test verifies its persisted type and parent. A native real
+Model Host proposal also created one task under the original selected story
+after confirmation, with no additional items.
+
+### Existing work-item Planner binding (in validation)
+
+The web work-item shortcut and MCP `stage_catalog_node` can stage an existing
+work item by ID, including its product, catalog and parent-work ancestry. Commit
+checks complete work-item snapshots and hierarchy, preserves workspace and other
+unmodified fields, and blocks edits while its workflow or CLI run is active.
+Selected work-item updates reject ambiguous title matches; a new child is
+committed under the selected work item. Manual children of work items default to
+task type. Existing work items are updated in place and stale edits roll back
+new work and other transaction changes.
+
+A disposable database test covers parent identity, new child placement, stale
+snapshot rejection, stale parent and forged ancestry, cross-product staging,
+active workflow and CLI rejection, and rollback. The native Rust suite
+passed 362 tests with eight ignored; the final manual-child default was added
+after that suite. A disposable native server passed two focused browser/MCP
+checks: the work shortcut selected the existing story, and MCP renamed the same
+story and created a task under it. This has not yet been tested in a packaged
+image; a single real-model work-item update is recorded above. Not all
+stale/deleted parent, duplicate-title, active-workflow and cross-product cases
+have been exercised end to end. Desktop Product Book shortcuts now use ID binding as described above; direct
+voice selection still needs the equivalent binding. Full desktop parity,
+branch-image deployment, integration validation and staging remain open.
+
+### Nested Planner create fields (in validation)
+
+The packaged real-model existing-area fixture failed safely before confirmation:
+the model repeatedly put the capability name under `details`, and the Planner
+rejected it after retries. Create actions now promote a bounded set of supported
+fields from `details`, reject conflicting or malformed values, and do not promote
+model-supplied parent IDs. Subsequent native Model Host attempts included one
+success and two safe failures; one failure was traced to a list of examples.
+Lists of text examples are now retained as newline-separated text; mixed-type
+lists are rejected. Parser tests and a simulated model proposal confirmed that
+the requested child is staged and created under the selected area. A native
+real-Model-Host repeat then succeeded in two model calls, preserving the area ID
+and creating the requested child only after confirmation. This is one sample;
+the earlier failures remain evidence of model variability. Packaged-image
+validation must be repeated against the latest revision. The full Rust library
+suite passed 361 tests with eight ignored after this change.
+
+### Bound Planner catalog updates (in validation)
+
+The shared draft-commit path can now recognize server-format product, area and
+capability snapshot bindings and update the bound area or capability in place.
+It checks product ownership, ancestry, identity, kind and the complete stored
+snapshots within the commit transaction; a missing or changed record rejects the
+whole commit. Unbound draft nodes retain their existing create behavior. An
+isolated database test covers in-place updates, a new child, preserved fields,
+cross-product and parent mismatches, malformed bindings, deleted nodes and stale
+product, area and capability snapshots, including transaction rollback.
+The native Rust library suite passed 357 tests with eight ignored; the latest
+focused test also covered unsupported binding kinds and a JSON round trip.
+
+The server can now stage a product area, capability or feature by product and
+node ID, including its ancestor chain, under a session lock and database write
+transaction. It preserves existing staged changes and refuses conflicting or
+stale nodes. Browser hierarchy Planner actions use this operation; MCP exposes
+`aruvi_planner` / `stage_catalog_node`, and a desktop command is available.
+Focused tests cover in-place MCP updates, concurrent conflicts, browser draft
+preservation and navigation races; the desktop confirmation UI retains a draft
+after a conflict. An isolated simulated model also proposed an update to a
+staged capability, which was applied to the same ID only after confirmation.
+A disposable native Studio server connected to the real local Model Host and
+used the browser to stage an existing area, ask `qwen25-coder-7b-q4` for one
+capability, and confirm it through MCP. Three model calls produced the requested
+proposal; the catalog remained unchanged before confirmation and retained the
+original area ID with one new child afterward. This is one successful sample,
+not a reliability guarantee, and the image-based fixture remains pending. A full
+native browser run passed 56 tests with five fixture
+skips; the frontend build and 139 unit tests passed. The Rust suite passed 359
+tests with eight ignored, including bounded ancestry, cross-product and
+unbound-draft handling. Worktree validation is pending.
+
+The desktop Product Book shortcuts now stage these bindings as described above;
+direct voice selection now has the scoped binding described above. Selected existing work items now have the ID-bound path described
+above, but it has not completed the client and conflict validation matrix. New unbound
+hierarchy proposals still create nodes. Real-model behavior and the full client
+matrix remain unverified; do not claim complete selected-catalog parity.
+
+For existing work-item parity, staging must bind the work item and its product,
+hierarchy and parent-work ancestry by ID. Confirmation must compare the original
+work-item snapshot, preserve workspace, status and execution state, and reject
+an active workflow or CLI run where the existing edit rules require it. New
+child work must remain attached to the intended existing parent. Duplicate
+titles, stale or deleted parents, cross-product IDs, rollback and retries need
+browser, MCP and server tests before replacing the current name-based shortcut.
+
+### Scoped Planner action targets (in validation)
+
+Planner responses for a selected product now reject an explicit action target
+for a different product, rather than executing or reporting against that target.
+Missing or null product targets are filled from the selection. Catalog lookup by
+name rejects duplicate exact product names instead of choosing the first; this
+can make name-based reports unavailable for duplicates until they carry IDs.
+The guard applies to text and repository analysis and validates model output;
+the model tool-read scope is separately documented below. Focused tests cover explicit cross-product targets,
+duplicate product names and null targets; a simulated model also attempted a
+cross-product report and was rejected before any action executed. The native
+server build, four browser/MCP Planner checks and the Rust library suite (356
+passed, eight ignored) passed. Worktree deployment remains pending.
+
+### Planner product identity on commit (in validation)
+
+Applying a staged design now resolves a persisted product by ID first. A draft
+marked as an update is rejected if its linked product no longer exists; it is
+not rebound by name. For older create drafts with generated IDs, a unique name
+match remains supported, but multiple matching products are rejected instead
+of silently selecting one. Database errors are no longer treated as missing
+products. A disposable database test checks that ambiguous and missing update
+targets leave both same-name products unchanged and that an exact ID updates
+only its product. Broader regression and deployment checks are pending. This
+does not yet bind existing product areas or capabilities to draft nodes.
+The native Planner turn regression group passed 23 tests; the full Rust library
+suite passed 355 tests with eight ignored.
+
+Selected-catalog migration work, with newer implementation evidence at the top
+of this file:
+
+1. Define a server-owned catalog context containing product and node IDs, node
+   kind and ancestry. Validate ownership and reject missing or changed targets;
+   do not substitute a same-name node.
+2. Stage existing nodes with their original values and identity separately from
+   newly proposed nodes. Preserve an existing staged design when changing
+   context, and make that state reviewable before applying it.
+3. Apply updates to the bound records under the same transaction as new child
+   creation, checking the stored snapshot for conflicting concurrent edits or
+   moves. A rejected operation must leave the complete draft and catalog intact.
+4. Carry the context through web, desktop, MCP and voice as applicable; test
+   duplicate names, nested nodes, stale snapshots, cross-product IDs, deleted
+   targets, failures and retry, as well as real-model behavior. Existing legacy
+   drafts and explicitly unscoped requests need documented compatibility.
+
+### Scoped Planner model tool reads (in validation)
+
+Planner model tool calls for a selected product now resolve its tree and work
+list by the selected product ID. An omitted tool argument stays within that
+product, and a different product name is rejected. This prevents a scoped
+model turn from receiving another product's data because of an omitted or
+incorrect tool argument, including when product names are duplicated. Explicitly
+unscoped sessions retain their existing behavior. This protects tool reads; it
+does not supply the separate selected catalog-node identity described below or
+eliminate the need to review model-generated actions. An isolated database test
+covered duplicate names, missing names, cross-product attempts and unscoped
+compatibility. A simulated provider made successive tool calls and received
+only the selected product's work and a rejection for another product. The Rust
+library suite passed 354 tests with eight ignored. Deployment validation remains
+pending.
+
+### Planner product-scope draft protection (in validation)
+
+Planner text, voice and repository-analysis turns now reject a selected product
+that conflicts with a staged draft before changing the draft or its selection.
+Web, desktop and MCP confirmation pass an optional product scope through the
+same guard. The browser retains a failed text request for correction. An
+explicit voice clear remains available to discard a staged draft deliberately.
+Mobile confirmation accepts legacy empty bodies; a nonempty malformed request
+must be rejected rather than interpreted as an unscoped confirmation. Existing
+clients that omit product scope remain unscoped; unknown confirmation fields
+are rejected. A draft marked as an update cannot fall back by name if its linked
+product has disappeared. Older create drafts with a generated root ID can still
+fall back to a unique root name; ambiguous same-name matches are rejected.
+
+An isolated Rust test covers same-name persisted products, unchanged stored
+draft and selection, text, voice, repository analysis, confirmation, legacy root
+matching and explicit clear. Browser/MCP fixtures cover scoped rejection and
+unscoped confirmation compatibility, and reject malformed or misspelled scope
+fields. The configured native browser suite passed 53 tests with five skips;
+the frontend build and 139 frontend unit tests passed. A mocked desktop Planner
+test confirmed that its confirmation call carries the selected product. Final
+Rust regression and worktree deployment remain pending.
+
+### Contextual Planner actions (in validation)
+
+Browser Products, hierarchy nodes and selected work prepare contextual
+improvement and child/story planning requests. Hierarchy actions now stage the
+selected catalog node and its ancestors; other shortcuts clear an unrelated
+selected Planner draft node. They do not send a request automatically and ask
+before replacing unsent text. A missing selected product
+requires an explicit scope rather than silently becoming unscoped. A disposable
+browser/MCP fixture covers product, area, capability and work actions, declined
+replacement and the outgoing scoped turn. The native server build and targeted
+tests passed. The configured native browser suite passed 51 tests with five
+fixture-dependent skips. Worktree deployment is pending; this does not prove
+real-model or native-window parity. Selected existing work items are still
+identified by prompt text rather than a validated catalog ID. Do not treat the
+shortcuts as complete selected-context parity.
+
+### Product hierarchy to work navigation
+
+The web product tree now offers a direct action to view top-level work for an
+area or capability. It clears an existing status filter while preserving the
+unsubmitted work title. Returning to Products after Work now loads the selected
+product's summary, including when the product changed in Work. A disposable
+browser fixture covers both hierarchy levels, draft preservation, the filter,
+pagination, and product switching. The configured native browser suite passed
+49 tests with five fixture-dependent skips. The native Rust library suite passed
+351 tests with eight ignored; frontend build, terminology check and all 139
+frontend unit tests passed. The mocked desktop browser suite passed 74 tests
+with installed Chrome and one worker. A two-worker attempt reported all cases
+passing but did not exit, so it was stopped. A further
+source comparison found desktop product-overview planner shortcuts that are
+not yet represented by equivalent contextual web actions; see the parity audit.
+
+Clean ARM64 and AMD64 image builds passed for `a09e82d`. The worktree uses a
+derived candidate containing its checksum-verified ARM64 server on the prior
+runtime, not the full clean image. Candidate image ID is
+`sha256:3ecd411b73c677b002ecd0d7468fe8a5cab9e122512bd9e68328ac9d3ad214f0`;
+server SHA-256 is
+`c68963b465b3740c573332cac1e0678732cc871c626848d5d4d9bc4e957b9162`.
+Isolated candidate validation passed 62 workflow tests, 53 browser tests with
+one skip, PDF isolation and outage checks, simulated CI access, and real Model
+Host discovery, coding, stream cancellation and scoped-credential checks.
+After an active-job check and verified database backup, the worktree app and PDF
+containers were updated. Restart acceptance passed for product persistence,
+MCP, mobile authorization and PDF; deployed navigation, all 13 sections at
+phone and desktop widths, origin checks, real MCP coding and speech, and browser
+continuous voice with synthetic audio also passed. The prior image is retained
+as `aruvi-studio-worktree-backup:pre-a09e82d`. This is not staging acceptance,
+physical audio validation, or complete desktop parity.
+
+### Hierarchy-scoped work browsing: branch validation
+
+The desktop product view can show top-level stories for a selected feature;
+the web Work view previously exposed only product-wide and status-filtered
+lists. It now loads hierarchy choices separately from the creation draft and
+requests top-level work directly attached to the chosen area or capability.
+The authenticated mobile endpoint accepts paired source-node filters and an
+optional top-level flag. MCP `list_work_items` also accepts `top_level_only`
+with and without pagination; the first-class `work_items.list` tool advertises
+`topLevelOnly`. Both APIs retain their prior defaults. Reordering
+is disabled when either filter is active. An opened child can remain selected
+outside the filtered list if it belongs to the selected scope; the page reports
+that selection even when the filtered top-level list is empty.
+
+A disposable native browser/MCP/API fixture covered 101 scoped top-level items,
+pagination, status filtering, children, cross-product isolation, authorization,
+invalid input, legacy MCP defaults, stale page responses and changing product
+while hierarchy choices load, including at 390×844 without document overflow.
+It also checked that an area filter excludes work directly attached to nested
+capabilities and vice versa. First-class MCP discovery and a first-class scoped
+query were also checked.
+Lists use offsets and are not stable snapshots
+under concurrent changes. The configured native browser suite passed 49 tests
+with five fixture-dependent skips; the native Rust library suite passed 351
+tests with eight ignored, including after the empty-list selection and MCP
+discovery fixes. This is not full product-screen parity.
+
+Clean ARM64 and AMD64 image validation passed for `265d7c8`. The worktree
+candidate combines its checksum-verified ARM64 server with the prior runtime
+image; it is not the complete clean image. Candidate image ID is
+`sha256:fedd68b6de05ee74c256dfb6f9be9c6a485569ca2252e6bced63900ea15475a4`
+and server SHA-256 is
+`31a6bf2d8174992c15312da0d3d9f31881622ed560167f23956d63d4fab3d8c3`.
+Isolated workflow, browser, PDF and simulated-CI suites and real Model Host
+quick-start, cancellation and scoped-credential checks passed. After an
+active-job check and verified database backup, the app and PDF containers were
+updated; restart acceptance verified product persistence, MCP, mobile
+authorization and PDF. The deployed scoped-work browser/MCP/API fixture,
+hierarchy and child-work tests, all 13 sections at phone and desktop widths,
+MCP origin checks, real local coding and speech through MCP, and continuous
+browser voice with synthetic audio passed. The previous image remains tagged
+for rollback. Physical desktop and audio, live third-party providers, deployed
+Aruvici, Mac integration and VPS staging remain unverified.
+
+### Real-model multi-file delivery revalidation
+
+The currently deployed worktree image passed another disposable multi-file
+workflow using `qwen25-coder-7b-q4` through the real native Model Host. Browser
+approval advanced the plan and test gates; the disposable Git remote stayed
+unchanged before review, and independent generated-code and syntax checks passed
+before delivery. The work-item workspace override received the generated files
+while the product default workspace remained unchanged. This is one model sample
+using a management-capable credential; it does not establish general coding
+reliability, physical desktop interaction or staging acceptance.
+
+### Selected work-item metadata: branch validation
+
+The web work-item detail now shows the selected item's type, priority and
+complexity, which the desktop story detail displays. A native server build and
+three disposable browser tests passed, including creating a high-priority,
+very-high-complexity bug and checking its displayed metadata. This does not
+establish full work-item parity. A configured native browser run passed 48 tests and skipped five that
+require additional fixtures. The native Rust library suite passed 351 tests
+with eight ignored.
+
+Clean ARM64 and AMD64 image validation passed for `651cd5b`. The worktree
+candidate combines its checksum-verified ARM64 server with the prior runtime
+image; it is not the complete clean image. Candidate image ID is
+`sha256:e1287236fe708ef9c258a87552671a21dd4bbd12f1ad7b0ba33b50bcf4d3dbc0`
+and server SHA-256 is
+`d27f2ce43bc23d5d7e9995bf6a8e5fd372214276d874d80810110a8dde551093`.
+Isolated workflow, browser, PDF and simulated-CI suites and real Model Host
+quick-start, cancellation and scoped-credential checks passed. After an
+active-job check and verified database backup, the app and PDF containers were
+updated; restart acceptance verified product persistence, MCP, mobile
+authorization and PDF. The deployed work-item and child-action browser tests,
+all 13 sections at phone and desktop widths, MCP origin checks, real local
+coding and speech through MCP, and continuous browser voice with synthetic
+audio passed. The previous image remains tagged for rollback. Physical desktop
+and audio, live third-party providers, deployed Aruvici, Mac integration and
+VPS staging remain unverified.
+
+### Rust advisory revalidation: 2026-11-22
+
+Using the locally available advisory database at revision `d1fe6ac3e`,
+`cargo-audit` reported no vulnerabilities or warnings for the independent
+consumer lockfile. The Studio lockfile reported one vulnerability,
+`RUSTSEC-2023-0071` for RSA, and 14 unmaintained and two unsound warnings.
+`cargo tree -i rsa` found no selected path for the current Studio configuration.
+A subsequent offline recheck with `--all-features --target all` also found no
+selected path for this manifest and toolchain. This does not resolve the
+lockfile advisory or prove other manifests and toolchains are unaffected.
+Release review of the warnings and locally patched SQLx remains open.
+
+### Child task actions: branch validation
+
+The browser parent-work list now offers direct edit and delete actions for each
+child, as the desktop story view does. Editing opens the existing guarded task
+form. Deletion asks for confirmation and uses the loaded child as the existing
+server-side stale-data baseline; the list is refreshed afterward. Cross-product
+legacy children remain disabled. A native server build and disposable browser
+tests passed edit/save, cancelled deletion, a concurrent MCP edit rejected by
+the delete endpoint, confirmed deletion and 101-child paging. Physical desktop
+acceptance remains open.
+The broader native browser run passed 31 tests and skipped 22 fixture-dependent
+cases. An earlier attempt enabled all disposable-container cases against the
+native fixture: 44 passed, five skipped and four failed because that fixture
+lacked the packaged Monaco assets, repository paths and configured proxy origin.
+All four subsequently passed against the native server with the required assets,
+temporary repository paths and origin configuration. The workspace-choice test
+now accepts fixture paths while retaining its container defaults. A subsequent
+combined native run with those settings passed 48 browser tests and skipped five
+that need additional fixtures. The full native Rust library suite passed 351
+tests with eight ignored.
+
+Clean ARM64 and AMD64 image validation passed for `285a92f`. The worktree
+candidate combines its checksum-verified ARM64 server with the prior runtime
+image; it is not the complete clean image. Candidate image ID is
+`sha256:decf478c14d1428cfe29863cdbf03dd08818d2b75e6c8b84c5e21f72a6c94ad1`
+and server SHA-256 is
+`470ea4b1c7d80988984ecab3ff6d7e3cd78ac8139dfbf2b5aa40966a735a1cd0`.
+Isolated workflow, browser, PDF and simulated-CI tests and real Model Host
+quick-start, cancellation and scoped-credential checks passed. After an
+active-job check and verified database backup, the app and PDF containers
+were updated; restart acceptance verified product persistence, MCP, mobile
+authorization and PDF. The deployed child-action and 101-child browser tests,
+all 13 sections at phone and desktop widths, MCP origin checks, real local
+coding and speech through MCP, and continuous browser voice with synthetic
+audio passed. The previous image remains tagged for rollback. Physical desktop
+and audio, live third-party providers, deployed Aruvici, Mac integration and VPS
+staging remain unverified.
+
+### Independent model-client revalidation
+
+The packaged client passed 67 tests, and its independent consumer passed 32
+offline tests. Pin checks confirmed that the consumer's Git revision still
+matches the client manifest, license and sources. Against the native integration
+Model Host, that pinned consumer passed discovery, completion, streaming,
+token-limit handling and synthetic Piper-to-Whisper speech. These checks do not
+establish live third-party provider compatibility or physical audio behavior.
+The same 32 consumer tests also passed offline in an ARM64 Linux container with
+read-only dependency caches and no network. A separately built ARM64 Linux probe
+then passed real Model Host discovery, text completion, streaming, token-limit
+handling and synthetic speech generation/transcription. Hosted AMD64 CI run
+`45038751154` passed the independent-consumer suite. Run `45040193739` built a
+checksummed x86-64 probe from the same pinned consumer; under Docker Desktop's
+AMD64 emulation, it also passed real Model Host discovery, completion, streaming,
+token-limit handling and synthetic speech. This does not establish live
+third-party provider compatibility.
+
+A native x86-64 VPS attempt verified the host's compatible glibc and the copied
+probe's checksum, but the SSH server rejected the requested loopback remote
+forward. The model probe therefore did not run successfully there. Temporary
+probe files were removed; no staging or production service was changed. A
+subsequent native x86-64 probe used the existing loopback staging Model Host
+instead. Running as an unprivileged user, the checksum-verified pinned client
+passed discovery, completion, streaming and token-limit handling with the
+`smol-test` model. The temporary binary was removed. The staging model host may
+record normal inference telemetry; no service configuration or deployment was
+changed. That host did not advertise the required pair of speech models, so
+native AMD64 speech remains unverified.
+
+### Child-work details: branch validation
+
+The web parent-work list now displays each child's priority, complexity and
+description alongside its title and status, matching information available in
+the desktop story task list. Descriptions are rendered as text. A native server
+build and two disposable browser tests passed, including 101-child pagination,
+phone-width overflow and an HTML-like description. This does not establish
+complete story-screen parity.
+The frontend production build, all 139 frontend tests, terminology check and
+production npm dependency audit (zero vulnerabilities) also passed.
+
+Both clean ARM64 and AMD64 image validations passed for `d86eb04`. The worktree
+candidate combines the checksum-verified ARM64 server with the prior runtime
+image; it is not the complete clean image. Candidate image ID is
+`sha256:c24825a4620db9e216ff68038a01ad655466edd851a359deca36066cfb69f5a6`
+and server SHA-256 is
+`2ad1fef25d91f443761a44b7c72a9799bfe6a2d327ed1ca34ef741be62905031`.
+Isolated workflow, browser, PDF and simulated-CI checks passed, as did real
+Model Host quick-start, stream cancellation and scoped-credential checks.
+After a checked database backup and active-job check, the app and PDF services
+were updated. Restart acceptance verified product persistence, MCP, mobile
+authorization and PDF. Deployed browser hierarchy and 101-child tests, all
+13 sections at phone and desktop sizes, MCP origin, real local coding and
+speech through MCP, and continuous browser voice with synthetic audio passed.
+The previous image remains tagged for rollback. Physical desktop and audio,
+live third-party providers, deployed Aruvici, Mac integration and VPS staging
+remain unverified.
+
+### Off-page work selection: branch validation
+
+Refreshing the backlog now checks an off-page selection against the server and
+keeps it when it still belongs to the selected product and matches the status
+filter. Missing work returns 404 and falls back to a loaded item; transient
+lookup failures preserve the selection and show an error. A response for an
+older selection cannot replace a newer selection. The interface indicates when
+the selected item is outside the loaded page. A native browser fixture covered
+101 children, refresh, a simulated lookup failure, a selection race and status
+filtering. Three focused native browser tests passed; the native Rust library
+suite passed 351 tests with eight ignored. Both hosted test workflows and the
+clean ARM64/AMD64 image workflow passed for `76d08fa`. The deployed worktree
+candidate uses the checksum-verified ARM64 server from that image on the prior
+runtime image, rather than the full clean image. Its image ID is
+`sha256:6ba15c7996131a5accbcf22d5150e613d3a5922c4619ba81ac726ab961881a97`
+and its server SHA-256 is
+`eea10f4828372d3ae80e54ab02fa92da901a48942d15d5f24100016720316ec7`.
+The candidate passed isolated workflow, browser, PDF and simulated-CI suites,
+plus real Model Host browser chat, cancellation and scoped-credential checks.
+
+After a checked database backup and an active-job check, the worktree app and
+PDF containers were updated. Restart acceptance verified product persistence,
+MCP, mobile authorization and PDF. The deployed browser passed hierarchy and
+101-child navigation tests, all 13 sections at phone and desktop sizes, and
+published-port MCP origin checks. Real local coding and speech through MCP and
+continuous browser voice with synthetic audio passed. The previous image is
+tagged for rollback. Physical desktop and audio, live third-party providers,
+deployed Aruvici, Mac integration and VPS staging remain unverified.
+
+### Child-work navigation parity: branch validation
+
+The desktop story view lists its child tasks, while the web Work view previously
+required the user to find children in the product-wide backlog. The web Work
+detail now loads direct children in pages of 50, opens a selected child, opens
+its parent after checking product agreement, and can set the selected item as
+the parent for a new work draft without clearing the draft title. The new
+authenticated endpoint shares the existing child-work query. Pagination uses
+offsets, not a stable snapshot: concurrent inserts, deletions or reordering can
+shift later pages. Legacy cross-product relationships are displayed but cannot
+be opened through this control. Off-page selection refresh behavior is described
+in the later checkpoint above.
+
+A native Rust test checked authentication, invalid offsets, missing parents
+and 51 items across two pages. A disposable native server and headless browser
+checked child and parent navigation, shortcut creation with inherited scope,
+preserved draft title, and two-page rendering of 51 real children, including at
+a 390×844 viewport without document overflow. A delayed child response was
+discarded after selecting a different work item. The full native Rust library
+suite passed 351 tests with eight ignored.
+
+Hosted test workflows `45034028483` and `45034032766` passed; clean ARM64 and
+AMD64 image validation in run `45034028486` passed for source `5e72811`. Later
+commits add only tests and checkpoints. The worktree candidate used the
+hash-verified ARM64 server from the clean image on the existing runtime image,
+so it is derived rather than the complete clean image. Its image ID is
+`sha256:8d953c4faf0fb68f6f278ae9ae6d8ff62a3d2d59d9539d574e12f1453762e294`;
+the server SHA-256 is
+`bd0f896ce8312e3c3d8581550beebbf58cf2d4358d53c9c19231b7884cf5d562`.
+The candidate passed 62 workflow tests, 52 browser tests (one skipped), PDF
+isolation and outage checks, simulated CI, and the real-host packaged quick
+start and stream cancellation. The scoped-credential fixture passed.
+
+After checking active jobs and backing up the database, the worktree app and
+PDF containers were updated. Restart acceptance checked product persistence,
+MCP, mobile authorization and PDF. The deployed browser passed child/parent
+navigation, shortcut creation and 51-child paging with disposable work items
+and archived products. Chrome checked all 13 sections and published-port MCP
+origin rules; real local coding and synthetic speech passed. The previous image
+remains tagged for rollback. Physical desktop and audio, live third-party
+providers, deployed Aruvici, Mac integration and VPS staging remain unverified.
+
+### Hierarchy creation transaction: branch validation
+
+Browser hierarchy creation previously checked product and area scope before
+dispatching a separate catalog insert. It now reserves the SQLite writer before
+checking scope and keeps the same transaction for hierarchy validation, sort
+allocation and insertion. The shared desktop/MCP area and capability creation
+functions also reserve the writer through sort allocation and insertion.
+The planner's existing in-transaction creation continues to use the shared
+connection helpers. These reservations coordinate SQLite writers using the
+same database; they do not make a multi-step planner or template operation
+atomic as a whole.
+
+A Rust race fixture held a competing area move and verified that a browser
+request waited, rejected the changed scope and created no child. Simultaneous
+browser and MCP area and capability creation produced distinct sibling sort
+positions. The full native Rust library suite passed 350 tests with eight
+ignored, and the native browser creation and ordering flows passed. A separate
+two-container Linux fixture reproduced an incorrect cross-product creation on
+the prior worktree image, then rejected it on the fixed candidate. It also
+verified distinct sort positions from concurrent browser and MCP creation
+across the two servers. The fixture uses its own disposable volume and tokens.
+Hosted test workflows `45031694350` and `45031698565` passed; clean ARM64 and
+AMD64 image validation in run `45031694352` passed for source `3e08b81`.
+Later commits add only the repeatable two-container fixture and checkpoint
+material. The worktree candidate used the hash-verified ARM64 server from the
+clean image on the existing runtime image, so it is derived rather than the
+complete clean image. Its image ID is
+`sha256:901fd1d76699ab14298ee1bbb8265a0f82e8f8bca2eb10f6ee04eb915edce2ef`;
+the server SHA-256 is
+`27c6a7eaae8d6bbb6c9cd7a6bb886d92f0fa3d8a4a6ec5a1f3fc9e28cbdf4676`.
+The candidate passed 62 workflow tests, 51 browser tests (one skipped), PDF
+isolation and outage checks, simulated CI, and the real-host packaged quick
+start and stream cancellation. The scoped-credential fixture passed.
+
+After checking active jobs and backing up the database, the worktree app and
+PDF containers were updated. Restart acceptance checked product persistence,
+MCP, mobile authorization and PDF. The deployed branch passed browser
+hierarchy creation and ordering at phone and desktop widths using disposable,
+archived products. Chrome checked all 13 sections and published-port MCP
+origin rules; real local coding and synthetic speech passed. The previous image
+remains tagged for rollback. Physical desktop and audio, live third-party
+providers, deployed Aruvici, Mac integration and VPS staging remain unverified.
+
+### Hierarchy creation details parity: branch validation
+
+The desktop creation forms accept a product-area description and, for a
+capability or feature, a description, acceptance criteria and technical notes.
+The browser creation forms now accept those fields, and the mobile API forwards
+them to the catalog persistence layer. They are optional for older clients;
+criteria and technical notes are rejected for a product area. The later
+transaction checkpoint covers the scope-check race.
+
+A disposable native server and headless browser created all three hierarchy
+levels, checked the stored values through the product tree and MCP, and checked
+unauthenticated, wrong-product and invalid-field requests. Creation was also
+exercised at 390×844 without document overflow; the ordering regression passed.
+The first browser run revealed ambiguous accessible labels and selectors; the
+subsequent run passed after the optional-field labels were clarified. The full
+native Rust library suite passed 349 tests with eight ignored, and the product
+terminology check passed.
+
+Hosted test workflows `45029526022` and `45029531077` passed; clean ARM64 and
+AMD64 image validation in run `45029526024` passed for source `71300e8`. Later
+commit `c8dbf7e` only records the native checks. The worktree candidate used
+the hash-verified ARM64 server from the clean image on the existing runtime
+image, so it is derived rather than the complete clean image. Its image ID is
+`sha256:860d1024ec4ac3cb336b9bb874028cb76417b39ad9c9284114cff11a31071391`;
+the server SHA-256 is
+`d6606a9deab8dc9906b10a2caa2567a99aff17cc4188c0df6ab08fb421758984`.
+The candidate passed 62 workflow tests, 51 browser tests (one skipped), PDF
+isolation and outage checks, simulated CI, and the real-host packaged quick
+start and stream cancellation. The scoped-credential fixture passed.
+
+After checking active jobs and backing up the database, the worktree app and
+PDF containers were updated. Restart acceptance checked product persistence,
+MCP, mobile authorization and PDF. Creation and ordering were then verified
+in Chrome against the deployed branch with disposable, archived products at
+desktop and phone widths; MCP confirmed the created details. Chrome checked all
+13 sections and published-port MCP origin rules; real local coding and synthetic
+speech passed. The previous image remains tagged for rollback. Physical desktop
+and audio, live third-party providers, deployed Aruvici, Mac integration and
+VPS staging remain unverified.
+
+### Product hierarchy ordering parity: branch validation
+
+Desktop supports reordering product areas, capabilities and features, but the
+browser did not. The product tree now offers move-up and move-down buttons for
+each sibling group of at most 1,000 items. The authenticated endpoint compares
+the complete displayed sibling order, checks product and parent scope, and
+applies the new permutation under one SQLite write transaction. A stale order
+is rejected rather than overwriting a concurrent edit. MCP exposes the same
+guard as `aruvi_catalog.reorder_hierarchy_checked` and
+`catalog.hierarchy.reorder_checked`. The legacy desktop and MCP reorder calls
+remain compatible and do not gain this conflict check. Direct SQL writers and
+older clients are not required to use it; separate changes after a successful
+request remain possible.
+
+A focused Rust test checked authentication, invalid permutations, cross-product
+scope, stale requests, both guarded MCP names, and rollback after an injected
+failure. A disposable native server and headless browser reordered areas,
+capabilities and features and rejected a stale browser move after an MCP edit.
+The initial browser run exposed a stale status-message timing issue; the final
+run passed after adding an updating state. The full native Rust library suite
+passed 349 tests with eight ignored, followed by a focused test confirming that
+only one of two concurrent reorder requests succeeds. A repeat also exercised
+the capability and feature controls at 390×844 without document overflow.
+Hosted test workflows `45027432866` and `45027437164` passed; clean ARM64 and
+AMD64 image validation in run `45027432925` passed for source `ba815c1`.
+Later commit `42b41f3` adds only the narrow-screen test and checkpoint. The local
+branch candidate used the hash-verified ARM64 server from the clean image on
+the existing runtime image, so it is derived rather than the complete clean
+image. Its image ID is
+`sha256:37de634fbb22607ef76d661cf69510a01728b496d27ab0700f13526daaebe186`;
+the server SHA-256 is
+`43c54b06f7c1cd8a80570195925fe7eddda921f74db1fdb7d9e0e894718a7b25`.
+The candidate passed 62 workflow tests, 51 browser tests (one skipped),
+simulated CI, PDF isolation and outage checks, and real-host packaged model
+quick start and stream cancellation. A scoped-credential fixture passed.
+
+After checking active jobs and backing up the database, the worktree app and
+PDF containers were updated. Restart acceptance checked product persistence,
+MCP, mobile authorization and PDF. The hierarchy ordering test then ran against
+the deployed branch with a disposable, archived product and passed for all
+three hierarchy levels, a stale MCP conflict and a phone-sized viewport.
+Chrome checked all 13 sections at phone and desktop widths and published-port
+MCP origin rules; real local coding and synthetic speech passed. The previous
+image remains tagged for rollback. Physical desktop and audio, live third-party
+providers, deployed Aruvici, Mac integration and VPS staging remain unverified.
+
+### MCP file digest workspace snapshot: branch validation
+
+`aruvi_repositories.get_repository_file_sha256` and
+`repositories.files.get_sha256` now return `workspace_root` alongside the
+existing `sha256`, captured while holding the SQLite workspace reservation.
+Either name accepts an optional expected root and rejects a changed path. This
+lets a client pass the paired digest and root to file Copilot without an
+independent root lookup. It coordinates cooperating Studio processes only;
+external filesystem changes can still race the file read, and older callers
+that omit the expected root do not detect an earlier path change. Existing hash
+response consumers can continue to use `sha256`.
+
+Focused Rust tests covered both MCP names, discovery, unchanged hashes and
+stale-root rejection. A disposable native server and browser fixture verified
+the returned pair and rejection while another process held a workspace change.
+The full native Rust library suite passed 348 tests with eight ignored. The
+headless guide documents the paired values.
+
+Hosted test workflows `45024867100` and `45024871343` passed; clean ARM64 and
+AMD64 image validation in run `45024867091` passed for source `0bcec7f`. Later
+commits add only test and checkpoint material. The worktree candidate used the
+hash-verified ARM64 server from the clean image on the existing runtime image,
+so it is derived rather than the complete clean image. Its image ID is
+`sha256:91350261778367e7fd54df8d0afb3dd8dd7bc785d3a57621dd210edd339ab57a`;
+the server SHA-256 is
+`9fe71ac99bb2a9b83e1e50e8ee7ddfda8db8fa0e701893f3c0537d3958227f05`.
+It passed 62 workflow tests, 50 browser tests (one skipped), simulated CI, and
+PDF isolation and outage checks. In a disposable real Model Host fixture, the
+paired MCP snapshot was used for web and MCP file chat, patch preview and
+application; a browser discussed an unsaved buffer and applied a reviewed real
+model proposal. This is one model sample using a management-capable credential.
+
+After an active-job check and verified database backup, the app and PDF
+containers were updated. Restart acceptance checked product persistence, MCP,
+mobile authorization and PDF; Chrome checked all 13 sections at phone and
+desktop widths and published-port MCP origin rules. Real local coding, MCP
+speech with synthetic audio and continuous browser voice with synthetic audio
+passed. The previous image is tagged for rollback. Physical desktop and audio,
+live third-party providers, deployed Aruvici, Mac integration and VPS staging
+remain unverified.
+
+### File Copilot workspace-root guard: branch validation
+
+File Copilot previously checked the opened file's SHA-256 but did not bind
+the request to the opened repository root. If a repository was redirected to
+another root containing identical file bytes, browser or MCP Copilot could use
+that other workspace without detecting the change. Browser file Copilot now
+sends its captured root. Buffered and streaming requests compare the optional
+expected root and read the file while holding the same SQLite write reservation
+used by other guarded workspace operations; they release it before calling the
+provider. MCP `run_file_copilot` accepts `expected_root` (or `expectedRoot`),
+while older clients without it retain their previous path behavior. The lock
+coordinates cooperating Studio processes, not older binaries, direct database
+writes, or external filesystem writers; the guard does not prevent changes after
+the file snapshot is read.
+
+A focused Rust test used two roots with identical contents to reject stale
+buffered, streaming and MCP requests, and checked a matching root passed the
+guard. A disposable native server and headless Chrome repeated the browser
+buffered and streaming checks after another process changed the path; an
+existing editor test also passed. The full native Rust library suite passed
+348 tests with eight ignored. The server guide now describes current
+unsaved-file, streaming and patch behavior. The fixture also sent a buffered
+request while another process held the SQLite reservation and changed the root;
+the request waited and rejected the newly stale root.
+
+Hosted test workflows `45022991016` and `45022996086` passed; clean ARM64 and
+AMD64 image validation in run `45022990959` passed for source `3dde299`. Later
+commits add only test and checkpoint material. The local branch candidate used
+the hash-verified ARM64 server from the clean image on the existing runtime
+image, so it is derived rather than the complete clean image. Its image ID is
+`sha256:6ebaa34f24792d4fd51c8ba20cca5e17ecb112ec7de6eed735d465fc50fd73ab`;
+the server SHA-256 is
+`16f93f8ab99cc2dd550891292394e0c754730f4545a4ce1a51a7a855c90ccc78`.
+It passed 62 workflow tests, 50 browser tests (one skipped), simulated CI,
+PDF isolation and outage checks, and real-host packaged model quick start and
+stream cancellation. A separate scoped-credential fixture passed.
+
+After checking active jobs and backing up the database, the worktree app and
+PDF containers were updated. Product persistence, MCP, mobile authorization
+and PDF checks passed after restart; Chrome checked all 13 sections at phone
+and desktop widths and the published-port MCP origin. Real local coding and
+synthetic Piper/Whisper speech passed through MCP, as did continuous browser
+voice with synthetic audio. The previous image remains tagged for rollback.
+Physical desktop and microphone parity, live third-party providers, real
+Aruvici, Mac integration and VPS staging remain unverified.
+
+### Real-model delivery revalidation after URL update
+
+Using the branch image
+`sha256:62f6b86206c231d9f6057749f901e8df483bac3ef03d344a80895958efa9341e`,
+the disposable multi-file workflow used `qwen25-coder-7b-q4` on the real
+native Model Host. Headless Chrome approved the plan and test gates; the model
+created both linked modules, the workflow syntax gate passed, and an independent
+network-isolated behavior and import check passed before delivery. The
+disposable Git remote remained unchanged before review and received the result
+after approval. The work-item workspace override was used and the default
+workspace remained untouched. This is one successful model sample using a
+management-capable host credential, not proof of general model reliability,
+physical desktop parity, real Aruvici or staging acceptance. Repeat with
+`ARUVI_CODING_TEST_MODEL=qwen25-coder-7b-q4 bash scripts/test
+host-coding-workflow --scenario multi-file --json-mode --workspace-override
+--non-coding-max-tokens 4096 --browser-approvals`.
+
+### URL dependency security update: branch validation
+
+The refreshed RustSec database at `d1fe6ac3eba823a3515e849045f36dc34543885d`
+reports [RUSTSEC-2026-0592](https://rustsec.org/advisories/RUSTSEC-2026-0592.html)
+for `url` 2.5.8: deeply nested `blob:` origins can overflow the stack. Studio's
+MCP origin check rejects non-HTTP(S) schemes before calling `origin()`, but `url`
+is also selected by other dependencies; this source observation is not a
+complete reachability audit. The Studio and independent-consumer lockfiles now
+select `url` 2.5.9 and `form_urlencoded` 1.2.3. The shared client directly
+requires and uses `url` 2.5.9 or later in the 2.x series, so normal new
+resolutions include the fix; consumers must still audit their own complete
+lockfiles and other dependency versions.
+
+The packaged shared client passed 67 tests, including a deeply nested blob
+origin regression. The Studio MCP origin guard also rejected a 10,000-prefix
+blob origin in a focused native test. An audit of the updated Studio lockfile
+no longer reports the URL advisory, but still reports `RUSTSEC-2023-0071` for
+`rsa` 0.9.10,
+14 unmaintained warnings and two unsound warnings. The updated independent
+consumer lockfile scan reported no vulnerabilities or warnings. `npm audit`
+reported no vulnerabilities. The native Studio Rust suite passed 348 tests
+(eight ignored). The independent consumer was repinned to
+`484cce1f698be34c7ae901717640e6ad299deb95`, matching the client source and
+manifest; its 32 offline tests and lockfile scan passed. The pinned client also
+passed real 7B coding-host discovery, completion, streaming and token-limit
+checks, and the native integration host passed those checks with
+`qwen-05b-comparison` plus synthetic Piper/Whisper. Both hosts used
+management-capable credentials.
+
+Hosted test run `45020572278` passed, as did the clean ARM64 and AMD64 image
+checks in run `45020572317`, for source `a72b06e63d15847f3f0492af39cc1e33eb26e725`.
+The later `da57b86` adds only a test and checkpoint documentation. The local
+worktree candidate used the hash-verified ARM64 server from that clean image
+on the existing runtime image; it is a derived image, not the complete clean
+image. Its image ID is
+`sha256:62f6b86206c231d9f6057749f901e8df483bac3ef03d344a80895958efa9341e`.
+The server SHA-256 is
+`10f5254bffcfc61fdf443c6332bb6ee700d59d8c4c5dd35596995fb22055d3fb`.
+
+The derived candidate passed 62 workflow tests, 50 browser tests (one skipped),
+the simulated CI fixture, PDF isolation and outage checks, real-host packaged
+model quick start and stream cancellation, and a scoped-credential fixture.
+After checking for active jobs and backing up the database, the worktree app
+and PDF containers were updated. Product persistence, MCP, mobile
+authorization and PDF checks passed after restart. Host Chrome checked all 13
+sections at phone and desktop widths and verified browser-origin MCP checks.
+Real local-model coding, MCP speech with synthetic audio, and continuous browser
+voice with synthetic audio passed. The prior image remains tagged for rollback.
+These checks do not establish physical desktop or microphone parity, live
+third-party provider behavior, real Aruvici, Mac integration or VPS staging.
+
+### Native Model Host watcher and Studio outages
+
+The opt-in native-host watcher previously checked only the host's endpoint and
+process identity after initial setup. A Studio outage with an unchanged host
+was not detected, so the watcher could report no error and skip revalidation.
+It now probes Studio's MCP provider list while the host is unchanged. A failed
+probe follows the existing retry path and revalidates after Studio returns,
+without rotating an unchanged host credential. The helper remains a foreground
+process and does not start automatically. The read-only probe checks
+reachability, not provider contents or credential changes; an outage entirely
+between polls can be missed. Revalidation has the helper's existing provider
+ownership and completion-profile behavior.
+
+Twenty native synchronization tests passed, including a simulated Studio MCP
+failure and recovery, unchanged-token behavior, malformed responses and
+secret-free errors. The read-only MCP probe passed against the running branch.
+No running service was restarted for this check, so it is not live restart or
+integration/staging acceptance.
+
+### Independent client native Model Host probe
+
+The independent consumer remains Git-pinned at
+`1d8df226a22e7c4e0ddd21c3e46a654c410ca21f`; its source, manifest and lockfile
+pin checks passed. An initial offline test could not check out that revision
+because it was absent from this Mac's Git cache. After an online locked fetch,
+all 32 independent consumer tests passed offline. The packaged client also
+passed 66 tests from its extracted package. These are not live cloud-provider
+tests or a published client release.
+
+The independent pinned client then passed discovery, completion, streaming and
+token-limit handling against the real `qwen25-coder-7b-q4` coding-validation
+host. Against the native integration host it passed the same checks with
+`qwen-05b-comparison` plus a synthetic `piper-ljspeech` / `whisper-tiny-metal`
+speech round trip. A 7B request against the integration host failed as expected
+because that host did not advertise the model. The main checkout's worktree
+profile had no available native configuration; the separately registered
+coding-validation worktree was used. Both real hosts used management-capable
+credentials. This does not establish physical audio, model quality, scoped
+production credentials or Mac Studio integration acceptance.
+
+`bash scripts/test host-shared-client ... --native` now builds the locked pinned
+consumer offline and runs it as the current user without a Docker build, with
+the token passed on stdin. A default Docker probe remains available with its
+read-only non-root restrictions. The native mode passed against both hosts,
+rejected an unadvertised model without printing provider output, and ignored
+inherited voice/JSON probe options when not requested. It is not a sandbox.
+
+### Work-item findings in web review: branch validation
+
+Desktop review displays finding counts and severity, and MCP already returns
+the work item's findings, but browser delivery omitted them. The authenticated
+delivery response now uses the same Rust query, and browser review displays each
+finding's title, severity, category, status, blocking flag, description and any
+follow-up ID as text. It does not change or resolve findings. The query remains
+unbounded, like the desktop/MCP list, and the independently loaded delivery
+sections do not form a single database snapshot.
+
+The native HTTP fixture verifies authorization and returned findings. A
+disposable native server/browser fixture checks that the browser and MCP return
+the same work-item-scoped findings, excludes a second item's finding, and
+renders an HTML-looking title as text. A separate simulated-response browser
+test covers the rendering in the remote suite. The frontend suite passed 139
+tests, the frontend build passed, and the native Rust suite passed 348 tests
+with eight ignored. Hosted test run `45017718956` passed, and clean-image run
+`45017718948` passed on ARM64 and AMD64: each ran 62 workflow tests, 50 remote
+browser tests (one skipped), PDF isolation/outage and simulated CI. The remote
+findings rendering fixture supplies a simulated delivery response.
+
+The packaged shared client passed 66 tests from its packaged source; its
+consumer pin and the SQLx vendor-provenance checks also passed. This does not
+verify live third-party providers or resolve the recorded lockfile advisories.
+
+The streamed ARM64 archive SHA-256 was
+`e87bd31ddb7d0a1bd6c38590f85c4e2f66f9b0a44660d3c2e1a0e84d48d5e795`,
+its server layer was
+`9942566b10bc3fe7968d2e472cdcaa989324032925bc0030d8d80a0b91fbdcea`,
+and its server binary was
+`ed2cc4488a87064f0ce8ebc6c9a0a4061cd7efd1357397da8ed9e4ce11d00827`.
+The verified server was added to the previous runtime to produce derived image
+`sha256:5bff8b55dca9a3d9e0d381e5c8cd6401cb0caa0290a59074c1b07911113bede0`.
+Its binary hash and runtime configuration matched, and separately packaged
+runtime inputs were unchanged. This is not a locally loaded full clean image.
+Local workflow, browser, PDF outage/isolation and simulated CI suites passed,
+as did real Model Host quick start and stream cancellation and simulated scoped
+credentials; the running host still uses a management-capable credential.
+
+An active-job guard and verified database backup preceded the worktree switch;
+the previous image remains tagged. Product, MCP, mobile authorization, PDF,
+13-section layout, published-port MCP origin, real coding, Piper/Whisper and
+synthetic-audio continuous voice passed after restart. The worktree database had
+no existing findings, so nonempty, scoped backend data was verified in the
+disposable native fixture and Linux rendering used the simulated response.
+Physical audio and native windows, live third-party providers, deployed Aruvici,
+Mac integration, staging and complete desktop parity remain unverified.
+
+### Nested work-item creation parity: branch validation
+
+The shared backend and MCP allow a work item under an existing child, inheriting
+the parent's hierarchy scope, but the browser parent selector filtered out all
+children. The selector now includes them with a `Child:` prefix, using the
+existing paged product-scoped API. The labels do not display a complete
+ancestor path, and pagination remains offset-based rather than a stable snapshot.
+The browser/backend test now creates a story, child and nested child, checks
+inherited scope and verifies the complete product export through MCP. It passed
+against a disposable native server and database with
+`bash scripts/test native-remote -g 'browser places work in hierarchy and under a parent'`.
+The new generic fixture requires a locally built `aruvi-studio-server` and
+Chrome; it creates its own temporary data and does not use the worktree database.
+The frontend suite passed 139 tests and the frontend build passed. Hosted test
+run `45015280853` passed 348 Rust tests (eight ignored), integration and UI
+checks. Clean-image run `45015280849` passed on ARM64 and AMD64, including 62
+workflow tests, 49 browser tests (one skipped), PDF isolation/outage and
+simulated CI. The browser suite created and checked the nested item on each.
+
+Docker's Linux filesystem had about 597 MiB free. Twelve explicitly identified
+unused Studio test-only images were removed after their build histories and lack
+of dependent containers were checked: `aruvi-planner-routing-test`,
+`aruvi-speech-select-test`, `aruvi-custom-speech-test`, `aruvi-model-routing-test`,
+`aruvi-client-test-local`, `aruvi-rand-all-features-local`,
+`aruvi-glib-scan-local`, `aruvi-rand-features-local`, `aruvi-advisory-tree-local`,
+`aruvi-voice-select-test-local`, `aruvi-rsa-tree-local` and `aruvi-voice-test-local`.
+Their test results were already recorded in this checkpoint file. Docker then had
+about 2.2 GiB free; the running branch, its immediately preceding rollback image,
+and persistent volumes were retained. This was not a machine-wide prune.
+
+The streamed ARM64 archive SHA-256 was
+`9cc85140b7bdaa3441e592c385067225f07b07c370d46b3380a54c754972077f`,
+its server layer was
+`26cc19ef8a7feb3fe61ea9fe8dce1fed0d2f9b858754b8a0cab2f102a45a6725`,
+and its server binary was
+`6ae3aa11cab2d844ba5576bee76b12e02d25777dc83c0dc3feecf7594387db7b`.
+That verified binary was added to the previous runtime, producing derived image
+`sha256:b888d6fc8fd436cb467b5ca89562ccd7f508a7bf1d82c98a041f8df6cdfe916f`.
+The binary hash and runtime configuration matched and separately packaged runtime
+inputs were unchanged. This is not a locally loaded full clean image. The local
+candidate passed the workflow, browser, PDF outage/isolation and simulated CI
+suites, a real Model Host quick start and stream cancellation, and simulated
+scoped-credential checks; the real host still uses a management-capable token.
+
+The active-job guard and verified database backup preceded the branch switch;
+the prior image remains tagged. Product, MCP, mobile authorization, PDF,
+13-section layout, published-port MCP origin, real coding, Piper/Whisper and
+synthetic-audio continuous voice passed after restart. Physical audio and native
+window behavior, live third-party providers, real Aruvici, integration and
+staging remain unverified; these checks do not establish full desktop parity.
+
+### Stuck workflow recovery parity: branch validation
+
+Desktop and MCP could mark a workflow failed, but the browser lacked that
+recovery action. Those older paths also recorded stage, history and lifecycle
+in separate writes. The current source adds an authenticated browser action
+and routes all three clients through one atomic override. It rejects terminal
+or changed runs and records the reason and `user_override` history in the same
+transaction. Browser requests carry the displayed stage and status; MCP may
+provide both as `expected_stage` and `expected_status`, while legacy callers
+use a freshly loaded baseline. The desktop command retains its existing
+already-failed no-op. A legacy failed-stage run with an active status can be
+reconciled without a duplicate failed-to-failed history entry. Stage and status
+are not a unique revision: a run that
+changes away and back between reads may still match. Most importantly, this
+database override does not stop an executor or undo external effects; the
+browser explicitly warns the operator to check the executor first.
+
+The native HTTP fixture rejects unauthenticated and stale requests, verifies
+rollback when history insertion fails, and checks the result and history. Two
+concurrent requests against the same snapshot produced one success, one conflict
+and one history entry. The
+full native Rust library suite passed 348 tests (eight ignored), and the
+frontend build passed. `bash scripts/test native-workflow-recovery` passed
+against a disposable native server and a synthetic running workflow: it checked
+browser cancellation and confirmation and the resulting MCP history. It also
+marked a separate synthetic paused workflow failed through MCP with an explicit
+stage and status, then verified the run and history. It also reconciled a
+synthetic failed-stage/running-status record without adding duplicate history.
+The full native Rust suite was rerun after that compatibility change and again
+passed 348 tests with eight ignored. Frontend tests passed 139 tests and the
+terminology check passed. Hosted test run `45013797807` at `c15bbb0` passed
+348 Rust tests (eight ignored), integration and UI checks; clean-image run
+`45013797946` passed on ARM64 and AMD64, including 62 workflow tests, 49
+browser tests (one skipped), PDF isolation/outage and simulated CI. The workflow
+suite includes browser cancellation and confirmed recovery.
+
+The branch candidate uses the ARM64 server from clean-image run `45013458898`
+at `6f05ba5`; changes through `c15bbb0` affect only tests and documentation.
+Its archive SHA-256 was
+`fca5a361916880b161c2025dfe01a433a7f773c293667fb7ab8008ee58c58dcc`,
+server layer was
+`5a1a93147d5d03e69ef5ba5412c748df7a5b774b5754c83a5bdce563665e3cb6`,
+and server binary was
+`6b1825f99908c4d2ed605fa3da102f526c7e6b2e159e0800c09918174708e6bf`.
+The verified server was added to the prior runtime, producing derived image
+`sha256:785c947c35fd7629f586872bbb85c2a6a70d2a2908fda3cbd1f71037da6c9f91`;
+the server hash and runtime configuration matched, and the separately packaged
+runtime inputs were unchanged. This is not a locally loaded full clean image.
+The local candidate passed workflow, browser, PDF outage/isolation and simulated
+CI suites, real Model Host quick start and stream cancellation, and simulated
+scoped-credential checks. The real host still uses a management-capable token.
+
+An active-job guard and verified database backup preceded the branch switch;
+the previous image remains tagged. After restart, product, MCP, mobile
+authorization, PDF, layout, published-port MCP origin, real coding, Piper/Whisper
+and synthetic-audio continuous voice passed. No real active run was failed during
+branch acceptance: recovery behavior was verified in disposable fixtures.
+Native-window and physical audio, live third-party services, real Aruvici,
+integration and staging remain unverified. Docker's writable filesystem had
+about 578 MiB free after validation.
+
+### Agent workspace write confinement: branch validation
+
+An agent's workspace `write_file` previously rejected relative-path traversal
+but opened the resulting path directly, so a symlink created in the copied
+workspace could redirect a write. On Unix it now opens each parent directory
+relative to a directory descriptor without following symlinks, opens the final
+file without following symlinks or truncating it, and checks that it is a
+regular file with one link before writing. The shared path validator also
+rejects `.git` components. This covers both tool-loop and legacy agent writes.
+Non-Unix builds use checked paths with a second check after creating parents;
+unrelated writers can still race that fallback. Even on Unix, a separate process
+can change file contents or add a hard link after the metadata check, and a
+concurrent rename can move an already-open directory. This does not make the
+agent workspace a security sandbox or make a multi-file workflow atomic.
+
+The native Mac regression test rejects directory and file symlinks, a hard link,
+traversal and `.git`, verifies the external target is unchanged, and exercises
+new and existing nested files. The complete native Rust library suite passed 348
+tests with eight ignored. Hosted test run `45010981696` passed the same 348
+Rust tests (eight ignored), Rust integration and UI checks. Clean-image run
+`45010982184` passed on ARM64 and AMD64, including workflow, browser, PDF
+isolation and simulated CI checks.
+
+The ARM64 archive SHA-256 was
+`7b583f80470bd8ebd47a3514cc72d2ea7bee830dd20c68090f890eefff80860b`,
+its server layer was
+`2a694bc790fce740b77c5a6e621b62045473e45004d40ea60b16790f83f47c40`,
+and its server binary was
+`99fe9d5b5e7a5aac5adcd3cd029839171fd082f89373ff60eb153628379a1e72`.
+The verified binary was added to the preceding branch runtime to create
+`sha256:1f56d3be9dd4f5084d7941516d19daade6a5bc29586db32e3581ad89de4966f2`.
+Its binary hash and runtime configuration matched, and non-Rust runtime inputs
+were unchanged since the prior image. It is a derived image, not a locally
+loaded full clean image. The local candidate passed 62 workflow tests, 49
+browser tests (one skipped), PDF isolation/outage and simulated CI, plus the
+real Model Host quick start and stream cancellation and a simulated scoped-host
+credential fixture. The running Model Host still uses a management-capable
+credential.
+
+An active-job guard and verified SQLite backup preceded the branch switch; the
+prior image remains tagged for rollback. After restart, product, MCP, mobile
+authorization, PDF, 13-section layout, published-port MCP origin, real coding,
+Piper/Whisper and continuous browser voice with synthetic audio passed. Physical
+devices, native-window parity, live third-party providers, real Aruvici, Mac
+integration and VPS staging remain unverified. This worktree deployment is not
+evidence of complete desktop parity or staging readiness.
+
+### Reviewed MCP patches: validated branch deployment
+
+Hosted test run `45009026679` passed 347 Rust unit tests (eight ignored),
+including reviewed-patch root and stale-file guards, plus Rust integration and
+UI checks. Clean-image run `45009026686` passed on ARM64 and AMD64: each
+passed 62 workflow tests, 49 browser tests (one skipped), PDF isolation and
+outage checks, and simulated CI. The corrected workflow-automation conflict
+test passed on both architectures.
+
+The ARM64 archive SHA-256 was
+`e2cc4c1e86c88c6673d2788625eb582a4aec0091a468ca240870d2cb7b321352`,
+its server layer was
+`ae318c36e90360742940853b9cd0f6b3f6902d3ff3ff74c7996e0cef04ce4a84`,
+and its server binary was
+`cc0a29eca363988802cec094d85bfca036cf09196b10e377e6221bafa2790686`.
+With Docker storage constrained, the verified binary was added to the preceding
+branch runtime to create image
+`sha256:95176a6bc4ca5139225667b01e7a57a79602014df4537170bc57ab4c6c25c40f`.
+Its binary hash and runtime configuration matched, and non-Rust runtime inputs
+were unchanged since that earlier image. This is a derived image, not a locally
+loaded full clean image.
+
+The local candidate passed workflow, browser, PDF isolation/outage and simulated
+CI checks, including the first-class reviewed-patch flow. The real Model Host
+quick start and stream cancellation passed; a separate simulated scoped-host
+fixture checked credential restrictions. The running Model Host still uses a
+management-capable credential. An active-job guard and verified SQLite backup
+preceded the branch switch, and the prior image remains tagged for rollback.
+After restart, product, MCP, mobile authorization, PDF, 13-section layout,
+published-port MCP origin, real coding, Piper/Whisper and continuous browser
+voice with synthetic audio all passed. Physical devices, native-window parity,
+live third-party providers, real Aruvici, Mac integration and VPS staging remain
+unverified; the worktree deployment does not establish complete parity.
+
+### Workflow automation test timing correction
+
+Hosted ARM64 run `45007731706` failed an existing workflow-automation
+conflict test: Playwright's `check()` expected the checkbox to remain checked,
+but the expected HTTP 409 could arrive and revert it before `check()` returned.
+AMD64 passed the same test. The test now uses a click and still asserts the
+409 and reverted state. The host fixture runner forwards optional Playwright
+arguments for focused runs. Five sequential repetitions passed against the
+previous branch runtime, with PDF outage verification. An initial five-worker
+repeat had four failures because all workers shared and modified the same
+fixture setting; it did not represent independent test databases. The revised
+test subsequently passed the clean-image matrix recorded above.
+
+### MCP reviewed-patch workspace guard in progress
+
+Desktop reviewed patches bind reads, previews and application to a captured
+workspace root. MCP reads and previews previously loaded the repository path
+without that lock; preview did not return the root. The current source now
+uses the shared root guard for text reads and patch previews, accepts optional
+`expected_root`, and returns `workspace_root` from preview. It also exposes
+first-class `repositories.files.preview_patch` and
+`repositories.files.apply_reviewed_patch`; both require a nonblank captured
+root in dispatch as well as discovery. The existing first-class read, write and
+legacy apply-patch schemas expose their optional root guard. Legacy namespace
+actions remain compatible when the guard is omitted. This coordinates only
+cooperating Studio processes; external filesystem writers can still race.
+
+Rust tests cover root changes, stale content, missing root, successful review
+and legacy behavior; the disposable browser/MCP fixture covers the first-class
+flow and rejection. The later checkpoint above records hosted and branch
+deployment validation.
+
+### MCP scoped work and attachment parity: branch validation
+
+Hosted test run `45005749461` passed 345 Rust unit tests (eight ignored),
+including the new discovery and dispatch tests. Clean image run `45005749463`
+passed on ARM64 and AMD64: each exercised the new MCP HTTP scenario with a
+nonempty attachment, 62 workflow tests, 49 browser tests (one skipped), PDF
+isolation/outage and simulated CI. The streamed ARM64 archive SHA-256 was
+`3974ee36211c46ff964a46f20b91394b480889336368132f1313311f4eec625e`,
+the server layer SHA-256 was
+`ebabe6b387e9b9ebccd65566cac14b2815360b522832989df6a7be0f33eb67d6`,
+and the server binary SHA-256 was
+`efcc4c2a20a3e1dc51258f8a20ffe039f910d0f93dd179ee26a39f5d473b3d4a`.
+
+A stopped disposable container based on the preceding branch runtime received
+the verified server and was committed as
+`sha256:54c2f48deee11ec2913ee0afc7983c94b3db614e42b3a2eb73b2d64b05801609`.
+Its runtime configuration and binary hash matched; this derived image is not
+a locally loaded full clean image. The local workflow, browser, PDF and
+simulated CI suites passed, as did real Model Host packaged setup and browser
+stream cancellation, and simulated scoped-credential checks.
+
+The active-job guard and a checked database backup preceded the worktree
+switch; the prior image remains tagged for rollback. After restart, product,
+MCP/mobile authorization and PDF acceptance passed. A temporary product and
+work item exercised the live scoped summary through both MCP names and was
+archived; attachment inventory results also agreed across names, while nonempty
+attachment coverage came from the disposable hosted and local fixtures.
+Thirteen-section layout, MCP origin, real coding and Piper/Whisper, and
+continuous voice with synthetic audio passed. The live host still uses a
+management-capable credential. Physical devices, full desktop parity, live
+external providers, deployed Aruvici, Mac integration and staging remain open.
+
+### MCP work-summary and attachment read parity in progress
+
+Desktop work-item scope summaries and the complete workspace attachment list
+already use shared Rust queries but were not exposed through MCP. The current
+source adds `aruvi_work_items.summarize_work_items_by_scope` and
+`aruvi_repositories.list_all_repository_attachments`, with first-class
+`work_items.summarize_by_scope` and `repositories.attachments.list_all` tools.
+The optional product filter retains the desktop query's behavior. Discovery,
+legacy and first-class dispatch, filtering, and disposable HTTP workflow
+coverage are included. The later branch-validation checkpoint above records hosted and deployed
+checks; the broader parity audit remains open.
+
+### MCP catalog read parity: branch validation
+
+Hosted test run `45003826053` passed 343 Rust unit tests (eight ignored),
+including catalog read dispatch and discovery. Clean ARM64 and AMD64 run
+`45003927185` passed the HTTP discovery, authorization and hierarchy scenario,
+61 workflow tests, 49 browser tests (one skipped), PDF isolation/outage and
+the simulated CI test on each architecture. The ARM64 archive SHA-256 was
+`64a5633f90306d44cc111a0922ed6be6929fc60c5393dc572ffd4fad2dfa1cf7`,
+the server layer SHA-256 was
+`203e986c5ea1f2e929d4eb0b1bb61b8085d6b0995d946c67dc95c637a70432e9`,
+and the server binary SHA-256 was
+`e21ef7b94df117c5577b509218f6fe0df8269d350443a0fd8350a6d784053034`.
+
+The verified server was copied into a stopped disposable container based on
+the preceding branch runtime and committed as
+`sha256:4742beea19fbf46b61b73f5c9b10ac8a349e493a3f36d8329483ff3328ec6c71`.
+Its runtime configuration and binary hash were checked. It is a derived
+image, not a locally loaded full clean image. Its isolated local workflow,
+browser, PDF and simulated CI suites passed, as did real Model Host browser
+quick-start and cancellation and simulated scoped-credential checks.
+
+After the active-job guard and a checked SQLite backup, the worktree app and
+PDF sidecar were updated to this candidate; the preceding image remains tagged
+for rollback. Restart acceptance passed for product, MCP/mobile authorization
+and PDF. A temporary product, area, capability and feature exercised the new
+live MCP lookup, ordered product listing and summary, then the product was
+archived. Phone/desktop layout, MCP origin, real coding and Piper/Whisper, and
+continuous voice with synthetic audio passed. The real host still uses a
+management-capable credential. Physical devices, native-window parity, real
+third-party providers, deployed Aruvici, Mac integration and VPS staging
+remain unverified.
+
+### MCP catalog read parity in progress
+
+The desktop exposes capability lookup, product-wide capability listing and a
+product-tree summary through shared Rust queries. MCP now has corresponding
+`aruvi_catalog` actions `get_capability`, `list_product_capabilities` and
+`summarize_product_tree`, plus first-class `catalog.capabilities.get`,
+`catalog.capabilities.list_for_product` and `catalog.products.summarize_tree`
+tools. Tests cover discovery, both naming styles, hierarchy order, product
+isolation and missing records. The later branch-validation checkpoint above records hosted and deployed
+checks; the broader desktop-to-web and MCP inventory remains open.
+
+### Real browser stream cancellation
+
+The disposable packaged Model Host quick-start fixture now accepts
+`--cancel-stream`. After browser setup and a real coding chat, it starts a long
+stream, waits for visible partial output, presses Stop, checks the stopped state
+and enabled controls, then completes another chat. It passed against the
+`03da1d0`-derived branch image and real `qwen25-coder-7b-q4` host using the
+existing management-capable fixture credential. The disposable container and
+its data were removed. The separate simulated scoped-credential quick-start
+also passed after this fixture change. This verifies browser recovery and a
+subsequent request, not whether the Model Host immediately stops all underlying
+computation or how a physical desktop window behaves.
+
+### File-aware Copilot branch revalidation
+
+The worktree runtime derived from `03da1d0` passed two disposable
+file-aware Copilot fixtures against the real `qwen25-coder-7b-q4` Model Host
+model. Browser and MCP follow-ups identified the fixture function and its
+multiplier. Each interface previewed a requested one-file patch without
+changing the repository, then applied it and checked the saved content. The
+browser also discussed an unsaved Monaco buffer without saving it and reviewed
+and applied a proposal. With `ARUVI_TEST_MULTI_FILE_PROPOSAL=1`, MCP previewed
+and applied the two requested files. The fixtures used disposable repositories
+and containers, which were removed. These samples do not prove general model
+quality, native-window parity or authenticated remote delivery.
+
+### Planner retry: validated branch deployment
+
+Hosted runs `45001703218` and `45001703222` passed at `03da1d0`, including
+Rust, integration, frontend, browser and clean ARM64/AMD64 image suites.
+The streamed ARM64 archive SHA-256 matched
+`3eef8c650c25edef9116446a4f6717066b280a8c0c4d8148ae3a20e30d1eed9f`;
+the extracted server layer matched
+`97b5d6529995a98d27bbbefaa6cbe171f13233db1f8f95fd4d9858eaf6d895ed`;
+the server binary hash was
+`b85529a2cafe4e497ff0b262cee9e0ee9fe41ab0e28dd1c989ecd12abc134e2c`.
+In two disposable strict browser/MCP runs using this binary and real
+`qwen25-coder-7b-q4`, the model initially invented another request; after a
+format retry it proposed the actual requested capability, and the fixture
+verified the initial draft, selected action and final hierarchy before
+confirmation. Two samples do not establish general model reliability.
+
+The verified binary was copied into a stopped disposable container based on
+the preceding runtime and committed as
+`sha256:5fe8ed9c9f702490538097d9afe23a9c65ca0719924b04dc07ab9ca547e293f1`.
+The runtime configuration matched the prior image, and the binary hash matched
+the clean artifact. This derived image is not a locally loaded clean image.
+It passed 60 workflow, 49 browser (one skipped), PDF isolation/outage and
+simulated CI checks, the packaged real Model Host quick start and simulated
+scoped-credential checks. The live Model Host still uses a management-capable
+credential.
+
+After the active-job guard and a checked SQLite backup, the worktree app and
+PDF sidecar were updated to the candidate; the preceding image remains tagged
+for rollback. Product, MCP/mobile authorization and PDF checks passed after
+restart, as did 13-section phone/desktop layout, MCP origin checks, real local
+coding and Piper/Whisper, and continuous voice with synthetic audio. Physical
+devices, live external providers, deployed Aruvici, Mac integration and VPS
+staging remain unverified.
+
+### Branch deployment and planner action audit
+
+Two unused project test images with no containers were removed individually,
+recovering about 700 MiB without deleting data volumes or rollback images.
+Instead of invoking BuildKit, a stopped disposable container from the previous
+runtime received the checksum-verified `6b86e00` server and was committed as
+`sha256:c9b73e5db8b7f1b1c5a996c660faf801edcb01d66d15c2fd342452ffc6cd0ed0`.
+Its runtime configuration matched the preceding image and the server hash
+matched the clean ARM64 artifact. This derived image is not a locally loaded
+copy of the complete clean image. It passed 60 workflow, 49 remote browser
+(one skipped), PDF outage/isolation and simulated CI tests, plus the packaged
+real-Model-Host quick start and simulated scoped-credential checks.
+
+After checking for active jobs, a new SQLite backup passed `quick_check`, and
+the prior image was tagged for rollback. The worktree app and PDF sidecar run
+the derived image. After restart, product persistence, MCP/mobile authorization
+and PDF checks passed, as did 13-section phone/desktop layout, MCP origin,
+real coding and Piper/Whisper round trips, and continuous voice with synthetic
+audio. Docker internal available space remained approximately 974 MiB.
+
+A subsequent real-model planner run against a disposable copy of the deployed
+image revealed that the prior fixture could pass if an earlier turn had already
+created the requested capability even when the selected turn proposed a
+different feature. The fixture now requires the initial draft to contain no
+child nodes and the selected turn to propose exactly the requested capability;
+a repeat failed safely before confirmation when the model invented a later
+request. The system prompt and format-repair message now restate the actual
+latest request and reject continuing invented conversation. The later planner retry checkpoint above records hosted, real-model and
+branch-deployment validation of that source change. Model outputs still
+require review.
+Mac integration, staging, physical devices and live third-party providers
+remain unverified.
+
+### Root-area repair: hosted and real-model validation
+
+GitHub Actions runs `44999813243` and `44999813226` passed at `6b86e00`,
+including the targeted draft-repair regression, 341 Rust unit tests (eight
+ignored), integration and frontend checks, and clean ARM64/AMD64 packaged
+image suites. The streamed ARM64 archive SHA-256 matched
+`48ba8e47514d73b8b39653d16b6d797007dfec3f2b910e97b53a13ae43fc9c52`;
+the server layer matched
+`7e3c4419b9bcf913dc1dfbdd1dbeba60a36580b7b5575b1534a6a71978295fd7`,
+and the extracted binary was
+`b66999ff7a7d361656c81a3974d02e4918220266203f004a8e3b3e45898d113a`.
+
+A disposable browser/MCP workflow used that binary through the verified
+read-only mount and real `qwen25-coder-7b-q4`. The first run reached
+confirmation but its model trace included an unrequested feature proposal;
+the old fixture checked the requested capability but did not rule out extra
+nodes. The fixture now requires exactly the product, one inventory area and
+one stock capability before confirmation. A second run passed this stricter
+check and MCP verified the confirmed capability; its selected-node turn needed
+one model call without retries. These two samples do not establish general
+model reliability or eliminate the need to review proposals. The later branch deployment checkpoint above supersedes the runtime status at
+this point; this result is not integration or staging.
+
+### Read-only binary planner fixture and root-area repair
+
+The disposable real-model planner fixture now accepts `--server-binary` and
+mounts an explicitly supplied Linux executable read-only, verifying its SHA-256
+inside the container. This runs the verified server without building another
+image; it does not validate a complete image or change the branch deployment.
+The binary from `7f3ea40` was exercised against the real local 7B model three
+times. Each attempt stopped before confirmation when the first turn failed to
+produce the requested Inventory area. The first diagnostic was not retained;
+the next two returned a product-area name nested only under `details`, then
+asked for a parent product area after the draft repair rejected the missing
+top-level name. The fixture now reports model and repair trace events when
+either turn misses its expected draft.
+
+The source prompt and draft-repair guidance now state that product areas
+belong directly to the selected product and that creation actions require a
+top-level name. The existing simulated-provider draft-repair test also checks
+these instructions. The later branch deployment checkpoint above records hosted and real-model
+validation. No generated actions were silently accepted in those failed runs.
+
+After Docker recovery, Mayyam E2E Zookeeper continued restarting and reported
+`Last transaction was partial` and `EOFException`. Its prior state was not
+verified. Its volumes were left untouched and require separate investigation.
+
+### Selected-node action repair in progress
+
+Further disposable real-model samples passed twice, once with two format
+retries and once without retries; another failed safely because the model
+returned unsupported `create_feature` for a requested capability. Its draft
+was not confirmed. The fixture now has an opt-in `--trace` flag for diagnostic
+output, which can contain fixture content. Private synthetic logs were kept
+under `/private/tmp/aruvi-selected-node-trace*.log`. The planner system prompt
+and schema-repair message now explicitly distinguish capabilities from features
+and tell the model not to use `create_feature`; invalid actions are still
+rejected rather than silently reinterpreted. GitHub Actions run `44998245597` passed at `7f3ea40`: the simulated-provider
+repair regression passed along with 341 Rust unit tests (eight ignored), Rust
+integration, frontend and Playwright UI checks. Clean ARM64 and AMD64 image validation also passed in run `44998245595` at
+`7f3ea40`. The ARM64 archive was streamed and verified against SHA-256
+`afd999c5ce3e6dfec34e94aeebecf862584b54024c7e600214a71f123f8c1097`;
+the server layer hash was `9d1f1c0d6b0ac93dbe67f27a6b52ba0baa43ca194f8cd63a65a33a70b6b0acfb`
+and extracted binary hash was `3b65ae14faf462c502381a83fd6a41db658b136025828f5c6af5eb2e1908d72c`.
+
+A local derived-image build failed while Docker storage was full. Docker Desktop
+stopped because the Mac had no free space, interrupting the branch and other
+containers. One older temporary image archive was removed after confirming its
+GitHub artifact remained available; its binary and database backup were retained.
+Docker Desktop was restarted, the existing branch app and PDF sidecar were
+started and reported healthy, `/health` returned 200, and the read-only worktree
+database `quick_check` passed. Two interrupted Tamilsteam worktree stacks were
+restarted and all six containers reported healthy. The Mayyam E2E Zookeeper
+container was observed restarting after Docker returned; its prior state was
+not established. Docker internal free space was approximately 348 MiB after
+recovery, so no additional build or cleanup was attempted. A rebuilt branch
+runtime and real-model revalidation of the planner change remain pending.
+
+### Real-model selected-node planner revalidation
+
+The disposable real-model planner fixture now supports `--browser
+--selected-node`. It creates an inventory area, selects it in the browser,
+checks that the next request carries that node and product, requires a stock
+capability underneath the area in the draft, and verifies the area and child
+through MCP only after confirmation. The first `qwen25-coder-7b-q4` attempt
+did not show the expected capability and stopped before confirmation; the
+fixture did not retain the detailed response for that attempt. A second
+attempt passed, with three model calls and two format retries on the selected
+turn. The disposable container and volumes were removed. This is one successful
+sample, not a guarantee of model reliability, physical desktop parity or
+staging readiness.
+
+### Branch runtime revalidation at c48ee96
+
+GitHub Actions run `44996261243` built and tested clean ARM64 and AMD64
+images at `c48ee966ee6b9761d5c5e864c4674da1bd61ca72`. Each passed 60
+workflow tests, 49 browser tests (one skipped), PDF outage/isolation checks
+and the simulated CI-service test. The ARM64 archive SHA-256 was
+`11fcebb2311f44a5f42d277dcdae2ee24caf0d2b613fc65c1db5421a831e9f5c`;
+the extracted server binary SHA-256 was
+`b69ff017ae8aabbbb55cf63a086deddb1ff3c7496089d75cb734a7374c808af4`.
+
+Because local Docker storage was constrained, the verified server binary was
+overlaid on the preceding branch runtime after confirming that Dockerfile,
+package, resource and ignore inputs had not changed. This derived image is
+`sha256:54b2e80e13db83053fc99ba0295bd8fc88901427ad2aaa000b16e3e091e01d5a`;
+it is not a locally loaded copy of the complete clean image. The derived image
+passed the same workflow, browser, PDF and simulated CI suites, a packaged
+browser quick-start against the real Model Host, and the isolated scoped-token
+fixture. The real host still uses a management-capable credential.
+
+The worktree app and PDF sidecar now run that derived image. Before switching,
+active jobs were checked and a SQLite backup passed `quick_check`; the backup
+and previous image remain available. After restart, product persistence, MCP
+and mobile authorization, and PDF checks passed. The deployed UI passed the
+13-section layout scan at phone and desktop widths, and MCP origin rejection
+checks passed. Real local coding, Piper/Whisper speech, and continuous browser
+voice using synthetic audio also passed. Physical microphone/native-window
+acceptance, actual external provider credentials, real Aruvici integration,
+Mac integration and VPS staging remain unverified.
+
+### Real-model multi-file branch revalidation
+
+A disposable workflow on the branch runtime derived from `8618a95` used the
+real `qwen25-coder-7b-q4` model, a workspace override, JSON-object coding mode,
+a 4,096-token non-coding budget and browser plan/test approvals. The first
+sample reached test review but failed the independent behavioral check and was
+not delivered; the detailed error was truncated in the captured tool output.
+A repeat with a private log passed the workflow syntax check and independent
+behavioral assertions, verified the default workspace remained untouched, and
+delivered both files to a disposable local Git remote after browser approval.
+The remote was unchanged before test review, and both fixtures and their volumes
+were removed. These two samples demonstrate the guarded workflow and model
+variability; they do not establish general coding reliability, authenticated
+network delivery, or staging acceptance.
+
+### Readable browser status messages
+
+The header previously clipped long errors to a single line, including on touch
+screens. The updated status wraps into a bounded scrollable area, announces
+updates as a status region, provides a keyboard focus target and desktop title,
+and shows a scroll hint only when content overflows. It resets the scroll
+position when a new message arrives. A regression check failed on the previous
+single-line layout and passed in Chrome and Chromium at 390 and 1280 pixels,
+including keyboard scrolling and the tab/header alignment. A synthetic long
+error was visually inspected at mobile width. The 13-section source-HTML
+layout scan and isolated remote suite passed (49 passed, one skipped), with the
+PDF outage check. The two provider-setting workflow cases and simulated CI
+fixture also passed with the updated HTML; other workflow cases used the
+preceding server image. The later branch runtime revalidation above covers the packaged image and deployment.
+
+### Sticky browser navigation
+
+A read-only mobile and desktop check found that after scrolling, the prior
+header bottom was about 70 pixels while the tab bar stuck at 62–63 pixels,
+causing overlap. A regression test also enlarged the header to exercise a
+variable-height case and failed on the prior branch image. Header and tabs now
+share one sticky container instead of a fixed offset. The focused test passed
+in Chrome and Chromium at both widths; all 13 sections passed the source-HTML
+layout scan, and the isolated remote suite passed 48 tests with one skipped
+and the PDF outage check. Those local tests used the updated HTML with the
+preceding server image; the later branch runtime revalidation above covers the packaged image and deployment.
+
+### Browser provider card and checkbox layout
+
+A visual review of the running Models screen found provider settings crowded
+together and checkboxes stretched across their containers. The source now puts
+provider identity before its settings, groups the actions, separates the
+transcription control and sizes checkboxes correctly across browser forms.
+The updated provider card was visually inspected at 390 and 1280 pixels.
+With the updated HTML and the preceding server image, 47 remote tests (one
+skipped), 60 workflow tests and the simulated CI-service test passed; the
+provider-setting and CI cases used the updated source HTML. The read-only
+13-section layout check passed at both widths with no oversized visible
+checkboxes, overflow or page errors. As a regression control, the prior running
+image failed the new checkbox-size check in six sections at both widths.
+The later branch runtime revalidation above covers the packaged image and deployment.
+
+### Scoped quick-start fixture
+
+The reusable quick-start check accepts `--credential-scope inference`, requires
+`MODEL_HOST_INFERENCE_TOKEN`, and rejects a token unless a management endpoint
+returns 403 before Studio receives it. It never falls back to the management
+credential. With the packaged branch candidate and a disposable simulated
+scoped Model Host, browser setup, MCP listing and coding chat passed; missing
+inference credentials and a management-capable credential were rejected. The
+fixture uses the separate Model Host draft checkout and its existing native
+binary and can be repeated with `bash scripts/test scoped-model-quickstart`.
+This checks one management endpoint and simulated inference, not the deployed
+host's full authorization policy or a deployed inference-only credential.
+
+### Provider quick-start branch deployment
+
+Hosted matrix run `44993086025` passed on ARM64 and AMD64 at source revision
+`8618a95a2f2eb8878872d1f71e0478afb0f66ef4`; each clean image passed 60
+workflow tests, 47 remote tests (one skipped), PDF isolation/outage checks and
+the simulated CI-service test. The ARM64 image archive was streamed from its
+hosted artifact and matched its bundled SHA-256
+`513c7934e83e1c7cb2daa94e6eb509bebfdd55fe2a5bf8062a299db8b84fd200`.
+Its extracted Linux ARM64 server binary (SHA-256
+`375fb82983c3b9c874a78e9bd77c944d5f06862f8f0754af7841c2864befb3ca`)
+was placed on the unchanged preceding runtime, producing derived image
+`sha256:d38ff9b439582bba2defc09c6e2bce1dba05a70a6c10ce41cd520616cf6ec720`.
+The full clean image was not loaded on this space-constrained Mac.
+
+Before deployment, the derived candidate passed the same isolated suites and
+the packaged browser quick-start fixture against the real native Model Host,
+including browser provider/model setup, MCP listing and coding chat. There were
+no active jobs; a SQLite backup passed `quick_check`, and the previous image was
+retained. After deployment at `127.0.0.1:55288`, restart persistence, product,
+MCP/mobile authorization, PDF, MCP origin, real local coding and Piper/Whisper
+speech passed. Continuous browser voice used synthetic audio with the real
+speech and coding services. Physical devices, live third-party providers, Mac
+integration and staging remain unverified.
+
+### Scoped Model Host authorization recheck
+
+The separate Model Host draft branch `1302b938bbc4edaf260d247ac64b4d607c82dd19`
+remains unmerged. Two isolated lifecycle tests passed against its existing local
+binary, including inference access and denial for all unapproved protected
+routes derived from the current router. Two further isolated lifecycle tests
+passed against the same binary: existing authentication when no inference token
+is configured, and inference-token streaming and media with simulated workers.
+These do not establish that the deployed host uses scoped credentials. An attempted full offline Cargo rerun started a
+fresh dependency compilation; it was stopped to avoid exhausting the Mac's disk,
+and only files created by that interrupted attempt were removed. A subsequent
+direct run of all 18 simulated lifecycle tests against the existing binary
+passed. It did not rebuild the binary or rerun the Rust unit tests; the earlier
+Cargo results remain historical evidence.
+
+### Browser provider quick starts
+
+The browser Models screen now has the desktop's Aruvi Model Host, DeepSeek and
+LM Studio provider drafts. Model Host leaves the endpoint blank for the deployed
+server's actual address; the LM Studio draft can use the existing explicit
+Docker Desktop host-address conversion. Replacing a nonempty draft requires
+confirmation and clears the typed API key; choosing a preset does not save or
+contact a provider. At a 390-pixel viewport, a focused Chrome and Chromium test
+verified keyboard activation, the named control group and absence of document
+horizontal overflow. The isolated remote suite passed (47 passed, one skipped)
+with the updated HTML and the preceding server image;
+PDF outage checks passed. The existing browser/provider/MCP workflow was also
+extended to start from the Model Host draft, supply a simulated endpoint, save
+the provider and select its model; the full isolated remote suite passed again.
+A separate disposable Docker fixture then used the updated source HTML and the
+currently deployed native Model Host: it created a provider with the host's
+management credential in temporary data, discovered and registered the real
+`qwen25-coder-7b-q4` model, verified both provider and model through MCP without
+returning the host credential, and completed browser coding chat. The fixture
+was removed afterward. The check can be repeated with
+`bash scripts/test host-model-quickstart`; `--packaged` tests the candidate's
+embedded HTML instead. The host's scoped-credential draft is not deployed.
+Hosted clean-image run `44992754890` at `c24887cb0bcb78095c5abd3de3976bdeef736741`
+passed on ARM64 and AMD64, including the initial quick-start test, 60 workflow
+tests, 47 remote tests (one skipped), PDF isolation/outage checks and the
+simulated CI-service test on each architecture. The later mobile accessibility and extended browser/MCP test passed in the
+matrix and on the derived candidate, which also passed the real-host quick-start
+check using its packaged HTML; see the deployment checkpoint above. Real
+third-party provider and staging validation remain pending.
+
+### Selector fix: clean-image and branch validation
+
+Hosted ARM64 run `44990630486` passed the exact clean image's 60 workflow tests
+and 46 remote browser tests (one skipped), including the workspace-selector
+case that failed on earlier images. Its archive checksum, source revision
+`1c55fcbb40d78649fcc5369eda0f58da526cb6ec` and Linux ARM64 identity were
+verified. The branch worktree at `127.0.0.1:55288` now runs derived image
+`sha256:2d20fdcdbc1e06173e2446cd269eaba845508c2e3b9ce06eb359a8f108689e9d`,
+using that archive's server binary (SHA-256
+`2ff5c0c1226edfef400e3e4e455fa4d0b058b37fb3564818618c975657833635`)
+over the preceding runtime; non-Rust runtime inputs were unchanged. Docker
+storage did not safely accommodate loading the complete clean image. A checked
+SQLite backup and the prior image were retained before the branch update.
+
+The derived candidate passed 60 workflow tests, 46 remote tests (one skipped),
+PDF isolation/outage checks and the simulated CI-service browser/MCP fixture.
+After deployment, restart persistence, product, MCP/mobile authorization, PDF
+and published-port MCP-origin checks passed. Real Model Host coding and
+Piper/Whisper round trips also passed, including manual and continuous browser
+voice with synthetic audio. Authenticated browser chat subsequently returned real
+`qwen25-coder-7b-q4` coding output in buffered and streaming modes. These checks
+do not establish physical-device, external-provider, Mac integration or VPS
+staging acceptance. The newer
+multi-architecture matrix passed as described below.
+
+### Branch image architectures
+
+The branch container workflow now builds native ARM64 and AMD64 images on
+separate runners, verifies each image's reported platform, and runs the same
+isolated workflow, remote-browser and simulated CI-service suites before
+exporting separately named, checksummed artifacts. ARM64 is for Mac validation;
+AMD64 is an early check of the VPS target, not a staging deployment. Hosted matrix run `44991162005` at
+`7fbae74afea75157501481be1a0b64c60fdc6e50` passed on both architectures:
+each image passed 60 workflow tests, 46 remote tests (one skipped), PDF outage
+and isolation checks, and one simulated CI-service test. Both architecture-
+specific artifacts and checksums were uploaded with three-day retention. The
+uploaded ZIPs were streamed and verified against GitHub's artifact SHA-256:
+`10b6222e9898709c23e63b2216201a774dbd7257b6c2588d00ffe25ec8210ce9`
+(ARM64) and `9cfd6dfce2cdd17801498d7214979f949f7dd0bb53d34282f10deda8a923a7d4`
+(AMD64). The inner archives were also streamed and independently matched to
+their bundled SHA-256 files: `c5d637e00c1d38b3a35aa8f921452d1056e300a90d23c9e8a3e52ddec5825b4e`
+(ARM64) and `326298ccf454ded4519543d6b0b6ba353bf08055529bedd169b4552a1fe1db48`
+(AMD64). The accompanying identity files report Linux ARM64 image
+`sha256:aada1d050021267e9b383ab91d23b00c8881d473d3ac704e41a0128156ed66b4`
+and Linux AMD64 image
+`sha256:b8ff2513d141bb87e2e4e6bf251e7884af92ff1b78b90bd9456347a1765e778b`,
+both at the recorded source revision. The images were not loaded on this Mac.
+Staging still requires the merged default-branch revision that passes Mac
+integration and its target-compatible build.
+
+### Clean-image CI-service fixture
+
+The hosted clean-image validation also runs the isolated CI-service browser and
+MCP fixture. A local run in explicit disposable-project mode passed against
+the preceding branch candidate with cached Chromium. This fixture uses a
+simulated CI socket and does not prove the real Aruvici integration or staging.
+The hosted run containing the new step has not yet completed.
+
+### Hosted workspace selector diagnosis
+
+The diagnostic clean-image rerun reproduced the workspace test failure. Its
+browser trace shows the editor was open and the requested repository was present
+in the selector; the exact label lookup did not resolve. An isolated browser
+experiment also showed that a wrapping label's computed text can include select
+options. The workspace and branch selectors now have explicit accessible names.
+With the updated HTML, the disposable workspace assignment and conflict flow
+and the remote suite passed on cached Chromium (46 passed, one skipped), with
+the PDF outage check. The rest of that suite used the preceding server image;
+Linux clean-image validation is still required to confirm the hosted failure is
+resolved. The locally reproduced label behavior alone does not establish that
+it was the hosted failure's sole cause.
+
+### Work-item creation refresh
+
+After a new work item is created, the browser now clears the previous delivery
+and workspace edit state immediately and displays `Loading` until the new
+item's delivery arrives. A controlled browser fixture delayed that response:
+the prior branch image retained the old item's status, while the updated HTML
+showed `Loading`, disabled the workspace action, and showed the new item after
+release. This reproduces stale display, not the cause of the separate hosted
+workspace-editor failure. The updated server image and hosted checks remain
+pending at this checkpoint.
+
+### Branch deployment after Planner voice fix
+
+The branch service at `127.0.0.1:55288` runs derived image
+`sha256:e6cb7aa37642ecefc574545f4495c7d7f33506e17fcea5e81364a65518d717dc`.
+It contains the server binary from the checksum-verified clean ARM64 build of
+`735c965`; the previous branch runtime supplies unchanged non-Rust inputs.
+Docker storage was insufficient to load the full clean artifact safely. Before
+deployment there were no active jobs, and a SQLite backup passed `quick_check`;
+the previous image remains tagged for rollback.
+
+The candidate passed 60 isolated workflow tests, 45 remote browser tests (one
+skipped), PDF isolation and outage checks. After deployment, restart persistence,
+product, MCP/mobile authorization and PDF acceptance passed, as did browser MCP
+origin enforcement. A real local coding model completed requests through MCP;
+Piper and Whisper completed a real speech round trip, and browser manual and
+continuous voice tests used synthetic Piper audio with the real speech and local
+coding services. These are branch checks, not physical microphone, external
+provider, Mac integration or staging acceptance. The subsequent hosted
+clean-image workflow failed in its workflow suite, as detailed below.
+
+### Clean-image browser validation
+
+The ARM64 branch build now runs the isolated workflow and remote-browser suites
+against the exact image it just built before exporting that image. CI supplies a
+uniquely named disposable Compose project, a private synthetic environment file
+and an explicit image, so the fixtures do not need a developer's organization
+checkout or credentials. The usual worktree path remains the default. Fixture
+identity validation rejects other project names and requires both an environment
+file and explicit test image.
+
+On the Mac, this explicit fixture mode passed 60 workflow tests, 45 remote UI
+tests with one skipped, and the PDF outage check against the existing derived
+worktree candidate; containers and test volumes were removed. An invalid
+project name was rejected before startup. The first hosted clean-image run passed 58 of 60 workflow tests but failed
+when the work-item workspace editor did not appear; a subsequent routing test
+then found a policy left by the interrupted test. The remote suite and artifact
+export were not reached. A follow-up run now retains browser traces on failure;
+its result and root cause remain to be established. The workflow fixture now
+removes its temporary coding policy in a `finally` block. All 60 workflow tests
+passed locally, and a separate deliberate failure immediately after policy
+creation left the later routing test passing (59 passed, one deliberately
+failed). A subsequent hosted run using the cleanup also passed the routing test;
+it had 59 passes and the same workspace-label failure. The selector-name fix
+was not in that image. The fixture uses simulated providers and does not
+establish staging, physical audio or real-provider behavior.
+
+### Planner voice submission lifecycle
+
+Desktop Planner previously treated its own pending transcription as a busy
+planner action, so automatic submission could stop after speech recognition.
+Voice submission now distinguishes other active planner work from its own
+transcription and submission state; other planner controls still use the full
+busy state. A generation guard discards a transcription that returns after the
+view unmounts or voice is disabled, before creating or submitting a planner
+turn. It cannot cancel a transcription already sent to the provider or a
+planner turn already submitted.
+
+In mocked-Tauri browser coverage, an active transcription reached a planner
+turn; a second delayed transcription returned after navigation and made no new
+planner request. With the submission fix but without the generation guard, the
+negative control sent that late turn. The production frontend build, 139
+frontend unit tests and 27 mocked-Tauri Planner, Chat and Voice Chat browser
+tests passed. Physical microphone and native-window acceptance remain open.
+
+### Desktop and browser voice startup cancellation
+
+Desktop Planner, Direct Chat and Voice Chat now cancel microphone startup when
+their session ends or the view unmounts. A late permission result has its
+tracks stopped, and cancellation during `AudioContext.resume()` closes the
+stream and context; an audio context that remains suspended reports an error.
+Direct Chat exposes a cancel action while access is pending, and Planner's
+recording control can stop a pending request. These guards do not cancel an
+already-submitted remote transcription request.
+
+Continuous browser voice now reports a context that remains suspended and
+stops the track once when a pending resume is cancelled. The shared frontend
+suite passed 139 tests and the production frontend build passed. Twenty-six
+mocked-Tauri browser tests covered Planner, Direct Chat, Voice Chat and stream
+regressions; seven browser voice tests passed against an isolated native server,
+including suspended and interrupted resume. Input devices were simulated, not
+physical. The native server used a debug-reduced `rlib` build.
+
+The `74da268` clean ARM64 image build and both hosted tests passed. Its archive
+checksum and source revision were verified. The worktree runs a derived image
+containing that server binary on the previous runtime, image ID
+`sha256:a58503cdb32b5d6e016b889cf0f3204a1002d30c2b990a57ae4d7b3e600cddb6`.
+It passed 60 isolated Linux workflow tests, 45 remote UI tests with one skipped,
+and the PDF outage check. After checking for active jobs and taking a SQLite
+backup that passed `quick_check`, the previous image was retained and the
+worktree updated. Restart acceptance, browser-origin MCP, real-model coding,
+synthetic MCP speech and manual and continuous browser voice using synthetic
+audio with real Whisper all passed. This is not staging or hardware acceptance.
+
+An isolated ad-hoc-signed desktop app was also rebuilt for native comparison.
+An initial MCP binary build exhausted disk during debug-symbol stripping: Cargo
+reported success with a warning, but the output was not a valid executable.
+The bad output was discarded, the package build artifacts were cleaned, and a
+separate rebuild produced a valid ARM64 executable. The resulting bundle passed
+signature verification. It is a debug fixture, not a notarized release, and has
+not been opened in a native window.
+
+### Manual browser voice and suspended audio contexts
+
+Manual browser recording now resumes a suspended `AudioContext` before wiring
+the processor. If navigation or page hiding cancels while resume is pending,
+the capture stream is stopped and the context closed without transcribing or
+starting a late recording. If resume completes but the context remains
+suspended, the UI reports the failure and releases the microphone. A disposable native server and headless Chrome ran
+five voice cases, including a simulated suspended context that resumes and a
+second whose resume is interrupted by navigation, and one that remains
+suspended. The test checks track and context cleanup and a late resume; manual transcription and continuous-voice
+regressions also passed. The native server was built with reduced debug output
+and only the `rlib` crate type. The regression check failed against the previous
+server because it never resumed the suspended context.
+
+The clean `1cd663b` ARM64 image build and both hosted test runs passed. Its
+archive checksum and source revision were verified; with limited disk the
+worktree deployment uses a derived image containing that verified server binary
+on the previous runtime, image ID
+`sha256:8fbc706205758ae35402aedd238ed798c57f7ce983d38ebf60101d5765fa5890`.
+It passed 58 isolated Linux workflow tests, 45 remote UI tests with one skipped,
+and the PDF outage check. Before restart, active jobs were checked, a SQLite
+backup passed `quick_check`, and the previous image was retained. Worktree
+acceptance verified the image ID, product, MCP, mobile authorization and PDF
+across restart; MCP origin checks, real-model coding, synthetic MCP speech,
+and manual and continuous browser voice with synthetic Piper audio and real
+Whisper passed. This does not prove real-device capture or staging readiness.
+
+The same native candidate also passed real Model Host coding, browser and MCP
+general Copilot, and a synthetic Piper/Whisper round trip. The first attempt to
+run the speech fixture failed before starting Studio because its old default
+selected `staging`, which the current native host adapter no longer accepts.
+The host's native `integration` environment retains its legacy staging service
+identity. The fixture now defaults to `integration`; a repeat without an
+explicit speech-environment argument passed. These checks use synthetic audio
+and do not exercise the manual suspended-context case with physical hardware.
+
+### macOS microphone bundle configuration
+
+The previously generated macOS application bundle lacked
+`NSMicrophoneUsageDescription`, while desktop voice capture uses
+`getUserMedia`. Apple requires this purpose string for apps accessing the
+microphone; [Tauri's bundle documentation](https://v2.tauri.app/distribute/macos-application-bundle/)
+describes merging `src-tauri/Info.plist` into the generated bundle. The file now
+provides an explanation covering voice transcription and the configured speech
+provider. A current ARM64 debug desktop and MCP executable were built with
+package debug information disabled and only the `rlib` crate type to fit disk;
+an unsigned debug app was generated in a separate temporary target directory.
+`plutil` verified that the resulting bundle contains the new string. This is
+not a signed production build or evidence of a successful macOS permission
+prompt, WebKit capture, physical microphone or audible playback. The console
+was locked, so native-window and hardware acceptance remain open.
+
+Tauri enables the macOS hardened runtime by default. Its bundle configuration
+now also includes Apple's `com.apple.security.device.audio-input` entitlement,
+which is needed for hardened-runtime audio input. A separate Tauri-generated
+debug bundle was signed with an ad-hoc identity; `codesign --verify --strict
+--deep` passed, and inspection showed both the runtime flag and the entitlement
+on the bundle. Tauri also applied that entitlement to the bundled MCP binary.
+This is not Developer ID signing, notarization, user consent or a real
+microphone test. Apple still requires explicit user permission. See Apple's
+[audio-input entitlement](https://developer.apple.com/documentation/BundleResources/Entitlements/com.apple.security.device.audio-input)
+and [hardened runtime guidance](https://developer.apple.com/documentation/xcode/configuring-the-hardened-runtime).
+
+### Historical desktop data startup upgrade
+
+`bash scripts/test legacy-migration NATIVE_SERVER --image IMAGE` reconstructs a
+synthetic migration-42 SQLite database from the checked-in migration SQL and
+SQLx checksums. It seeds a product, legacy module, capability, story, model
+provider and agent binding, then starts each isolated server twice. The
+authenticated browser product API and MCP returned the preserved records after
+both starts; unauthenticated product access was rejected. SQLite `quick_check`,
+foreign-key checks, the latest migration version and the synthetic credential
+reference were also verified. Both a native server built from `bd06190` with a
+debug-reduced `rlib` configuration and the `9c412bb`-based branch Linux image
+passed. Temporary databases and containers were removed.
+
+The database was reconstructed using Python's SQLite, not captured from an
+actual historical installation. This exercises one populated migration-42
+shape through the current startup path; it does not prove upgrades for every
+historic database, desktop session, concurrent user or staging deployment.
+
+### Real CI service and container relay revalidation
+
+An extended disposable fixture now also blocks inside an actual Rust test,
+cancels the running build, and retries the same revision. It verified the
+cancelled run published no package and that the test did not finish after the
+release signal, then verified the retried test and full Rust/OCI pipeline
+passed. Both MCP and headless Chrome exercised the controls through the branch
+container's authenticated relay to the real protocol-candidate service. In the
+browser run, Chrome additionally inspected artifact verification and queued a
+distinct revision. The first cancellation fixture failed its formatting stage
+before the blocking test; formatting the synthetic source corrected the fixture.
+Repeat with the documented `native-ci-service --audit-protocol --execute-build`
+fixture and add `--exercise-cancellation`; add `--relay-image IMAGE --browser`
+to cover the container and browser. This does not establish behavior of the
+deployed service, arbitrary subprocess trees or real product pipelines.
+
+Studio source `bd06190` was built as a native Mac server with only the `rlib`
+crate type and package debug information disabled to reduce disk usage. A
+disposable Aruvici protocol-branch service at `33e5a08` and the running branch's
+`9c412bb`-based Linux image then passed an authenticated host-loopback relay
+fixture. It checked invalid-token and forbidden-operation rejection, target and
+repository binding, and a container-queued Rust/OCI fixture build through the
+real service. Headless Chrome inspected the completed run and verified its
+artifact, then queued and inspected a different revision. This ran twice after
+the prerequisites were available; it does not exercise the deployed Aruvici
+service, a real product build, external ingress or staging.
+
+The first native build exhausted disk while producing a static library; a second
+attempt exhausted disk at link time. Only this project's failed Cargo outputs
+were cleaned, and a checksum-verified, re-downloadable branch image archive was
+removed; the running image and pre-deployment database backup were retained.
+The first CI attempt failed at the secret-scan stage because `gitleaks` was not
+on PATH. A second passed that stage but lacked `cargo fmt`. For the successful
+runs, official Gitleaks 8.30.1 was downloaded to a temporary directory and its
+release checksum verified, and the installed stable Rust toolchain supplied
+formatting and Clippy. The fixture now checks these and Docker Buildx before
+starting services; a missing-Gitleaks control fails at preflight. This is a
+fixture convenience check, not a substitute for assessing tool provenance or
+the deployed service's configuration. Disk remains constrained.
+
+### Real-model two-file workflow and test-gate review
+
+Against the deployed branch runtime `643e9d6`, disposable workflows used the
+real `qwen25-coder-7b-q4` Model Host model, JSON-object coding mode, a
+work-item workspace override, 4,096-token non-coding budgets and headless
+browser plan/test approvals. A new-module task and an existing-module edit
+passed syntax and independent behavior checks and reached a local bare Git
+remote. The existing-module run also verified that its managed prompt template
+and duplicate-definition guidance reached the coding model. The product's
+default workspace remained untouched.
+
+An extended `--scenario multi-file` fixture asks the model to create two
+linked CommonJS modules. Its independent review runs in a network-isolated,
+read-only, resource-limited container, checks both modules' behavior and uses
+a substituted import to verify the entry module actually calls its dependency.
+Local controls verify that this review accepts correct modules and rejects bad
+math or an ignored import. In three real-model attempts before the stronger
+gate, two passed and one created only the entry module. The missing-module run
+passed the old single-file syntax check, but independent review stopped before
+test approval; the disposable remote was confirmed unchanged at the gate.
+
+The fixture now configures a syntax-only workflow test command that checks both
+required files without executing generated code. Local controls cover valid,
+missing and syntactically invalid files, including an execution sentinel. A
+subsequent real-model multi-file run passed the stronger gate, independent
+review, browser approval and delivery of both files; the remote was unchanged
+before test review. A separate real-model control deliberately required a
+nonexistent file, verified the workflow test artifact reported that specific
+failure, and confirmed the remote was unchanged. These are small samples, not
+a general model-reliability estimate. The fixture's gate is configured only
+for the disposable product; Studio's default test policy is unchanged, and
+syntax checks alone do not verify behavior. The generated-code review
+container is isolated but is not a proof of safe execution for arbitrary code.
+Fixture containers and volumes were removed; the branch remained healthy.
+The isolated checks can be repeated with `bash scripts/test real-coding-review`
+and `ARUVI_CODING_TEST_MODEL=qwen25-coder-7b-q4 bash scripts/test
+host-coding-workflow --scenario multi-file --json-mode --workspace-override
+--non-coding-max-tokens 4096 --browser-approvals`. The latter requires the
+configured native Model Host and is subject to model variability.
+
+A later single-file syntax-gate control failed before the gate: the real 7B
+model repeatedly listed a missing `src` directory and exhausted its tool-step
+budget despite receiving error guidance. No test artifact was produced, so
+that run is not counted as a successful gate control. An existing-module
+control with a seeded `src` directory subsequently verified that the original
+syntax gate rejected invalid JavaScript and left the disposable remote intact.
+
+The coding tool now reports an absent allowed subdirectory as a structured
+`exists: false` result, including a parent-creation hint only when the agent is
+permitted to write. It does not create a directory or file automatically, and
+invalid, blocked and non-directory paths still fail. An unavailable workspace
+root remains an error. Local agent tests cover these cases, the trace and the
+next model prompt. The full native Rust suite passed 341 tests with eight
+ignored using two test threads. An earlier parallel run hit disk exhaustion
+and failed while creating temporary databases; Cargo package build outputs were
+cleaned before the successful rerun.
+
+The Linux candidate at `9c412bb` subsequently passed both hosted test runs
+and a clean ARM64 build. Its checksummed build artifact recorded image ID
+`sha256:77237a388ef464d4b5737ae9e9c58efb436fd7d3168ba73b4df98cf40b20bf61`.
+With limited host disk, the branch deployment uses a derived image containing
+the verified server binary from that artifact on the previous branch runtime;
+its image ID is `sha256:a711e33d804a8e78bbe11aa497bd21b65368b1eb9718e31b80172d3958f65f60`.
+The candidate passed 57 isolated workflow tests and 45 remote UI tests (one
+skipped). In a disposable real-model new-module workflow, the model inspected
+the absent `src`, observed the structured result, created the module, and
+passed syntax and independent behavior checks. Browser approvals completed
+delivery; the remote remained unchanged before review and the product's
+default workspace was untouched. This is one successful sample, not a model
+reliability guarantee. Repeat it with the earlier workflow command, replacing
+`--scenario multi-file` with `--scenario new-module --require-missing-tree`.
+
+Before restarting the branch services, active jobs were checked, a SQLite
+backup passed `quick_check`, and the previous image was retained. Environment
+acceptance verified the derived image ID, MCP and mobile authorization,
+product persistence and PDF export across restart. Browser-origin MCP,
+real-model coding through MCP, a synthetic Piper/Whisper MCP speech round
+trip and continuous browser voice with synthetic audio also passed. This is a
+worktree deployment, not Mac integration or VPS staging; physical audio,
+desktop-window comparison and complete migration parity remain open.
+
+The same candidate passed a further disposable real-model two-file workflow:
+both generated files passed the syntax gate and independent behavior and import
+checks before browser approval and delivery. A separate new-module workflow
+linked an enabled and a disabled skill to the coding agent through MCP. Every
+recorded coding request contained the enabled skill instruction and omitted the
+disabled instruction, and the generated file included the requested comment.
+Syntax, independent behavior, browser approval and delivery passed; the
+default workspace and pre-review Git remote were unchanged. Repeat the latter
+with `--scenario new-module --verify-skill` in place of `--scenario multi-file`
+in the real-model command above. These are individual model samples and do not
+establish general instruction-following reliability or team-skill behavior.
+
+### Static GIF Product Book images
+
+The shared Product Book image pipeline accepts embedded static GIFs in EPUB
+and PDF alongside PNG and JPEG. It validates the actual format, applies the
+existing dimension and best-effort allocation limits, rejects animated or malformed
+GIFs, deduplicates identical images, and applies existing per-image, total-byte
+and reference-count limits. Desktop exports and browser/MCP artifact creation
+share this pipeline. Rust tests cover static GIF EPUB packaging and PDF input,
+animation, corruption, and excessive dimensions. The full native Rust library
+suite passed 339 tests with eight ignored; the new GIF PDF test was run separately.
+A desktop-rendered EPUB fixture with
+an inserted static GIF passed EPUBCheck 5.4.0 with no errors or warnings, and a
+native PDF worker rendered a static GIF; the rasterized first page was inspected.
+The Linux browser/MCP export fixture includes a distinct 17×13 GIF and verified
+its exact EPUB bytes and manifest, accepted the PDF, and rejected animated GIFs.
+The captured EPUB passed EPUBCheck 5.4.0 with no errors or warnings, and the
+captured PDF's image list included the 17×13 image. A RustSec scan against the existing 2026-11-21 advisory database
+reported the same RSA advisory and maintenance/soundness warnings as the prior
+lockfile; this is not a fresh advisory-database scan. Remote URLs,
+repository-relative resources and animated PNG/GIF remain unsupported.
+
+Both hosted test runs and the clean ARM64 build passed for
+`643e9d625654528e424e6a97885d4a5c5abd62a7`. The downloaded archive checksum
+and revision were verified. Its server binary (SHA-256
+`af845ed72538101b8d93026fcba9269fbf3233c574f3304cd53ca0fb53f3ea4b`)
+was layered onto the previous runtime with unchanged non-Rust inputs, producing
+derived image `sha256:110f280d717e2c1d02d38fecba88cc738fad5100649be5738c7ee67518f7f05c`,
+not the complete hosted image. The candidate passed 45 browser tests with one
+skipped, the PDF outage check and 57 workflow tests. A checked database backup
+and prior image were retained; product, MCP, mobile, PDF and persistence passed
+across restart, as did browser-origin MCP, real local 7B MCP coding, synthetic
+MCP speech and continuous browser voice. A disposable product on the deployed
+branch exported an EPUB containing the exact GIF bytes and a PDF through MCP;
+the product was archived. The branch endpoint was `127.0.0.1:55288`. This does
+not establish Mac integration, VPS staging, physical audio or full parity.
+
+### Saved binary workspace downloads
+
+Browser workspace trees can download saved binary or text files up to 8 MiB,
+and MCP exposes both the action and first-class operation. The open-buffer
+download remains separate and includes unsaved edits. Browser requests carry the
+selected workspace root; MCP clients can supply it. Cooperating workspace updates
+are serialized while the root is checked and the file is read. On Unix, the
+file is opened relative to a directory descriptor without following symlink
+components, and hard links and non-regular files are rejected. Non-Unix uses a
+weaker canonical-path fallback. An external writer can modify a file while it
+is read; the operation does not promise an immutable snapshot. The native Rust
+suite passed 339 tests with seven ignored; 136 frontend tests, 69 local browser
+tests, the frontend production build and terminology check passed. A disposable native browser/server fixture verified
+binary bytes, both MCP names, authorization, stale root and the 8 MiB boundary.
+The native workspace-edit and code-editor fixtures passed. Physical desktop and
+complete parity remain open.
+The first Linux browser regression run found that the new flex rows stayed
+visible after filtering. A scoped CSS rule corrected their hidden state; a
+native browser fixture confirmed matching and nonmatching rows after the tree
+loaded. The same fixture downloaded an 8 MiB saved file byte-for-byte in the
+browser and verified that a larger file was rejected.
+
+Both hosted test runs and a clean ARM64 build passed for
+`342edf668c06c612d4749bbf98214fdbb5226a75`. The downloaded archive checksum and
+source revision were verified; the extracted server binary (SHA-256
+`f8d54d9345d6cc9b6e954b2669e42bc4b502dfb6bacec0cf77c5daba7aa828f1`)
+was layered onto the preceding runtime with unchanged non-Rust inputs to create
+derived image `sha256:c7009a02bf948d14b5ff88483e1a0365cdcb4272030dcafee9f3ea37c70a1540`,
+not the complete hosted image. Its isolated browser suite passed 45 tests with
+one skipped, including filtering, binary/MCP access, the 8 MiB download and
+over-limit rejection; the PDF outage check and all 57 workflow tests passed.
+After a verified SQLite backup and retention of the prior image, product, MCP,
+mobile, PDF and persistence checks passed across restart, as did browser-origin
+MCP, real local 7B MCP coding, synthetic MCP speech and a synthetic continuous
+browser voice turn. The branch endpoint was `127.0.0.1:55288`. These checks do
+not establish Mac integration, staging or physical desktop parity.
+
+### Short continuous voice turns
+
+Continuous browser voice previously required 500 ms of above-threshold capture
+buffers, so a short answer in one 256 ms buffer could be discarded. The threshold
+is now 200 ms of detected buffers; a native disposable-server browser fixture
+sent a simulated 200 ms answer to transcription and chat and separately verified
+that an all-silence capture was discarded. Four related browser tests and a
+native debug server build passed. Detection remains a simple per-buffer RMS
+heuristic, not a speech classifier: short loud noises may be transcribed, quiet
+speech may be missed, and the actual resolution depends on the audio buffer and
+sample rate. Physical microphones and broader noise conditions remain unverified.
+
+Both hosted test runs and the clean ARM64 image build passed for
+`e48b7092d11a614a247829a5392d45802fd8412d`. Its archive checksum and source
+revision were verified. The extracted server binary (SHA-256
+`715c3c7a142febdcfc2da1dc5031b5b5fe62a23d5ec4ab406b245b5f807b66ca`)
+was layered on the previous runtime with unchanged non-Rust inputs, producing
+derived image `sha256:8a4e6951cd7f0b28af4369e88f83956a7d61faf99c5a577e179876d4fa1254ae`,
+not the complete clean hosted image. The candidate passed 57 isolated workflow
+tests, 45 browser tests with one skipped, and the PDF outage check. After a
+verified SQLite backup and retention of the previous image, product, MCP, mobile,
+PDF and persistence checks passed across restart, as did the published-port MCP
+origin check, real local 7B MCP coding, synthetic MCP speech and a longer
+synthetic continuous browser voice turn. The branch endpoint was
+`127.0.0.1:55288`. Three additional deployed-browser turns using synthetic
+"Yes" reached real Whisper and the coding model: two transcripts were "Yes"
+and one was "Best". This is not integration or staging acceptance.
+
+A separate headless browser probe used the running branch server with only this
+threshold substituted in the served page, synthetic Piper "Yes" audio, real
+Model Host Whisper and a real local coding model. One turn was transcribed as
+"Yes" and reached chat; a second was transcribed as "this" and failed the
+expected-word assertion. Two direct MCP transcriptions of the same generated
+phrase returned "Yes". The runs do not establish a cause or reliable short-phrase
+recognition and did not use the updated Linux server image or a real microphone.
+For one captured clip Whisper returned "Best" on three repeats while its Piper
+source returned "Yes" on three repeats. Trimming the captured clip's leading
+silence yielded "Yes" on three repeats; trimming only trailing silence did not.
+In three additional captures, the untrimmed transcripts were "Yes", "Yes" and
+"Less"; retaining about half a second of leading silence yielded "Yes" for all
+three. This is a small synthetic sample, not evidence that automatic trimming
+is generally safe: a quiet start to speech could be removed. No trimming was
+added, and the sources of recognition errors remain unverified.
+
+### Short browser voice diagnostic
+
+With the deployed `37ffe58` runtime and real Model Host Whisper, the short
+synthetic phrase "Say hello in one sentence" transcribed correctly in three
+direct MCP requests. Four separately captured browser recordings all contained
+the full voiced interval; when independently sent through MCP, three produced
+the expected transcript and one did not. This demonstrates variability in the
+tested path but does not establish whether browser audio processing or model
+inference caused it. The fixture uses synthetic audio, and it does not validate
+physical microphone input or recognition reliability across speakers.
+
+### Desktop IDE workspace snapshots
+
+The desktop IDE now opens a file with a backend-captured workspace root and
+content snapshot. Saving checks both under the same SQLite workspace write lock
+used by MCP and rejects a changed root or changed file. The editor retains newer
+edits made during an earlier save and ignores a completion for a closed and
+reopened tab. For Copilot patch mode, the desktop captures the root before model
+generation, requires it during each preview, alias check and patch application,
+and verifies open buffers' roots before refreshing them. A changed workspace
+rejects review or application even when files have the same hash. Multi-file
+application still writes files one at a time and now warns if a later failure
+may have left earlier writes applied. Older Tauri commands and payloads remain
+available for compatibility and do not gain a required root guard.
+
+The SQLite reservation coordinates cooperating Studio processes, including
+workspace updates; it cannot stop external filesystem writers or make a
+filesystem write transactional with the database. Content is checked immediately
+before writing but a non-cooperating writer can still race that check. Root and
+content conflict tests, a concurrent database-lock test, Tauri mock-IPC checks
+and mocked desktop UI checks passed. The frontend build and 136 frontend tests
+passed, as did 69 browser tests and 338 Rust library tests (seven ignored). The
+first full Rust run exposed a fixture using a noncanonical macOS temporary path;
+the fixture was corrected to use registered paths and the full suite passed.
+Physical native-window interaction remains unverified.
+
+Both hosted test runs and the clean Linux ARM64 image build passed for
+`e4f8613e54600fa17b33ea87682fd194d321eb92`. The archive checksum and source
+revision were verified. Its server binary (SHA-256
+`cf92733bcc4d263a5c876316d4a81c7c346c1f00bc80bbac3b23480e07f31a5b`)
+was layered onto the preceding runtime with unchanged non-Rust inputs, producing
+derived image `sha256:7f0d3761fba496f456212440fb244901940f5fe71e6d324c3cee26041c05601f`;
+this is not the complete clean hosted image. The candidate passed 56 isolated
+workflow tests, 45 browser tests with one skipped, and the PDF outage check.
+After a verified SQLite backup and retention of the prior image, product, MCP,
+mobile authorization, PDF and persistence checks passed across a restart. The
+published-port MCP origin test, real local 7B MCP coding, synthetic MCP speech,
+and continuous synthetic browser voice with real Whisper and a coding model also
+passed. The worktree endpoint was `127.0.0.1:55288`. These results do not establish
+complete desktop parity, physical audio behavior, Mac integration or VPS staging.
+
+### Shared workflow topology
+
+Desktop and web now consume one repository-owned workflow topology resource.
+The desktop build imports it; Rust embeds it in the served browser page, escaping
+characters that could terminate the JSON element. The existing workflow behavior
+continues to be supplied by server APIs. A CI guard checks node and lane identity,
+runtime-stage compatibility, link validity, acyclicity and lane membership.
+It rejected synthetic missing-node, cyclic and duplicate-lane fixtures. The
+desktop production build and 128 frontend tests passed; a disposable native
+Studio and Chromium fixture passed workflow selection, history, artifact and
+diagram checks using the server-supplied data. On the final source, all 67 browser
+tests and 334 Rust library tests passed (seven ignored). The native fixture
+included a label-fit assertion and desktop/mobile screenshot review. Focused Rust tests verified the rendered
+JSON and escaping of a script-closing label. Physical native-window comparison
+is still open.
+
+Both hosted test runs and the clean ARM64 image build passed for `37ffe58`,
+including the Docker frontend resource copy. The downloaded archive checksum
+and source revision were verified. Its server binary (SHA-256
+`ad63af4ba3964204a7f8abbbc152c30388d692bdb6f0072c56654edf835b3c0b`)
+was layered onto the prior runtime to produce derived image
+`sha256:d057feef085e46424d100b420259e04b2a148f1a78eb64ba150fa2e0c5cee923`,
+not the full clean artifact. It passed 56 isolated workflow tests, 45 browser
+tests with one skipped, and the PDF outage check. A checked database backup and
+the prior image were retained. Product, MCP, mobile and PDF checks passed across
+restart, along with browser-origin MCP, real local 7B MCP coding, MCP speech and
+continuous browser voice using synthetic audio with real Model Host Whisper and
+the local coding model. The branch endpoint was `127.0.0.1:55288`; physical
+audio and general recognition reliability remain unverified.
+
+### Connected browser workflow diagram
+
+The browser stage review now offers an optional connected diagram using the
+desktop workflow's intake, planning split/merge, execution, verification
+split/merge and delivery topology. Selecting a stage in the diagram updates the
+existing stage details; the existing labeled buttons provide keyboard and
+screen-reader access. An optional focused view follows the selected runtime
+stage, including scrolling it into view at mobile widths. Current and recorded
+entry colors do not assert completion; planning branches still share one runtime
+stage, while their selected diagram node remains distinct; the visual topology is explanatory. The later shared topology checkpoint
+replaces the separate presentation definitions with one repository resource.
+
+A disposable native Studio server and Chromium fixture verified 27 connections,
+diagram and keyboard selection, focus behavior, unknown stages, stage history and
+artifact isolation. The mobile test checked that the page does not widen and
+the focused node is visible. Desktop and 390-pixel screenshots were reviewed;
+the first layout and focus failures were corrected and the fixture rerun. The
+frontend build and 128 frontend tests passed; the Rust library suite passed 333
+tests with seven ignored, and all 67 local browser tests passed. Both hosted
+test runs and a clean ARM64 build passed for `c28e337`. The archive checksum and
+revision were verified; its server binary (SHA-256
+`3ace41f7daa48deb2a8c01bd3c590f7ff1dccb031f22dc7723a499748e5633fb`)
+was layered onto the prior runtime to produce derived image
+`sha256:d803e3f524719ac6022ea0e23f0fd410f30f5d7b977be07abce6bd2d2a300e4e`,
+not the full clean artifact. The candidate passed 56 workflow tests, 45 browser
+tests with one skipped and the PDF outage check. A verified database backup and
+the prior image were retained; product, MCP, mobile and PDF acceptance passed
+across restart, along with browser-origin MCP, real local 7B MCP coding, MCP
+speech and manual browser transcription checks. Continuous browser voice reached the local coding model but a
+short synthetic greeting was misrecognized in two of three runs. A revised
+fixture with a two-second silent lead-in and a longer sentence recognized both
+expected words and received a model reply in two consecutive runs. This does not
+establish general speech-recognition reliability or physical audio behavior.
+The branch endpoint was `127.0.0.1:55288`. This is not full desktop workflow
+parity or a physical native-window comparison.
+
+### Manual browser microphone cleanup
+
+Leaving the Voice tab or hiding the page now discards an unfinished manual
+recording and stops its microphone. A pending microphone permission request can
+finish after navigation; its returned stream is closed and cannot affect a new
+recording. Pending transcription is aborted on navigation and its result is not
+submitted. Once a transcript has already been submitted to chat or the planner,
+this change does not cancel the model request. The existing manual review and
+automatic-submit behavior remain available. Fourteen isolated browser cases
+passed across manual and continuous sessions, including navigation, delayed
+permission, restart, transcription cancellation and page hiding. The frontend
+build and 128 frontend tests passed. A rebuilt native Studio server with a
+simulated provider passed the existing manual review/submission and continuous
+voice browser flows, as well as a navigation-and-discard check. Physical microphone and browser/device behavior remain
+unverified. At `ca879db`, the complete local browser suite passed 67 tests,
+the Rust library suite passed 333 with seven ignored, and the terminology check
+passed. Both hosted test runs and the clean ARM64 build passed. The archive
+checksum and revision were verified; its server binary (SHA-256
+`b2567de6b94c528aec1d2fc59d89f8a579b86a85800283a50fdf5f0318668aa8`)
+was layered onto the prior runtime to produce derived image
+`sha256:95a6e192fcfc6f86e8d578f3b18c1e5bcf209bbd167ba47235e0debe13608250`,
+not the full clean artifact. It passed 56 isolated workflow tests, 45 browser
+tests with one skipped, and the PDF outage check. A verified database backup and
+the prior image were retained. Product, MCP, mobile and PDF acceptance passed
+across restart, as did published-port origin checks, real 7B MCP coding, real
+MCP speech, synthetic browser transcription and continuous browser voice through
+real Model Host Whisper and the local coding model. The branch endpoint was
+`127.0.0.1:55288`; physical audio was not tested.
+
+### Continuous browser voice conversation
+
+The browser Voice screen now offers a continuous voice-chat session alongside
+manual recording and transcript review. It records up to 18 seconds per turn,
+detects a speech pause using a fixed audio threshold, transcribes through the
+configured Studio service, submits to chat, and waits for device speech to end
+before listening again. This session explicitly sends transcripts without review
+and targets voice chat, independently of the manual recorder's target and review
+settings. Ending the session or leaving Voice stops capture, aborts pending browser
+requests, cancels browser speech and discards late results; aborting the browser
+request does not prove a model server stopped processing it. A microphone permission
+prompt cannot be cancelled programmatically, so a late stream is closed on return.
+Speech-recognition thresholds, noise and physical devices need real-world testing;
+this does not establish complete desktop voice parity.
+
+A disposable native Studio server, simulated OpenAI-compatible transcription and
+chat provider, and headless Chromium exercised a full turn, reply playback completion,
+restart of listening and cleanup, and also passed the existing manual recording,
+review and submission regression test. Nine isolated browser cases cover repeated
+turns, speech waiting, late microphone permission, cancellation during transcription,
+transcription failure, navigation and stopping while speaking. The frontend build,
+128 frontend tests, and Rust library suite (333 passed, seven ignored) passed; the
+full Rust run preceded the final browser-only cancellation adjustment. The new button
+was visually inspected at mobile width without horizontal overflow. Neither fixture
+uses physical audio or a live external provider.
+
+Both hosted test runs and a clean ARM64 build passed for `cecec05`. The archive
+checksum and source revision were verified; its server binary (SHA-256
+`ed53dea6b22dca4ed778b38f586e55fd9cdb7dbbece45f3e381878769f6fd8cd`)
+was layered onto the prior branch runtime to produce derived image
+`sha256:6b6e4c09b31ac364926b232a48084c6d5fd82ba4b9b3a87130abb8b752c8330f`,
+not the full clean artifact. This candidate passed 55 isolated workflow tests,
+including continuous browser voice through a simulated provider, 45 browser
+tests with one skipped, and the PDF outage check. A checked database backup and
+the previous image were retained. Product, MCP, mobile and PDF checks passed
+across restart, as did published-port origin checks, real 7B MCP coding, real
+MCP speech and manual browser transcription. The deployed continuous browser
+session also sent synthetic Piper audio through real Model Host Whisper to the
+local 7B coding model; the recognized greeting and a nonempty reply were checked.
+The branch endpoint was `127.0.0.1:55288`. Audio was synthetic and no physical
+microphone or speaker was verified.
+
+### Desktop Voice Chat transcription configuration
+
+Voice Chat now asks the backend to resolve its transcription provider and
+model before opening the microphone, and sends only its legacy `en-US` locale
+fallback when transcribing. Server environment and saved configuration therefore
+take precedence, including the official OpenAI model default. The preflight
+checks disabled providers, incompatible protocols, synthesis-only selectors and
+configured language mode locally; it cannot prove a remote model is available.
+The displayed model is identified as the value resolved at session start; each
+transcription resolves configuration again. A capture or transcription failure
+ends the session instead of repeatedly opening the microphone. Stopping a
+session discards pending capture or transcription results, including after a
+new session starts; already-submitted model streams and native speech are not
+cancelled by this change.
+
+The frontend build and 128 frontend tests passed, as did six mocked Voice Chat
+browser tests and four existing capture tests. The full Rust library suite passed
+333 tests with seven ignored; focused command coverage includes legacy and new
+Tauri IPC payloads and environment precedence.
+These tests do not validate a native desktop window, microphone, speaker or a
+live third-party account. Both hosted test runs and the clean ARM64 image build
+passed for `6ebe923`; the later browser voice checkpoint records deployment of
+a subsequent revision that includes it.
+
+### Desktop Planner transcription precedence
+
+Planner previously sent saved speech settings and a default `en-US` as explicit
+request fields, which could mask the server's environment overrides. It now
+lets Rust resolve configured provider, model and locale first; inferred Planner
+provider/model values and the prior `en-US` locale are supplied only as
+fallbacks. A fallback model is used only with its corresponding provider.
+Explicit Tauri arguments retain highest precedence; an explicitly blank locale
+environment setting still suppresses the saved value. A configured provider
+also works when the frontend cannot infer any speech selection. The focused
+Rust tests and mocked desktop voice tests pass for environment precedence and
+fallback selection. A Tauri mock-IPC test also confirmed both legacy payloads
+without the new fallback fields and the new camel-case fallback fields reach
+the command, and the environment fixture covered both stale Planner fallbacks
+and no frontend selection. The frontend suite passed 128 tests and its build,
+four mocked desktop voice tests passed, and the full Rust suite passed 333
+tests with seven ignored. Both hosted test runs and the clean ARM64 build passed
+at `ef2e5c9`; the archive checksum and source revision were verified. Its server
+binary (SHA-256
+`eed30fc1f98fc8152c0c91d67e2bfd99cd405b8996b14c065c4522e1ea3e5e3e`)
+was layered onto the prior runtime, creating derived image
+`sha256:d8e6621f7263fc025eb5967c44eea93d834199f129e45a674956b54ee180cd66`,
+not the full clean artifact. The candidate passed 54 isolated workflow tests,
+45 remote browser tests with one skipped and PDF outage checks. A checked
+database backup and prior image were retained; product, MCP, mobile and PDF
+checks passed after restart, as did published-port origin and real local 7B MCP
+coding checks. A separate disposable fixture saved server speech defaults and
+used them through the browser and MCP for real synthetic Model Host transcription.
+The branch endpoint was `127.0.0.1:55288`. This does not validate a native
+desktop window, physical audio devices or live OpenAI access.
+
+### OpenAI transcription default migration
+
+OpenAI's documented file-transcription path now recommends `gpt-transcribe` and
+states that `whisper-1` shuts down on February 26, 2027. When no transcription
+model is configured or registered, Studio now selects `gpt-transcribe` only for
+the official OpenAI HTTPS API root or `/v1` endpoint; compatible proxies and
+local providers retain the existing `whisper-1` fallback. Explicit and
+registered models still take precedence. The desktop Planner no longer sends a
+hard-coded fallback model, so the same server choice applies to desktop, web and
+MCP. In the shared client, automatic official `gpt-transcribe` locale hints such
+as `en-US` are reduced to `en`; supported Chinese regional hints are preserved.
+Other providers and explicit format overrides keep their original hints. See
+[OpenAI's transcription guide](https://developers.openai.com/api/docs/guides/speech-to-text)
+and [deprecation guidance](https://developers.openai.com/api/docs/guides/transcription).
+The packaged client passed 66 tests; the Studio speech tests passed 15 with one
+local-model test ignored, the frontend passed 128 tests and its production build,
+and four mocked desktop voice-capture tests passed. The mock confirms Planner
+omits the fallback model and delegates selection to Rust. The independent consumer
+was pinned to `1d8df226a22e7c4e0ddd21c3e46a654c410ca21f`; its Linux offline
+contract suite passed, and its non-root, read-only probe passed real Model Host
+discovery, completion, streaming, token-limit handling and synthetic
+`piper-ljspeech` / `whisper-tiny-metal` speech against `qwen-05b-comparison`.
+The test's exact disposable Docker cache entries were removed afterward to
+recover space; running images and data volumes were retained. Linux branch
+validation used a clean ARM64 build at `f9bdb3e` and the later test fixture at
+`f523688`; both hosted test runs passed. Its archive checksum and source revision
+were verified. The extracted server binary (SHA-256
+`f7c638cbb764f3d1071a90913cd08e5dc9997cc5a3bde26607496979feb0582f`)
+was layered onto the prior runtime, producing derived image
+`sha256:6047abf6602cdf8bd9cd4d6a95c17f27fd945e9e396cff18a7b611fed8923694`;
+this is not the full clean artifact. The candidate passed 54 isolated workflow
+tests, including a compatible-provider fallback through the browser API and MCP,
+45 remote browser tests with one skipped, and the PDF outage check. The native
+Rust library suite passed 330 tests with seven ignored. A checked database backup
+and prior image were retained; product, MCP, mobile and PDF acceptance passed
+after restart, as did published-port origin checks, a real local 7B MCP coding
+request, an MCP Piper/Whisper round trip and a headless browser recording using
+synthetic Piper audio. The branch URL was `127.0.0.1:55288`. Physical audio,
+live OpenAI access and actual OpenAI account/model availability remain unverified.
+
+### Workflow map stage indicators
+
+The browser map labels the current stage, stages entered according to recorded
+transition history, and stages without recorded entry. These labels do not
+assert completion or prove an unrecorded stage never ran; planning labels share
+one runtime stage and do not establish that individual planning branches ran.
+Map selection is exposed through `aria-pressed` and has a visible focus-style
+outline. The native server build and disposable browser fixture passed for
+current/entered/unrecorded states, mouse and keyboard selection, workflow
+isolation, and all map controls at a 390-pixel viewport. A headless browser
+capture was visually reviewed at that width and map spacing was increased;
+a desktop-width capture was also reviewed. This is not a complete layout audit.
+Both hosted test runs and the clean ARM64 build passed at `1a34cbf`; the archive
+checksum and source revision were verified. Its extracted server binary (SHA-256
+`3197c3ffb0594fd0f36378194eb0b89716a7abac670b14b78b8e683d1c6b03a5`)
+was layered onto the prior branch image to produce derived image
+`sha256:394d98e8d6563641e02bd5ccaedc59fad27b09fe3eb1bf2c940ce9de05725da7`,
+not the full clean artifact. The candidate passed 53 isolated workflow tests,
+45 browser tests with one skipped, and the PDF outage check. A checked database
+backup and prior image were retained. After deployment, product, MCP, mobile and
+PDF checks passed across restart, as did the published-port origin check and a
+real `qwen25-coder-7b-q4` MCP coding request. The branch endpoint was
+`127.0.0.1:55288`. The desktop SVG connections and focused-node layout remain open.
+
+### Browser workflow map
+
+The recorded-stage review now includes an explanatory workflow map with the
+desktop's intake, planning, execution, verification and delivery lanes. Its
+stage buttons select the corresponding recorded-stage details, including stages
+with no recorded events; structural split nodes are labeled as explanation,
+not evidence of execution. Multiple planning labels share the `planning`
+runtime stage, as on desktop. The native server build and disposable browser
+fixture passed, including navigation to a stage with no recorded events. The selected-stage view also
+groups recorded model calls by their stage or associated agent run; the native
+fixture verified the selected workflow's call and excluded the other workflow's
+call. Hosted tests and the clean ARM64 build passed for `ba058cd`; the archive
+checksum and revision were verified. Its server binary (SHA-256
+`4e34cae630373a437f3c33809748ab3d376b0d063513df8bf293b5b9d1dbd444`)
+was applied to the prior branch image, producing derived image
+`sha256:d126dd21b740db55f86e7a8c583bbb1c02397612305efa304226f3894c362fb7`;
+this is not the full clean artifact. The candidate passed 53 isolated workflow
+tests, 45 browser tests with one skipped, and PDF outage checks. A checked
+database backup and prior image were retained; product, MCP, mobile and PDF
+acceptance passed after restart, as did published-port origin checks and a real
+`qwen25-coder-7b-q4` MCP coding request. The branch endpoint at this checkpoint
+was `127.0.0.1:55288`. This map does not yet reproduce the desktop SVG
+connections, stage status colors or focused-node layout.
+A 390-pixel-wide native browser fixture also confirmed that the Coding map
+control fits the viewport; it is not a comprehensive mobile layout audit.
+
+### Workflow stage review
+
+The browser can request transition history and agent runs for the selected
+workflow, select a recorded stage, and view that stage's transitions, runs and
+associated work-item artifacts. The history endpoint uses the same repository
+query as desktop and MCP and requires the mobile token. A disposable native
+fixture verified authentication, MCP/HTTP agreement, workflow isolation,
+stage selection, and reading an associated artifact. The native Rust suite
+passed 327 tests with seven ignored. Hosted tests and the clean ARM64 build
+passed at `58d39ec`; its archive checksum and source revision were verified.
+The extracted server binary (SHA-256
+`0386d12c395bbac68ae4af90610ba53bedc6bb85c6f8b51693ec8fe76af0e413`)
+was layered onto the preceding branch image, yielding derived image
+`sha256:c5f2aaf59ccf17d8335bdf31943cd107af30c52bab127b2f9262fd03a9ed23f1`;
+this is not the full clean artifact. The candidate passed 53 isolated workflow
+tests, 45 browser tests with one skipped, and PDF outage checks. A checked
+database backup and prior image were retained. The deployed branch passed
+product, MCP, mobile and PDF acceptance across restart, published-port origin
+checks, and a real `qwen25-coder-7b-q4` MCP coding request; it was available
+at `127.0.0.1:55288` at this checkpoint. This is a recorded-stage view, not yet a replacement
+for the desktop's explanatory split/merge diagram. The history query, like the
+desktop query, is unpaginated.
+
+### Workflow usage and agent-run visibility
+
+The workflow-call browser control also retrieves the selected workflow's agent
+runs and summarizes input/output tokens, failures and duration. When no
+per-call records exist, it labels available agent-run token totals as legacy
+telemetry instead. The corresponding authenticated HTTP route uses the same
+agent-run query as desktop and MCP. The native server build and disposable
+browser fixture passed for both per-call and legacy totals. Hosted tests and the
+clean ARM64 build passed at `ac2144d`; the archive checksum and source revision
+were verified. Its server binary (SHA-256
+`97598f3cfd8e66d3cbd4e67edea5d470bd99873637a8116a3e2d1244d3d4adc9`)
+was layered onto the preceding branch image, creating derived image
+`sha256:0a057f8ba93cebc8196aadd40bfa411438c0893c457cfcf13b60824c40a50877`.
+This is a derived image, not the full clean artifact. The candidate passed 53
+isolated workflow tests, 45 browser tests with one skipped and PDF outage
+checks. A checked database backup and prior image were retained; the deployed
+branch passed product, MCP, mobile and PDF acceptance across restart, published
+port origin checks, and a real `qwen25-coder-7b-q4` MCP coding request. Its URL
+was `127.0.0.1:55288` at this checkpoint. This does not add the desktop's full workflow diagram
+or stage-by-stage artifact review. The desktop diagram contains structural
+split/merge nodes as well as actual runtime stages; its selected-stage panel
+associates runs and artifacts and shows recent transition history. MCP already
+provides `get_workflow_history`; the newer stage-review checkpoint above adds
+browser history and stage selection. A follow-up must distinguish structural nodes
+from recorded runtime events and keep the selected workflow's runs, transitions
+and artifacts scoped together rather than presenting the diagram as proof of
+execution.
+
+### Workflow-call branch deployment
+
+The browser now displays recorded model-call summaries for the selected work
+item's latest workflow, and MCP exposes `list_agent_model_calls_for_workflow`.
+A disposable native fixture verified two-workflow isolation, authentication,
+MCP/HTTP agreement and the browser display. The isolated Linux simulated-provider
+workflow suite passed 53 tests, including the new check; the remote browser suite
+passed 45 with one skipped, and its PDF outage check passed. The native Rust
+library suite passed 327 tests with seven ignored; frontend tests passed 128 and
+the frontend production build passed.
+
+Hosted tests and the clean Linux ARM64 build passed for `de9c626`. Its archive
+checksum and source revision were checked, and the extracted server binary
+(`a847c10b02aeac7c33090146fee2ea3c2e39ae24f1024c8039233f7e7743a018`)
+was layered onto the prior branch image, yielding derived image
+`sha256:e93edfb0d9985fc8baa927011a8b66e42490653501cf62dea3558602adcf8091`.
+This is a derived image, not the full hosted artifact. A checked database backup
+and prior image were retained before deployment. Product, MCP, mobile, PDF and
+persistence acceptance passed across restart; the published-port origin test
+and a real `qwen25-coder-7b-q4` MCP coding request also passed. The branch is
+available at `127.0.0.1:55288` at this checkpoint. Model-call retrieval uses the
+existing unpaginated desktop query, and this summary is not complete desktop
+workflow-review parity. Mac integration and VPS staging remain unverified.
+
+### Current real-model workflow revalidation
+
+On the deployed branch image derived from runtime `a850602`, a disposable
+existing-module workflow used the real `qwen25-coder-7b-q4` Model Host model,
+JSON-object coding mode, an alternate work-item workspace, and a 4,096-token
+non-coding budget. Headless Chrome approved both the plan and test-review gates.
+The generated edit passed the workflow syntax test, independent behavioral and
+duplicate-declaration checks, and was delivered to a disposable Git remote.
+The product's default workspace was untouched. The coding trace confirmed the
+duplicate-definition guidance reached the model; it also recorded a rejected
+repeat replacement before the model completed. This is one successful sample,
+not a guarantee of model quality, physical desktop behavior or staging readiness.
+The fixture containers and volumes were removed; the branch remained healthy.
+
+A separate new-module run on the same image and 7B model, with the same JSON
+mode, workspace override, token budget and browser approvals, also passed syntax
+and independent `sumEven` behavior assertions before delivery to its disposable
+Git remote. The default workspace remained untouched. This is one successful
+new-module sample and does not erase the earlier incomplete-function failure or
+establish general coding reliability.
+
+### Historical image archive and Docker headroom
+
+To restore working space without removing the current branch image, immediate
+rollback image, containers or volumes, 14 older Studio-only validation image
+records (27 tags) from a separate, unused image chain were exported and then
+removed from Docker. Before removal, all tags and their root filesystem layer
+identities were checked against the archive, and no container referenced those
+images. Afterward all 94 OCI blob content hashes and the archive checksum were
+verified. The private archive, checksum and tag-to-layer inventory are in
+`~/.local/share/work-environments/aruvi-studio-worktree-0e3d3e51014c/image-archives/`.
+The archive `historical-studio-20261121.tar.gz` has SHA-256
+`4bb1e65b23b5e2c37a1853ec2456cc65063f2e97512bd1c6b7a51f6e0f0d7b7d`;
+`docker load -i <archive>` restores its archived tags and layers when needed.
+Historical checkpoints below mentioning those tags describe their earlier state;
+the inventory identifies which are now archived. Docker VM free space increased
+from about 642 MiB to 2.4 GiB, and the branch app and PDF service remained
+healthy. The active image and `pre-a850602` rollback image remain in Docker.
+
+### Browser and MCP workspace editing
+
+Browser Workspaces and `aruvi_repositories.update_repository` now share the
+desktop backend operation for name, path, remote URL and default branch updates.
+A changed browser path must be an accessible Git working repository, matching
+the browser registration constraint; MCP and desktop retain their existing path
+validation. Both remote interfaces require a repository snapshot and reject stale changes;
+the desktop command remains compatible without one. Workspace changes and
+inherited work-item branch updates commit together. Active/paused workflows or
+running CLI operations associated with the workspace block path, remote or
+branch changes. Registration and workspace creation use the same SQLite write
+lock to coordinate duplicate path checks. This protection requires cooperating
+versions sharing a database; legacy/direct writers and external filesystem
+changes are outside it. MCP write protection requires clients to supply the
+opened root. The later desktop IDE workspace snapshots checkpoint supersedes
+the original desktop-buffer limitation below.
+
+Historical desktop IDE finding: the original Tauri file-read command returns content but
+not the opened workspace root, and its save command fetches the repository's
+current path and writes without comparing the buffer's original content. A
+workspace-path change or external edit can therefore redirect or overwrite a
+stale desktop buffer. Reviewed desktop patches check the file hash/existence but
+also resolve the current workspace path without an opened-root check. A complete
+fix needs an atomic server-side snapshot of root and content at open, guarded
+save and patch operations coordinated with workspace updates, and tests for path
+changes, external content edits, concurrent updates and older IPC clients. This
+was the desktop data-integrity gap addressed by the later checkpoint. The older
+commands remain available for compatibility and retain their original behavior.
+
+A disposable native browser/MCP fixture tested stale snapshots and preserved
+drafts, duplicate and concurrent registrations, active/paused workflow and CLI
+guards, atomic rollback, propagation of default but not custom branches, and
+rejection of an open file save after changing its workspace path. The same
+fixture ran the new remote Playwright case on a native server. A Rust endpoint
+test and existing native editor, Copilot and root-guard fixtures passed. The
+native server and frontend build passed, as did all 128 frontend tests and 327
+Rust library tests (seven ignored) at `a797d7d`. The later changed-path Git
+validation passed the focused Rust and native browser/MCP tests, including
+non-Git and bare repositories; the Linux browser case also checks rejection of a
+non-Git path. Its full hosted checks remain pending. The clean
+ARM64 image and both hosted test runs passed for `a797d7d`, but its isolated Linux browser suite found an
+ambiguous workspace-name label in an existing registration test: 44 passed,
+one skipped and one failed. The initial replacement label still contained the
+registration label as a substring, which the existing Playwright selector
+matches. The edit field now uses a non-overlapping label; updated native
+workspace and editor browser fixtures passed, including a check using the same
+non-exact registration selector. The final runtime revision `a85060285f9cf418101fa4a0d180233b2971a68e` passed
+both hosted test runs and a clean ARM64 image build. Its archive checksum and
+revision matched. The server binary (`sha256:d24d9b11a0261c82852c21eb78e428b42ea5e38d38a80f3ec5dee095ca40a897`)
+was layered onto the previous branch runtime to create derived image
+`sha256:232d46fa3392d460c7f2aab4f5b9dc53a286d8cdb2b4dcd2b38c45c372423208`;
+this is not the full hosted image. It passed 45 Linux browser tests (one skipped),
+the PDF outage check and all 53 workflow tests. After a checked SQLite backup
+and retaining the previous image, the derived candidate was deployed to the
+branch. Product, MCP/mobile authorization, PDF and persistence acceptance passed
+across restart, along with browser MCP-origin checks and real 7B general and
+coding requests. A branch browser edited a uniquely named unattached workspace;
+MCP verified the changes and rejected a stale snapshot, and the fixture record
+was deleted. A browser catalog import was also verified through MCP and its
+fixture product archived. The previous image is tagged
+`aruvi-studio-worktree-backup:pre-a850602` and the checked backup is in
+`/private/tmp/aruvi-workspace-a850602`. Docker VM free space was approximately
+643 MiB after validation. Physical desktop acceptance and staging remain
+pending.
+
+### Browser workspace root guard
+
+Browser file saves and reviewed patch applications now carry the workspace
+path captured when it was opened. Before writing, the server checks that path
+under a SQLite write lock, coordinating with database updates from other
+processes using the same database. A stale browser buffer or reviewed patch is
+rejected if the workspace path changed, even when the destination file has the
+same contents. Reads and patch previews also check the expected path, but their
+check and filesystem operation are separate; this is not a complete snapshot
+or protection against external filesystem changes. MCP file reads return the
+registered root; callers can pass it as `expected_root` to file writes and both
+patch application actions. Those actions hold the same SQLite write lock through
+the mutation. Older API callers can omit the path and retain their former
+behavior. Desktop buffers and external filesystem changes are not covered.
+
+A disposable native browser test used a separate process holding a SQLite write
+lock to change the registered path while a save waited; it verified conflict,
+unchanged files, rejection of a stale reviewed patch, a valid current-root
+patch, and a legacy save. The fixture also checked MCP read metadata, stale
+writes and patches, a valid write, and an MCP write waiting on a separate
+process that changes the path. A disposable two-server Linux fixture also
+verified stale browser-API and MCP writes after a path change, including an MCP
+write waiting for a separate SQLite writer; it passed twice on the deployed
+branch image. A Rust endpoint test and native editor and general Copilot
+regression fixtures passed. The server build and full Rust library suite
+passed (326 tests, seven ignored). Linux container and branch-deployment checks
+remain pending, and workspace editing has not yet been exposed through the
+browser or MCP.
+
+### Remote catalog bulk import
+
+The browser Products screen and `aruvi_catalog.submit_inline_bulk_import` can
+submit UTF-8 JSON or CSV without a server-side file path. Requests carry at
+most 1 MiB of content; the backend records the source as `<inline>` and uses
+the existing asynchronous import jobs. Existing path-based imports continue to
+work. Import is an upsert: matching IDs can change existing records, and a
+failure after a committed batch can leave earlier batches applied. The browser
+asks for confirmation and displays job errors; it does not provide an atomic
+preview or rollback. The authenticated browser endpoint and MCP share the
+same parser and persistence implementation.
+
+A disposable native server and headless Chrome fixture verified JSON and CSV
+submissions, persisted products, the legacy path import, malformed input,
+size limits, unauthorized access and error status; it also ran the remote
+Playwright import test against the native server. The Rust bulk-import tests,
+server build and frontend build passed; the full Rust library suite passed 325
+tests with seven ignored, and all 128 frontend tests passed. Both hosted tests
+and the clean ARM64 image build passed for `b09491f01f530062cf6a6828ce90d2603e18e590`.
+The archive checksum and revision matched. Its server binary was layered onto
+the prior branch runtime, producing derived image
+`sha256:f021d9aabbab22fcfca222e0ab2d971e9f205f9484875c8bc5921d7c678cf980`;
+this is not the full hosted image. The candidate passed 44 Linux browser tests
+(one skipped), the PDF outage check, and 53 workflow tests. After a checked
+SQLite backup and retaining the previous image, it was deployed to the branch;
+product, MCP/mobile authorization, PDF and persistence acceptance passed across
+restart, as did MCP-origin checks and real 7B general and coding requests. A
+headless browser imported a uniquely named fixture into the branch; MCP verified
+the resulting product and then archived it. An initial cleanup used the wrong
+MCP argument name; that fixture was subsequently archived as well. The prior
+image is tagged `aruvi-studio-worktree-backup:pre-b09491f`, and the checked
+backup is in `/private/tmp/aruvi-import-b09491f`.
+
+### Browser workspace file copies and Copilot tabs
+
+The browser workspace can download the open UTF-8 file copy, including unsaved
+edits, without writing to the repository. Consistent CRLF files retain their
+line endings; read-only mixed-line-ending files download their original bytes.
+This is a snapshot of the open buffer, which may differ from a later disk change;
+it does not reveal the server folder or support binary and oversized files. A
+fix also preserves the general Copilot transcript when closing an active tab
+while other file tabs remain open. A disposable native server and headless
+Chrome test verified these cases, the unchanged disk contents, and existing
+simulated Copilot streaming and patch flows. A separate disposable native
+server test also passed the same browser flow with the optional Monaco editor,
+including downloads, unsaved tabs, guarded saves and line endings. The test
+refocuses the editor before invoking its save shortcut after a download. Linux
+image and branch-deployment validation for this change subsequently passed as
+follows.
+
+The clean hosted ARM64 build of `b704d5b2f7f53e6026db7f709945eb3ef00027db`
+and both hosted test runs passed; the later `d67c01e` commit changes only tests,
+the test entry point and this checkpoint, and its two hosted test runs passed.
+The hosted image archive passed its checksum and source-revision checks. Its
+server binary (`sha256:95e5fe962748d8829a84f5ced8ce67c77e6fe483f799dd453aba7c8c78cdbff6`)
+was overlaid onto the existing worktree runtime, producing derived image
+`sha256:fe656b9d4cfd2aea46f3ab491539aa80758326180ccc1edcf6af90c161d0b806`;
+this is not the complete clean hosted image. The candidate passed 43 Linux
+browser tests (one intentionally skipped), PDF isolation and outage checks,
+and 53 workflow tests. After a checked SQLite backup and preserving the prior
+image, the branch app and PDF services were deployed with the derived image.
+Product, MCP/mobile authorization, PDF and persistence checks passed across a
+restart, as did browser MCP-origin checks and real 7B general Copilot and coding
+requests. An authenticated headless browser also streamed a real 7B coding
+answer from this deployment, and both the MCP Piper-to-Whisper round trip and
+the browser synthetic-microphone transcription passed against Model Host. These
+checks do not establish physical microphone or audible speaker behavior.
+The previous image is tagged `aruvi-studio-worktree-backup:pre-b704d5b`
+and the checked database backup is in `/private/tmp/aruvi-browser-b704d5b`.
+Docker VM free space was approximately 759 MiB after tests. Staging and native
+window acceptance remain outstanding.
+
+### Browser IDE Copilot without a file
+
+The general Copilot HTTP (buffered and streaming) and MCP actions now share
+server-side request limits: at most 100 messages and 256,000 Unicode
+characters, a nonblank user message, supported chat roles, temperature 0–2 and
+`max_tokens` 1–32,768. The browser already applies smaller history limits.
+Direct general-Copilot requests outside these limits, which were previously
+accepted, now fail before contacting the provider; the separate general model
+chat operation is unchanged. Native boundary tests and authenticated HTTP/MCP
+tests covered the validator. A disposable native browser fixture passed its
+simulated-provider chat and patch flows, and both browser and MCP general
+Copilot received a nonempty reply from the real 7B Model Host. The native Rust
+library suite passed 323 tests with seven ignored. Native-window acceptance
+remains pending.
+The native fixture also sent invalid token limits, temperatures, roles and
+oversized messages through buffered HTTP, streaming HTTP and MCP, and verified
+that none reached its simulated provider. Equivalent Linux container tests and
+checks against the deployed worktree rejected the same invalid cases through all
+three interfaces.
+
+For runtime revision `c88773fda2de69a1726b15065c72dbb0fa68d25e`, both hosted
+test runs and the clean Linux ARM64 image build passed. The image archive's
+checksum and revision matched; its server binary was layered onto the previous
+unchanged worktree runtime, producing derived image
+`sha256:b9ff10932cebc416558b497ce6e9fb9fbb9b31241ad45e54eb8e1d2f0c88f8a9`,
+not the complete hosted image. Its disposable Linux browser suite passed 43
+tests (one skipped), the workflow suite passed 53, and the PDF outage check
+passed. The branch deployment passed product, mobile/MCP authorization, PDF
+and persistence acceptance across restart, MCP-origin checks and real 7B
+coding and general-Copilot requests. A checked database backup and prior image
+were retained before deployment. This is not staging or physical desktop
+acceptance.
+
+The clean hosted ARM64 build and both hosted test runs for
+`6d23c1d3e4acc8e068af8dddf0fd5bd54ebea9a6` passed. Its downloaded image archive
+passed its checksum and revision checks. The extracted server binary was layered
+over the unchanged previous worktree runtime, producing derived image
+`sha256:f9e9b4217734878d242aafbaf8f796416ea5710fa0b8c954cbae5e873c4d6d9f`;
+this is not the complete hosted image. In disposable Linux containers the
+browser suite passed 43 tests (one skipped), including general MCP Copilot and
+no-file patch review, concurrent-change rejection and streaming; 53 workflow
+tests, PDF outage isolation and artifact confinement/paging also passed. After
+a checked SQLite backup, the candidate was deployed to the worktree. Product,
+MCP, mobile authorization, PDF and persistence acceptance passed across restart,
+as did browser MCP-origin checks and real 7B coding and general-Copilot MCP
+requests. The prior worktree image was retained for rollback. These checks do
+not establish staging or physical desktop parity.
+
+The desktop IDE can chat with Copilot without selecting a file. The browser now
+also offers a separate general conversation, including streaming and reset, and
+restores it when the last open file is closed. General requests send the prompt,
+instructions and bounded history rather than a repository path or file content.
+They use authenticated browser IDE endpoints and are recorded as IDE calls.
+With a workspace selected, the browser can also propose a patch without an
+open file. The server supplies the patch format instruction; review previews
+each file and guarded application checks the previewed base. File conversations
+remain separate, and an open file must be saved before proposing a patch.
+
+A disposable native server and headless browser exercised both completion modes,
+authentication, conversation history and switching into and out of a file using
+a simulated provider (`bash scripts/test native-general-copilot`, after building
+the native server). A mock-browser fixture and an Anthropic protocol fixture
+also covered the new paths. The fixture additionally exercised buffered and
+streamed proposals without an open file, rejection after a file changed between
+review and application, and the existing open-file path. Application of a
+multi-file proposal is still sequential and may stop after partial success.
+The native Model Host fixture with `--browser` also exercised general Copilot
+without a file using the real `qwen25-coder-7b-q4` host, after an MCP coding
+completion; it checked that the browser received a nonempty answer, not its
+correctness. MCP now also exposes `aruvi_models/run_general_copilot`, including
+the server's patch-format instruction and IDE activity recording. A simulated
+Anthropic test checked the instruction and telemetry; the native fixture also
+received a nonempty response through this action from the real 7B host. This
+does not establish native-window, live cloud-provider,
+container deployment or complete IDE parity.
+
+### Shared artifact reading
+
+Desktop, MCP and browser artifact text reads share a confined reader. The
+full-text API has a 2 MiB UTF-8 limit; separate 64 KiB pages provide access to
+larger text artifacts. Browser test results keep their smaller 256 KiB full-read
+limit and work-item/type checks. This closes a difference where desktop and MCP followed
+stored paths outside the configured artifact directory. Unix opens walk from an
+artifact-directory descriptor and reject symlink components, including a
+parent swapped after path resolution; non-Unix retains a canonicalize/open
+race. The page version is metadata-based rather than a content hash: ordinary
+file changes are rejected, but it is not a snapshot against a malicious writer.
+Hard links and in-place content changes are not prevented. Existing records
+outside the current directory and non-text files require separate recovery.
+
+The desktop artifact modal and browser Work view can now read a large text
+artifact in bounded pages; MCP exposes `read_artifact_page`. A first page
+returns a version and each subsequent request must supply it. A page ends on a
+UTF-8 boundary and detected changes require a restart. The existing full-read
+APIs and their limits are unchanged. Desktop's paged view displays one page at
+a time; its full-content trace timeline still requires a full read. The
+version is derived from file metadata, not a content hash or an immutable
+snapshot, and non-Unix metadata offers weaker change detection. A native
+desktop IPC test, a desktop-modal browser fixture, and a disposable native
+server/headless browser test exercised paging, including a 2 MiB-plus file and
+a changed-file rejection. Real native-window interaction remains unverified.
+
+For `8abf3ba0145bdb971496d80aa7dce9390f3ceb43`, the native Rust suite passed
+322 tests (seven ignored), the frontend passed 128 tests and its build, and
+both hosted test runs and the clean Linux ARM64 build passed. The hosted image
+archive checksum and source revision were verified; its server binary was
+layered onto the unchanged previous runtime to produce derived image
+`sha256:a5556abfea7279ce7c22ebcedb0862d3eda00a02a70496c88f3d54d99e53b088`.
+The disposable Linux tests reconstructed a text artifact larger than 2 MiB via
+MCP, paged it in a browser, and rejected a same-size edit between pages. The
+workflow and remote browser suites passed (43 browser tests, one skipped), as
+did the PDF outage check. The worktree deployment passed restart acceptance,
+MCP origin and authorization checks, and a local coding-model fixture. A
+checked SQLite backup and the previous image were retained before deployment.
+These results do not establish staging readiness or native-window parity.
+
+An existing parallel Rust test failure was traced to a wildcard model-response
+queue shared between unrelated test databases. Test-only wildcard responses are
+now scoped to their SQLite pool; the previously interfering tests passed
+together and a focused pool-isolation test passed. This changes no production
+model routing.
+
+The final macOS library suite passed 321 tests with seven ignored; both hosted
+test runs and the clean Linux ARM64 build of
+`d72db2e198ad06374859dd960cf097ed5c6a2769` passed. The image archive checksum
+and source revision were verified. Its extracted server binary (SHA-256
+`3c619237a4190fe52ebe12152b3901d2b988b0e050ba1fa11ec29384bce047f9`)
+was layered over the unchanged previous branch runtime, yielding derived image
+`sha256:db5a852f728518337d9d56043fa6a6c58e43748047fa15f3f7d0db13fad1ee42`;
+this is not the complete hosted image. The candidate passed 53 browser/workflow
+scenarios and the two-container transition and Git-delivery races. A disposable
+Linux fixture checked valid, outside-directory, symlink and oversized artifact
+reads through browser and MCP; the preceding image failed that fixture by
+allowing the outside-directory MCP read. The fixture is available as
+`bash scripts/test container-artifact-boundaries` and can select a candidate via
+`ARUVI_TEST_APP_IMAGE`.
+
+After deployment, product, MCP/mobile authorization, PDF and persistence
+acceptance passed across restart, as did browser MCP-origin and real 7B MCP
+coding checks. A checked SQLite backup and the prior image are retained. A
+read-only compatibility count found no artifact records in this worktree
+database, so it does not establish compatibility with historical user data.
+The branch endpoint after acceptance was `127.0.0.1:55273`, subject to change
+on restart. Staging, non-Unix race behavior and complete desktop parity remain
+unverified.
+
+### Current independent client, voice and dependency revalidation
+
+The current worktree provider inventory contains the two Model Host entries and
+the seeded LM Studio entry, with no configured OpenAI, Anthropic or DeepSeek
+provider. The LM Studio connectivity check failed from the container using its
+saved endpoint; this does not establish whether LM Studio is running on the Mac.
+A separate TCP probe found that Mac loopback port 1234 was not accepting
+connections at the time. Live LM Studio and third-party provider behavior
+remain unverified.
+
+After the Copilot branch deployment, the running container again completed a
+real Model Host `piper-ljspeech` to `whisper-tiny-metal` round trip through MCP.
+Headless Chrome also recorded synthetic Piper audio and sent it through the
+browser transcription flow to Whisper. These checks do not test a physical
+microphone or audible output. Desktop Execution settings now state that the
+saved Docker host and maximum retry values are not currently used or enforced;
+configured test commands run as the Studio server user. Implementing actual
+retry policy and execution isolation remains open.
+
+At `6d23c1d`, the shared-client pin/source check, running worktree MCP-origin
+check, npm audit, and SQLx vendor-provenance check passed again. A refreshed
+RustSec scan at database commit `55e1c3dfbd834237a05bbbf7b50ba3b5be27b662`
+again reported `RUSTSEC-2023-0071`, 14 unmaintained warnings and two unsound
+warnings. These are lockfile findings and retain the release-review limitations
+described below. The Mac console reported locked during this revalidation.
+
+On 2026-11-21, the independent consumer's manifest, lockfile and source-pin
+checks passed; the pinned client source and manifest match Studio's current
+crate. The Linux consumer rebuilt with 31 offline contract tests passing. Against
+the running native Model Host integration environment, the consumer exercised
+`qwen-05b-comparison` discovery, completion, streaming and token-limit errors,
+and a synthetic `piper-ljspeech` / `whisper-tiny-metal` round trip. The running
+Studio branch separately passed the real MCP speech round trip and a headless
+Chrome recording of synthetic Piper audio followed by Whisper transcription.
+These do not establish physical microphone or speaker behavior. An attempted
+combined probe against the separate coding-validation host reported that the
+voice models were not advertised there; the integration host advertises the
+models used for the successful combined probe.
+The Mac's console again reported a locked screen, so native-window acceptance
+could not be repeated. The consumer build temporarily reduced the shared Docker
+VM's available space below 1 GiB; its four identified build-cache records were
+removed by ID, restoring approximately 1.9 GiB without changing the running
+Studio containers or volumes.
+
+`npm audit` reported no vulnerabilities, and `bash scripts/test sqlx-patch`
+verified the vendored patch's pinned-source provenance. Cargo-audit 0.23.0 against
+the Studio lockfile and RustSec commit
+`55e1c3dfbd834237a05bbbf7b50ba3b5be27b662` reported the existing
+`RUSTSEC-2023-0071` RSA lockfile vulnerability, 14 unmaintained and two unsound
+warnings. The separately pinned consumer lockfile had no advisories or warnings.
+The `chrono` unmaintained warning, `RUSTSEC-2026-0543`, is newly reported in
+this scan. Studio uses chrono directly for timestamps, EPUB metadata and local
+quiet-hours evaluation; a migration must preserve timestamp and timezone
+behavior, including daylight-saving transitions. Cargo's all-target,
+all-features tree selected chrono only through Studio and did not select RSA;
+this is not a binary-level proof or coverage of other manifests. The local SQLx
+patch remains outside cargo-audit's source review. These findings remain open
+release-review items.
+
+### Quiet-hours migration investigation
+
+A native and Linux comparison of chrono 0.4.44 with Jiff 0.2.38 found that
+the proposed replacement is not a drop-in change: with an invalid `TZ`, chrono
+used the machine's configured local zone while Jiff fell back to UTC, and a
+100 ms UTC timestamp formatted with three fractional digits in chrono but one
+in Jiff. Valid New York DST transition examples and the tested hour/minute
+strings agreed. The comparison was limited to those cases and is not a general
+compatibility proof. The dependency has therefore not been replaced.
+
+Quiet-hours evaluation now has native regression coverage for inclusive start,
+exclusive end, midnight crossing, equal or missing boundaries and invalid
+times. A separate process with an explicit POSIX timezone verifies both
+occurrences of 01:30 during fall-back and the spring-forward gap. This protects
+the tested existing behavior; Windows and other timezone configurations remain
+to be validated when selecting a maintained replacement.
+
+The macOS Rust library suite on `938391c0f8fb53e623013e25cc430b80a2b76f69`
+passed 319 tests with seven ignored; both hosted test runs and the clean Linux
+ARM64 container build passed. The archive checksum and source revision were
+verified. Its extracted server binary (SHA-256
+`583976fd3da24afae97a1e6e0f73fa73b3f0ce4e95c75893b50674da511ebe76`)
+was layered over the unchanged preceding branch runtime, producing derived
+image `sha256:835a7b810ecb947dc3e2b36fc2298e826fea5e91ad0b24249c952952662c27bd`;
+this is not the complete hosted image. The candidate passed 53 workflow
+scenarios, including browser quiet-hours configuration and enforcement, plus
+the two-container workflow-decision and Git-delivery races. After deployment,
+product, MCP/mobile authorization, PDF and persistence acceptance passed across
+restart, as did browser MCP-origin and real 7B MCP coding checks. A checked
+SQLite backup and the prior image are retained. The branch endpoint after
+acceptance was `127.0.0.1:55261`, subject to change on restart. This does not
+establish staging, complete desktop parity or a replacement for chrono.
+
+### Real-model code review and test scope
+
+Two consecutive disposable `qwen25-coder-7b-q4` extend-module workflows with
+a work-item workspace override, prompt template and 8,192-token non-coding
+budget reached test review. Both passed the configured JavaScript syntax check,
+and the prompt template and edit guidance reached the model. Independent
+network-isolated behavioral assertions rejected both: one omitted the existing
+export and the other exported a function it had not defined. The disposable
+remote remained unchanged, and the product's default workspace was untouched.
+These are two failed samples, not a general measurement of the model.
+A subsequent run used the same 7B model, extend-module task and workspace
+override with JSON-object output enabled for the coding agent, no prompt
+template, and a 4,096-token non-coding budget. It passed the syntax gate and
+independent network-isolated behavioral assertions, preserved the default
+workspace, and delivered the verified file to the disposable Git remote. The
+configuration differs in several respects, so this single success does not
+establish that JSON mode caused it or that it will reliably succeed. JSON mode
+is an explicit per-agent boundary and depends on model support.
+
+Browser Work now explains that a passing command covers only its checks and
+that syntax alone does not verify behavior. Test review repeats this guidance;
+Routing explains that automatic test-review approval depends on the configured
+command. The setting's behavior is unchanged. The fixture's behavioral review
+runs generated code in a separate network-free container. Studio's configured
+workflow test command still runs as the server user with access to its files and
+network; it is not an equivalent sandbox. Review and meaningful project tests
+remain necessary before delivery.
+
+On the guidance change, a disposable native server and headless Chrome checked
+configuration, pending review and automatic-approval guidance. Both hosted test
+runs and the clean Linux ARM64 image build of
+`c8890530f5e42caaff20eae730e77554f474204a` passed; the later `0f78e5f`
+commit adds a browser assertion without changing the runtime. The archive
+checksum and revision were verified. The server binary (SHA-256
+`3f575324a3ac51db6f45272e26895ec95f4b69c7873fd615f3ad50f8007508d4`) was
+layered over the unchanged prior runtime to create derived image
+`sha256:b0b21861165fc1db109c49bf8482656588978faddf5ef67fa518cabbf71340df`;
+this is not the full hosted artifact. The candidate passed 53 workflow and 43
+general browser tests; the separately covered token-rotation case was skipped
+in the latter. PDF isolation and outage checks passed. After deployment,
+product, MCP/mobile authorization, PDF and persistence checks passed across
+restart, as did browser MCP-origin and real 7B MCP coding checks. A checked
+SQLite backup and the previous image are retained. The branch endpoint after
+acceptance was `127.0.0.1:55265`, subject to change on restart. These checks do
+not establish staging or complete desktop parity.
+
+### Database override restart validation
+
+The native fixture now reconstructs a migration-52 database from a freshly
+created database, adds a legacy channel binding, backs it up, and starts the
+server to apply migration 53. The product and binding survived; integrity and
+foreign-key checks passed. This is one reconstructed migration scenario, not a
+test of all historical user databases or staging.
+
+The expanded browser test exposed a race in which a delayed database-settings
+response erased a path draft. Routing now tracks edits and ignores stale reads,
+preserving a draft made before or during refresh and while a save is completing.
+The test reproduced the original failure against the older binary and passed
+with the native fix, including stable-origin restart and migration checks. The
+running branch Docker image has not yet been rebuilt with this UI change.
+
+The disposable native server fixture `scripts/test native-database-override`
+now checks the authenticated database settings API across restarts. It verified
+that an override takes effect only after restart, each temporary database keeps
+its own products, clearing the override returns to the original database, and
+`ARUVI_DB_PATH` takes precedence. Fresh databases reported applied migrations;
+unauthenticated access was rejected. That initial run did not test a browser
+session over restart, migration of an existing database, or staging.
+
+The fixture was then extended with an optional persistent headless Chrome
+session. It passed save and clear through Routing, checked the active path after
+each server restart, and showed the environment-precedence message. Each
+restart used a new loopback port, so the fixture re-entered its synthetic token
+for that origin. A later run reused one dynamically chosen loopback port across
+all restarts and passed the same checks after browser reloads without re-entering
+the saved token. Existing-database migration and staging remain unverified.
+
+### Isolated build filesystem cleanup finding
+
+After the `e07ea27` host-backed Linux build, the loop device and build
+container were gone, but macOS `lsof` still showed Docker Desktop's shared
+Virtualization process holding the deleted 12 GiB sparse image open. Host free
+space fell by roughly 3 GiB during that build and had not recovered when
+checked; the exact allocated space held by the open descriptor was not measured.
+The shared VM was not restarted because it also runs other projects.
+
+A separate 64 MiB disposable ext4 probe wrote data, unmounted cleanly, then
+truncated its backing file to zero inside the guest before unlinking it. The Mac
+reported zero size and allocated blocks and no loop device remained. Future
+isolated builds should truncate their owned backing image only after successful
+unmount and confirmed loop release, before removing the host file. This probe
+does not recover the already-deleted image or establish enough capacity for a
+clean current Dockerfile build.
+
+### Host-browser CI fixture
+
+`bash scripts/test ci-host-fixture` runs the disposable Docker application and
+simulated CI socket with host Playwright/Chrome, avoiding the browser-container
+dependency installation. Against the current worktree image, its CI browser/MCP
+test passed, including authenticated artifact download, streamed save with a
+simulated picker, byte/digest verification and unauthenticated rejection. The
+PDF renderer isolation check also passed. The CI service and save picker in this
+fixture are simulated; real native-service and large-transfer evidence is
+recorded separately below.
+
+### Native real-browser PDF tests
+
+At `806ee55`, the three ignored PDF tests were run explicitly on macOS with
+the installed Chrome and local Playwright: desktop PDF export, database-backed
+Product Book PDF generation, and blocking external fetches and page scripts all
+passed. This uses a real headless browser and native worker; it is not a native
+window interaction, actual reader compatibility check, staging acceptance, or
+the network-isolated PDF container test.
+
+### Reusing a worktree image without rebuilding
+
+`bash scripts/env worktree up --no-build` now validates the worktree with the
+shared launcher, requires the configured image locally, and starts it with
+Compose build and pull disabled. It refuses configurations requiring database,
+migration or seed hooks rather than silently skipping them. A fake-Docker test
+covered image selection, scoped configuration, missing images, unsafe ports and
+credential output; a live invocation left the existing app and PDF container
+IDs and image unchanged and healthy. It does not establish that the selected
+image matches the current source or replace a clean Dockerfile build.
+At `c84bfe1`, a second disposable worktree started with this command alongside
+the original, with distinct loopback ports, credentials and Compose volumes.
+A product created in the disposable worktree was absent from the original.
+After destroying the disposable project and removing its worktree, the original
+services remained healthy and its authenticated product API responded. The
+fixture image tag and private temporary state were removed.
+
+### CI artifact and context-guard branch deployment
+
+Source `e07ea27` built as an optimized Linux ARM64 server in a disposable
+host-backed ext4 filesystem. The server SHA-256 was
+`42291f46cf34dc87f9df92c026a085d50f97329a28d7dfb0a94299b6c4e2e3a4`.
+The filesystem unmounted and was removed; the binary and build log are retained
+in the private worktree artifact directory. The frontend artifact matched the
+unchanged tracked frontend source. Layering the server on the previous worktree
+image produced image ID
+`sha256:6643b6bf13d69a02889f5be4d843586e66799f30bb122167c20b4117858264f1`.
+This is a derived image, not a clean Dockerfile build or staging artifact.
+
+Before replacement, 41 host-browser remote tests, PDF isolation and outage
+checks, and 51 workflow tests with repository post-checks passed against the
+candidate. The worktree database had no workflow, CLI or import rows. After a
+graceful stop, no container mounted the data volume and no SQLite WAL or journal
+was present; an offline copy passed `quick_check` and `foreign_key_check` using
+immutable read-only access. The copy is retained with the build artifacts, and
+the prior image is tagged `aruvi-studio-worktree-backup:pre-ci-artifact`.
+
+The shared launcher attempted a full build on `worktree up`; it was interrupted
+before startup because Docker storage was low. The same worktree Compose project
+was then started with the tested image using `--no-build`. Both services are
+healthy. Authenticated catalog and new CI MCP discovery, published-origin and
+token rejection, the served hash asset, database quick-check, and a real 7B
+Model Host coding request with token-limit rejection passed. Chrome checked all
+13 remote sections at phone and desktop widths without page errors or document
+overflow. Hosted run `44893429786` also passed for `e07ea27`. Docker's shared
+filesystem still had about 218 MiB free after deployment; a clean image build,
+actual CI service integration, native-window comparison and staging remain open.
+
+### Agent repository-context symlink check
+
+On Unix, context-file reads now use descriptor-relative `openat` with
+`O_NOFOLLOW` for each component, reject hard-linked or non-regular files, and
+bound reads even if a file grows. Candidate manifest entries are checked through
+the same path. Two native tests passed for external symlinks and hard links and
+for directory/file replacement before opening. Directory enumeration itself is
+still path-based, and concurrent mutation can affect which files are seen; this
+is not a filesystem sandbox. The non-Unix fallback retains canonical-path checks
+and has not been validated against replacement races.
+
+Automatic agent repository-context collection previously followed symlinked
+files and directories, potentially including content outside the workspace in
+a model prompt. It now skips symlink entries and checks canonical paths before
+directory traversal and snippet reads. A native test confirmed that ordinary
+external file and directory symlinks are excluded while an in-workspace source
+file remains visible. The later descriptor-based Unix changes are described
+above. The running branch Docker image does not yet contain these changes.
+
+The running worktree's authenticated MCP repository list contained zero
+registered repositories when checked; this does not inspect other environments
+or unregistered workspaces.
+
+### Workspace dependency-directory regression
+
+The hierarchy terminology migration had incorrectly changed the filesystem
+name `node_modules` to `node_product_areas` in the new-workspace `.gitignore`
+and agent repository path filter. New workspaces now ignore the real dependency
+directory, and agent context and tool paths again exclude it. The shared
+workflow test helper was corrected too. Targeted native tests passed for the
+agent path guard and for an MCP-created workspace's actual Git ignore behavior;
+the terminology guard also passed. Existing workspaces are not modified by this
+change and may need their `.gitignore` corrected separately. The running Docker
+image has not yet been rebuilt with this fix.
+The terminology guard now also rejects that malformed dependency directory in
+scanned source. A temporary negative fixture was rejected, and the two targeted
+workspace and agent path tests passed again.
+
+### Current Studio native Rust library checks
+
+At Studio branch revision `1c16562`, `cargo test --locked --lib` passed on the
+Mac: 291 tests passed and seven were ignored. Ignored cases include tests
+requiring configured browser or live model infrastructure. This exercises the
+current native library, not the older running Docker image or staging.
+
+### Model Host scoped-token branch revalidation
+
+At Model Host branch `codex/scoped-inference-integration` revision `1302b93`,
+`cargo test --locked --offline --lib --bin aruvi-model-host --test lifecycle`
+passed ten Rust unit tests and 18 simulated lifecycle cases on macOS, including
+scoped-token denial of protected routes and simulated streaming/media. Draft
+[#12](https://github.com/vivasaayi/aruvi-model-host/pull/12) now records this
+result. No deployed host was changed, and this does not replace a merged build
+and integration acceptance.
+
+### Hosted terminology guard correction
+
+Hosted run `44891200558` at `9dde6f4` failed its terminology guard because the
+vendored upstream SHA-256 library uses `typeof module` in its CommonJS wrapper.
+That run reported zero statuses for the other five test/build suites. The guard
+now permits only that exact expression in that exact vendor file. It passes
+locally and a temporary product-source `module_id` fixture was rejected.
+Newer hosted checks and a full current-revision run still need to finish.
+Hosted run [44892301702](https://github.com/vivasaayi/AruviStudio/actions/runs/44892301702)
+subsequently passed at `f41fbdf`; the run for `200427c` was still in progress
+when checked. Neither is a check of the later guard change.
+
+### Current host package and frontend checks
+
+At branch revision `2409402`, the desktop frontend `npm run build` passed and
+`npm run test:frontend` passed 128 tests. The independently packaged Rust model client passed all 65
+tests offline using its generated package lockfile. An initial direct
+`cargo test --locked` on the library source could not run because that library
+does not maintain its own lockfile; the package test supplies one. These checks
+do not validate live third-party providers, the native desktop window, the
+currently deployed older Docker image or staging.
+
+### Branch build capacity check
+
+The running worktree app and PDF renderer were healthy, but the Docker shared
+filesystem had about 300 MiB free and the Mac reported about 12 GiB free. A
+targeted cleanup selected only unshared BuildKit records for this project's
+older server-copy step; three records were reclaimed, leaving roughly 433 MiB
+free in Docker. The remaining selected records were retained by BuildKit. No
+other project cache, runtime data or image was removed. This remains inadequate
+headroom for a full Docker build, and the running image still predates the CI
+artifact changes. The branch's hosted checks were still installing dependencies
+at this checkpoint.
+
+### CI artifact parity investigation
+
+For browsers implementing the File System Access API, CI now offers a streaming
+save that hashes bounded chunks incrementally with vendored MIT-licensed
+js-sha256 1.1.0 and closes the temporary writable file only on digest match.
+The native Studio and Aruvici fixture passed a multichunk Chrome test with a
+simulated save picker, including abort on changed content. The real picker and
+deployed service have not been tested. A separate synthetic browser check
+verified 268,435,457 bytes in 4,097 writes without retaining output in browser
+memory; both its provider responses and save picker were simulated. Browsers
+without that API still have the 256 MiB buffered-download limit.
+
+A subsequent disposable native debug Studio and Aruvici test attempted to
+stream a real 268,435,457-byte file through the CI socket. It exceeded the
+five-minute browser test timeout and did not establish completion; the fixture
+and temporary file were removed. The JSON byte-array chunk path's performance
+needs investigation, including comparison with optimized builds. The test now
+reports periodic progress and timeout byte counts for a future run.
+
+The protocol branch now buffers socket writes, uses blocking accepted sockets,
+and offers an optional 512 KiB base64 chunk; Studio falls back to the legacy
+64 KiB byte-array method. A repeat with native debug binaries successfully
+streamed and verified the real 268,435,457-byte file through the socket in 513
+writes, and the synthetic legacy fallback also passed. The save picker remained
+simulated. The 11 Aruvici CI API tests passed. This does not validate the deployed
+CI service, actual picker, Docker image or staging.
+
+A separate disposable fixture sent a full 512 KiB artifact chunk through a
+second native Studio server, the authenticated loopback relay and the Aruvici
+protocol-branch service. It verified the decoded bytes and rejected an invalid
+relay token and a disallowed deploy request. This exercises the relay path, but
+not a deployed container-to-host relay or a full large transfer through it.
+
+The separate Aruvici protocol branch now has draft PR
+[#1](https://github.com/vivasaayi/aruvici/pull/1). At `33e5a08`, it also
+requires chunk paths to belong to the artifact's owning run. Its
+`cargo test --test ci_api` passed all eleven tests on the Mac, including a
+cross-run artifact rejection, guarded reads and retry policy. This is a
+reviewable dependency, not a merged or deployed service.
+The real foreground-service test also verified a complete 512 KiB base64
+response over the Unix socket; `cargo test --test ci_api --test ci_service`
+passed all 12 tests.
+
+The original buffered browser CI artifact download uses authenticated chunk
+requests, verifies length and SHA-256 before saving, requires HTTPS or localhost,
+and buffers at most 256 MiB. A native Studio and real Aruvici protocol-branch fixture passed a Chrome
+download of a 76,800-byte file, rejected modified bytes and denied an
+unauthenticated chunk request. The later streaming option above addresses larger
+files on supporting browsers; the deployed service and staging remain unverified.
+
+MCP now exposes artifact metadata and bounded chunk reads. A freshly built
+native Studio server and the Aruvici protocol-branch binary passed a disposable
+76,800-byte multi-chunk transfer with byte, length, offset and SHA-256 checks;
+the fixture also rejected a negative offset. Deployed service validation remains
+open. The native build emitted existing warnings.
+
+The desktop can reveal a verified CI artifact, whereas the browser and MCP
+previously exposed readiness but not its bytes. Aruvici supports bounded artifact
+chunks, and the Studio relay allows that operation. The Studio
+`promotion_readiness` protocol extension is in Aruvici branch
+`codex/studio-ci-protocol`, not the inspected local `main` checkout.
+The running service's version
+and staging compatibility still need verification. See the parity audit.
+
+### Repeatable host-browser fixtures
+
+The disposable remote and workflow fixtures now have supported host-browser
+entrypoints that share their setup and post-checks with the container tests.
+Against the branch image described below, host Chrome passed 41 remote tests,
+the PDF outage check, and 51 workflow tests with repository post-checks. The PDF
+container's isolation settings were also verified. A port-conflict check failed
+cleanly without displacing the existing listener and removed its fixture
+resources. These tests use a mock provider; they do not establish a clean image
+build, staging acceptance or complete desktop feature parity.
+
+### Reference-management branch deployment
+
+Source revision `cdca020` was compiled as an optimized Linux ARM64 server in a
+disposable ext4 filesystem with the existing project Rust image. The binary
+SHA-256 was `6dfd08da1b391c12a69f15f91f3d545ca5b902e6bae5ab97b238c6a8cdca5484`.
+The filesystem unmounted cleanly and was removed. Layering the binary onto the
+preceding branch runtime produced image ID
+`sha256:7bb772361e9946da8ea8a96cb29c9b66256de5947edfe278e986291cbc14ce7f`;
+this derived image is not a clean Dockerfile build or staging artifact.
+
+The usual browser-container fixture filled the nearly full shared Docker store
+and was stopped; its temporary containers and volumes were removed. A subsequent
+fixture used host Chrome and the local Playwright installation with disposable
+containers and a loopback mock provider. After correcting a missing fixture file
+and its host/container networking, all 41 remote tests passed. A similarly
+adapted fixture passed 51 workflow tests and repository post-checks. A separate
+no-network, read-only PDF fixture generated a PDF and failed closed when its
+renderer stopped. These adapted tests are not the unmodified container test
+script; Docker's shared store remained low on space.
+
+With no active workflow, import or CLI run, the SQLite backup passed
+`quick_check`; the previous image is retained as
+`aruvi-studio-worktree-backup:pre-reference-management`. After deployment, image
+identity, authenticated product/MCP and PDF checks, a real local coding-model
+request and browser-origin/authentication checks passed. The backup and build
+log are stored in the private worktree artifact directory.
+
+### Product-area purpose parity
+
+The browser can now set and edit product-area purpose, matching the desktop
+form. Updates compare the previously displayed purpose when supplied; older
+name/description-only requests leave it unchanged. A disposable browser/MCP
+hierarchy test passed creation, a concurrent purpose conflict, refresh and
+successful editing, along with the existing capability detail checks. The
+running branch image does not yet include this change.
+
+### Browser reference management
+
+The browser reference view now creates and deletes references at product, area,
+capability and feature scopes. Creation checks product ownership and node kind in
+the insert; deletion requires the displayed reference snapshot and rechecks
+product ownership. A disposable browser/MCP fixture passed capability-scoped
+creation and deletion, authentication, wrong-product and stale-delete rejection.
+It also retained the earlier safe-link and pagination checks. The subsequent reference-management branch deployment is recorded above. Generic MCP and desktop reference actions
+retain their existing behavior.
+
+### Browser product reference viewing
+
+The browser product overview and hierarchy now expose on-demand, authenticated
+reference lists for product, product-area, capability and feature scopes. The
+server verifies product ownership and node kind, and returns pages of 50. The
+browser renders content as text and links only HTTP(S) URLs without credentials.
+A disposable browser/MCP test covered product and capability references,
+unauthorized and cross-product/wrong-kind requests, unsafe URL rendering and
+52-item pagination. Offset paging can shift if records change between requests;
+creation and deletion were subsequently added as recorded above. The native server built,
+and the subsequent reference-management branch deployment is recorded above.
+
+### Product editor branch deployment
+
+Source revision `49fba35` was compiled as an optimized Linux ARM64 server in
+a disposable ext4 filesystem with the existing project Rust image. The binary
+SHA-256 was `6121df5085d9cff3ca3932a64480ba6a288abc779792778381606a5d7bc6c73d`.
+The filesystem unmounted cleanly and was removed. The binary was layered onto
+the prior branch runtime, producing image ID
+`sha256:ed806bebdbd99bbbdb1e82ee30c30e088bb255aad40500a47086126e5965608f`.
+This derived image is not a clean Dockerfile build or staging artifact. It
+passed 40 browser tests, PDF isolation and outage checks, and 51 workflow tests.
+With no active workflow, import or CLI run, the SQLite backup passed
+`quick_check`; the previous image is retained as
+`aruvi-studio-worktree-backup:pre-product-editor`. After deployment, image
+identity, authenticated product/MCP and PDF checks, a real local coding-model
+request and published-port origin/authentication checks passed. The backup and
+build log are stored in the private worktree artifact directory.
+
+### Concurrent partial product updates
+
+Shared product updates now write only explicitly supplied fields in a single
+SQL statement, avoiding the previous read-then-rewrite race between partial
+MCP, desktop or planner updates. A native MCP test queued two different-field
+updates behind a SQLite write lock and verified that both values survived; the
+product-focused suite passed 33 tests with four ignored. Conflicting updates
+to the same field remain last-write-wins outside the snapshot-checked browser
+editor. The running branch image has not yet been rebuilt with this change.
+
+### Browser product detail editing
+
+Browser Products now edits the desktop product detail fields through an
+authenticated, snapshot-checked update transaction. A disposable browser/MCP
+fixture verified all fields, a concurrent update and preserved browser draft,
+refresh and retry, unauthorized access, identity and status tampering, and an
+empty name. The browser uses comma-separated goals and tags. Existing desktop
+and generic MCP updates remain last-write-wins for the same field; partial updates
+were subsequently hardened as recorded above. The native server built, but the running Docker
+branch has not yet been rebuilt with this change.
+
+### Hierarchy conversion audit
+
+The existing shared kind-conversion operation previously validated and wrote
+through separate database operations. Its reads, validation and writes now use
+one immediate SQLite transaction. A native MCP test verifies that an invalid
+kind conversion and an injected update failure preserve the existing child,
+and that a same-kind operation succeeds. Product-related native tests passed
+(32 passed, four ignored). The first proposed reparent test revealed a scope
+constraint rather than reaching its write: canonical product areas accept only
+capabilities and capabilities accept only features. Consequently, converting
+between these kinds in a valid tree is rejected by the parent rule, and the
+child-reparent branch has not been exercised. No browser conversion control
+has been added; deciding whether conversion should move nodes or change the
+canonical model remains open. The running branch image predates this change.
+
+### Product hierarchy detail parity
+
+The browser capability/feature editor now supports acceptance criteria and
+technical notes, which were present on the desktop editor. The authenticated
+server checks expected values and product ownership; legacy name/description
+requests retain their previous behavior. The native server built and a
+disposable browser/MCP test passed field editing, stale and cross-product
+rejection, and missing-expected-value rejection. Other hierarchy actions remain
+to be compared, and the running branch image does not yet include this change.
+
+### Real Model Host new-module workflow revalidation
+
+The running worktree image from `4f26c4b` completed the `new-module` coding
+workflow using the native Model Host's `qwen25-coder-7b-q4` and a managed
+coding prompt template. The disposable fixture passed the plan and test-review
+gates, syntax checking and independent network-isolated behavioral assertions,
+then delivered to a disposable local Git remote. The model initially requested
+a missing directory and produced a final response before writing; the existing
+workflow feedback led it to continue. This is one successful run after an
+earlier failed new-module attempt, not a reliability estimate or proof of an
+authenticated network Git push. The latest browser-only capability selector
+was not in the running image used for this test.
+
+### Portfolio dependency capability selection
+
+The browser dependency form now loads named capability choices for each
+selected product instead of requiring pasted IDs. A request generation check
+discards late responses when the product changes, and failed loads disable
+submission until retried. A disposable browser/MCP fixture verified both scoped
+choices, late-response isolation, failure and retry, and the resulting
+capability IDs. Existing dependency rows may still show IDs. This UI change has
+not yet been rebuilt into the running branch container.
+
+### Portfolio guard branch deployment
+
+Source revision `4f26c4b` was compiled as an optimized Linux ARM64 server
+in a disposable ext4 filesystem using the existing project Rust image. The
+binary SHA-256 was `4165f372c04a74e9664dd583047f6792a04fb6db690de9e6b2d30b964fd036af`.
+The temporary filesystem unmounted cleanly and was removed. The binary was
+layered onto the preceding branch runtime, producing image ID
+`sha256:a778fee372e60097281c59c68b64e530cf318b53e7a20552f326519a9f14bcaf`;
+this is a derived image, not a fresh full Dockerfile build or staging artifact.
+It passed 39 browser tests, including the portfolio guards, PDF isolation and
+outage checks, and 51 workflow tests. With no active workflow, import or CLI
+run, a SQLite backup passed `quick_check`; the previous image is retained as
+`aruvi-studio-worktree-backup:pre-portfolio-guards`. After deployment, image
+identity, authenticated product/MCP and PDF checks, a real local coding model
+request, and browser-origin authentication tests passed. The backup and build
+log are stored in the private worktree artifact directory.
+
+### Branch validation against current default
+
+At `fbc21a4`, the branch had no commits to incorporate from `origin/main` and
+the PR was reported mergeable but remained a draft with CI still running. Local
+checks passed the terminology guard, 128 frontend unit tests, 289 native Rust
+library tests (seven ignored), and all 46 mocked-Tauri desktop browser tests.
+The browser suite uses simulated desktop commands and is not a native-window
+acceptance test. The subsequent portfolio-guard deployment and its container validation are
+recorded above. These results are not staging acceptance.
+
+### Standalone client package validation
+
+At Studio commit `ca80520`, the reusable client was packaged and verified
+offline with Cargo; its unpacked package then passed all 65 client tests offline
+on macOS ARM64. The archive includes the crate source, example, README and
+license. `bash scripts/test shared-client-package` repeats that local check
+with cached dependencies; the separate Git-pinned consumer fixture and Linux
+validation remain distinct. This did not publish a package or establish an
+independent repository, release policy, live third-party compatibility or voice
+device acceptance.
+
+### Product strategy link conflict protection
+
+Browser link and unlink actions submit the product's displayed link set. The
+server requires it and compares it inside an immediate SQLite write transaction
+before changing any link or primary assignment. Legacy desktop and MCP calls may
+omit the optional snapshot and remain last-write-wins. Backend tests cover stale
+link and unlink requests and verify the primary link is preserved. A disposable
+browser/MCP fixture passed stale primary-assignment and unlink conflicts, followed
+by successful refresh and retry. The subsequent portfolio-guard deployment is recorded above.
+
+### Strategy subtree deletion guard
+
+Browser strategy deletion now confirms the number of loaded descendant nodes
+and linked products. The server requires that subtree and link snapshot, then
+compares it and deletes in one immediate SQLite write transaction. A browser
+fixture exercised a concurrent descendant addition, rejected the stale delete,
+then refreshed and successfully deleted the confirmed subtree. A backend
+regression covers both new descendants and new links. Legacy desktop and MCP
+callers can still delete without snapshots; guarded MCP calls are optional.
+Browser product-link operations were subsequently guarded as described above.
+The running branch container does not yet include these changes.
+
+### Portfolio branch deployment
+
+Source commit `765a128` was compiled as an optimized Linux ARM64 server in a
+disposable 18 GiB ext4 filesystem, using the existing project-owned Rust build
+image. The binary SHA-256 was
+`530670f1bff05889cd92ebf6ce568ab7256e64f8a1f6c85c615e89d642ad4737`.
+The build completed; cleanup initially returned an unmount error because the
+working directory was inside the mount. The build container exited, no loop
+devices remained, and the temporary filesystem was removed. The frontend build
+passed. This was a separate server build, not a fresh complete Dockerfile build.
+
+The binary was layered onto the preceding branch runtime image. The candidate
+image ID is `sha256:d44fb01481f69f16dbc459a69900b37bd4b1182e998f682e766e31c9fb29d30b`.
+It passed 39 isolated browser tests, PDF isolation and outage checks, and 51
+workflow tests. With no active workflows, CLI runs or imports, the SQLite
+backup passed `quick_check`; the previous image is retained as
+`aruvi-studio-worktree-backup:pre-portfolio`. The candidate was deployed to
+the isolated worktree. After deployment, its image identity, product and PDF
+acceptance, a real local Model Host coding request through MCP, and published
+port origin/authentication checks passed. The backup and build log are in the
+worktree environment's private artifact directory. This is not staging or a
+release artifact; the derived image is distinct from the earlier clean OCI build.
+
+### Strategy edit concurrency
+
+Strategy creation and updates now validate hierarchy inside an immediate SQLite
+write transaction, and browser strategy edits submit their displayed node as an
+expected snapshot. The native backend regression and a disposable browser/MCP
+fixture verified that a stale browser edit is rejected without losing the draft,
+and that refresh permits a new edit. Desktop and MCP callers that omit the optional expected snapshot remain
+last-write-wins; browser subtree deletion and product-link operations were
+subsequently guarded as recorded above. This is not complete concurrency
+protection. The subsequent portfolio branch deployment is recorded above.
+
+### Browser portfolio management
+
+Products now includes browser controls for strategy nodes, product links and
+dependencies through an authenticated endpoint restricted to portfolio actions.
+Dependency capabilities must belong to their respective products; strategy edits
+reject cycles and incompatible child kinds. Tests cover authorized and denied
+API actions, both wrong-product capability sides, valid references and invalid
+hierarchy edits. A disposable browser fixture exercised strategy creation,
+product linking, dependency creation and confirmed deletion via the browser,
+with dependency reads checked through MCP. Editing and reparenting use the
+existing last-write-wins backend; users should refresh before editing, and
+concurrent hierarchy writes are not serialized. Capability selection was subsequently improved as recorded above. The subsequent portfolio branch deployment is
+recorded above.
+
+### Portfolio strategy MCP gap
+
+A source audit found that the desktop Portfolio strategy hierarchy, product
+links and dependencies were absent from the web/MCP parity inventory. The
+`aruvi_catalog` namespace now exposes those shared backend operations; primary
+strategy-link replacement is transactional. A disposable MCP-dispatch test
+covers creation, editing, linking, dependency creation, deletion and validation
+failures, including rollback of an invalid primary replacement. A disposable
+native server also passed authenticated HTTP MCP discovery and strategy creation,
+with unauthenticated access rejected. The full native Rust library suite passed
+289 tests with seven ignored. The browser management interface and capability/product scope checks remain to be done.
+The subsequent portfolio branch deployment is recorded above. See
+`web-parity-audit.md` for the remaining scope.
+
+### Deployment acceptance image identity
+
+The environment acceptance script now verifies that the app and PDF containers
+run the same Docker image ID and can require an explicit full expected ID,
+checking it again after an optional restart. An intentionally incorrect ID was
+rejected before creating any fixture. Against the running worktree, the expected
+derived image ID matched and the authenticated MCP, mobile-read, PDF and
+fixture-cleanup checks passed. This run did not restart the services or test
+external ingress. An image ID must still be matched to a separately verified
+source revision and target-platform artifact; this is not staging acceptance.
+
+### Model registration form comparison
+
+The desktop and browser forms both expose provider name, protocol/profile, base
+URL and credential, plus model provider, name, context window, tags, notes and
+enabled state when editing. Browser model registration now also offers the four
+desktop model presets. Unlike the desktop shortcuts, these only fill model fields
+and leave the selected provider unchanged; users must select a compatible
+provider. A headless Chromium check loaded the updated HTML against the running
+branch origin and verified all four presets, their fields and provider selection.
+The rebuilt native server passed the browser model-configuration regression in
+a disposable database, including all presets, model creation, editing and
+conflict handling. It did not test third-party availability. The subsequent portfolio branch deployment is recorded above. Other management
+operations and native-window behavior remain to be compared.
+
+### Clean Dockerfile build and shutdown finding
+
+At branch commit `7143479`, a no-cache Linux ARM64 build of the actual
+Dockerfile succeeded using a temporary BuildKit worker and an isolated ext4
+filesystem image on the Mac; the shared Docker store had less than 1 GiB free.
+The resulting OCI manifest was
+`sha256:cc06e802bfd20a52911e319bbed0c804946337166a29e8a197a8d61da85605a7`.
+In a disposable OCI runtime fixture, the clean image started as its configured
+non-root user, authenticated browser navigation and product creation passed,
+and the separately launched PDF renderer generated a valid PDF. The fixture
+retained its product after a forced restart; authenticated MCP work creation,
+PDF export and unauthenticated-read rejection passed afterward. This was a
+fixture, not a Compose deployment, staging acceptance, or a release artifact.
+
+The restart check found that the server process, running as PID 1, remained
+alive after SIGTERM and needed SIGKILL. Commit `e9d4b74` adds headless HTTP
+graceful shutdown for SIGTERM and SIGINT. The native Rust suite passed (288
+passed, seven ignored), including an in-flight HTTP response regression; the
+headless process regression also passed both signals and verified SQLite and
+product persistence after restart. Background workflows, imports and external
+subprocesses are not drained by this HTTP shutdown path; check active work
+before restarting.
+
+A second no-cache Dockerfile build from `e9d4b74` produced Linux ARM64 OCI
+manifest `sha256:cfd94c81e84812234435b5d1a42d58a0ac1c1ef9da0072d67f6187c6727458a8`.
+The retained OCI archive has SHA-256
+`fc31913e6e76f8442aacd58e7819eef603d6a746619c338a17199c9655d5298f`.
+In an isolated OCI runtime fixture, eight browser scenarios, PDF export,
+SIGTERM as PID 1, persistence after restart, authenticated MCP work creation
+and unauthenticated access rejection passed. This clean artifact is retained in
+the worktree environment's private artifacts directory; it is not a staging or
+release artifact.
+
+Because Docker Desktop's shared store lacked room to load the clean OCI image,
+the branch deployment uses a derived image containing its verified server binary
+on the prior branch image (image ID
+`sha256:550de0b970369f053353b97393e1d83a77045220b34dcde8f55bf30e0031e690`).
+The derived candidate passed 38 remote-interface and 51 workflow tests, PDF
+isolation and outage checks, and a Docker PID 1 SIGTERM test with exit code 0.
+Before deployment, active work was checked, a SQLite backup passed
+`quick_check`, and the prior image was retained as
+`aruvi-studio-worktree-backup:pre-signal-fix`. The branch Compose services are
+healthy. The clean OCI fixture and derived branch deployment are distinct and
+neither constitutes staging acceptance.
+
+### Scoped Model Host candidate revalidation
+
+Model Host [PR #12](https://github.com/vivasaayi/aruvi-model-host/pull/12)
+remains a draft based on the current remote default branch. Its separate
+candidate worktree now derives scoped-credential denial checks from all
+protected router declarations and tests seven HTTP methods, with explicit
+positive coverage for the five allowed inference method/path pairs. The check
+also requires review if the router gains composed or nonliteral routes.
+The refreshed macOS host build passed ten Rust unit tests, 18 simulated lifecycle
+tests and seven native adapter tests. Disposable native and Docker fixtures using
+the current Studio branch passed scoped MCP completion and management denial;
+the watcher fixture retained its provider across a token change before restart
+and recovered when the restarted host accepted it. No live host was changed.
+
+The original Model Host main checkout still has its pre-existing uncommitted
+environment work. A fresh comparison found those files retained in the candidate;
+the differing README, native adapter and adapter test include the scoped-token
+changes. The candidate is pushed through `1302b93` but has not been merged or
+deployed. The current host still requires the management-capable token; use of
+an inference-only credential remains contingent on a merged host revision and
+integration acceptance under the environment contract.
+
+### Anthropic stream initial-content guard
+
+The shared client previously ignored `message_start.message.content`, so a
+proxy could send initial text or a tool-use block followed by a text delta and
+the client would report only the delta as a complete answer. A regression
+fixture reproduced this. Initial content must now be absent, null, or an empty
+array; a nonempty or malformed value fails the stream before dropping content.
+Nested initial-message errors also fail without exposing provider details.
+The native Claude API stream begins with an empty content list, as shown in the
+[Anthropic streaming reference](https://platform.claude.com/docs/en/build-with-claude/streaming).
+Some nonstandard proxies may now need to send content as block events instead.
+The standalone shared-client suite passed 65 tests. The independent Git consumer
+was updated to `dc711d0c7e5e869133544de17a811d6afdb560d3` and passed 30 native
+tests and the same 30 tests as a non-root Linux user with networking disabled
+after vendoring. A separately built, read-only non-root Linux probe of that pin
+passed real Model Host discovery, completion, streaming and token-limit checks
+against `qwen25-coder-7b-q4` and `qwen-05b-comparison`, plus a synthetic
+`piper-ljspeech` to `whisper-tiny-metal` round trip. Studio's native library
+suite passed 287 tests with seven ignored. The Linux ARM64 release binary from
+source commit `dc711d0`, packaged on the previous worktree image rather than
+built from the Dockerfile, passed 38 remote browser tests, PDF isolation and
+outage checks, and 51 workflow tests; the workflow fixture confirmed the browser
+reports the malformed Anthropic stream. Image
+`sha256:356698a34954bc1963f37ac0fe24ecbd70ae56f47a928cd744bfc56cee5373c5`
+was deployed to the isolated worktree after confirming no active CLI, import or
+workflow jobs and taking a consistent database backup that passed `quick_check`.
+The previous image remains tagged `aruvi-studio-worktree-backup:pre-initial-stream`.
+Both services were healthy after restart; a real Model Host coding completion,
+token-limit error and browser-origin MCP check passed. The loopback port is
+dynamic. No live Anthropic credentials were configured, and this is not staging
+acceptance or a clean Dockerfile build.
+
+### Current real Model Host revalidation
+
+On the branch deployment at source commit `67ecacd`, the real
+`qwen25-coder-7b-q4` model returned an MCP coding completion that passed
+independent JavaScript assertions; a one-token request produced the expected
+truncation error. Authenticated browser streaming chat also returned real model
+output, and the published-port MCP origin fixture rejected missing credentials
+and the tested cross-origin requests. A synthetic `piper-ljspeech` to
+`whisper-tiny-metal` round trip passed through Studio MCP.
+
+The disposable real-model `extend-module` workflow now supports assigning a
+managed coding prompt template and verifying its prompt artifact. The first
+attempt reached coding but generated JavaScript rejected by the configured
+syntax gate; the workflow stopped before its delivery approval. The first
+version of the fixture did not independently check the remote on that error
+path. The fixture was extended to check the prompt and remote on failure. A
+second attempt verified the template in the coding prompt, passed the syntax
+gate and independent behavioral assertions, and delivered the verified file to
+the disposable local Git remote. A deliberate invalid-syntax control initially
+failed its own remote check because it incorrectly expected the pre-existing
+file to be absent. After fixing the fixture to compare the original file, a
+repeat verified the template, confirmed the test gate rejected the invalid file,
+and confirmed the disposable remote remained unchanged. The fixture containers
+and their volumes were removed. These attempts are examples, not evidence of broad model reliability,
+live third-party providers, physical audio, or native-window acceptance.
+
+### Agent prompt templates
+
+The existing template table was unused, and the branch database's nine seeded
+agent references had no matching templates. Browser and MCP now manage versioned
+templates, while shared agent execution applies only explicit `template:<id>`
+references; older references retain their previous inactive behavior. A template
+matches the agent role or `*`, and missing or mismatched templates fail a stage
+instead of silently changing its behavior. Instructions are limited to 1,000
+characters and retained during subsequent coding turns. Tool permissions and
+execution boundaries remain independently enforced. An assigned template cannot
+be deleted; concurrent template edits require the current version. The native
+agent execution fixture verified the instructions in initial and later coding
+turns, and the management fixture checked authorization, role mismatch, legacy
+references, stale edits and assigned-template deletion. The Rust library suite
+passed 287 tests with seven ignored; 128 frontend tests, the frontend build and
+terminology check passed. The Linux ARM64 release binary from source commit
+`67ecacd`, packaged on the previous image rather than built from the Dockerfile,
+passed 38 remote browser tests, PDF isolation and outage checks, and 51 workflow
+tests. The browser fixture also assigned a template to an agent and checked the
+deletion guard. Image
+`sha256:1ab28f89376d7e0c6a73c60dc75860ae9bc4d97eeb3484c5124f0404341b1115`
+was deployed to the isolated worktree after confirming no active CLI, import or
+workflow jobs and taking a consistent database backup that passed `quick_check`.
+The previous image remains tagged `aruvi-studio-worktree-backup:pre-prompt-templates`.
+Both services were healthy after restart; template UI controls, MCP discovery and
+an authenticated template-list call passed. The loopback port is dynamic. This
+is not staging acceptance or a clean Dockerfile build.
+
+### Browser work-item ordering
+
+The browser can drag or use move buttons to reorder an unfiltered product
+backlog. A guarded browser/MCP move validates the current contiguous interval,
+then normalizes product order in one transaction, retaining the relative order
+of unloaded items. The old desktop/MCP reorder now commits its writes together,
+but remains last-write-wins and does not validate product scope. Moves are
+limited to 1,000 loaded rows at a time. Backend tests exercise authorization,
+cross-product and stale conflicts, rollback, MCP, and a page-boundary move;
+a native browser fixture exercises drag, buttons, filter restriction and stale
+conflict. A separate in-memory SQLite check reordered 50,000 synthetic rows in
+approximately 0.07 seconds on this Mac. The native Rust suite passed 286 tests
+with seven ignored; 128 frontend tests, the frontend build and terminology check
+passed. A Linux ARM64 release binary from source commit `3726819`, packaged on
+the prior worktree image rather than built from the Dockerfile, passed 37 remote
+browser tests, PDF isolation and outage checks, and 51 workflow tests. Image
+`sha256:ca9973e87e7711f0518b67df33f95f54679e7b7c8195246bb8a6349efae2d35f`
+was deployed to the isolated worktree after confirming no active CLI, import or
+workflow jobs and taking a consistent database backup that passed `quick_check`.
+The prior image is tagged `aruvi-studio-worktree-backup:pre-work-order`. Both
+services were healthy after restart; browser controls, MCP move discovery and an
+authenticated catalog call passed. The loopback port is dynamic. This is not
+staging acceptance or a clean Dockerfile build.
+
+### Browser backlog batch decisions
+
+The Work view now filters by status and supports selecting up to 100 loaded
+items for approval or rejection. The browser and MCP use one transactional
+service that checks every full snapshot, product scope and active execution;
+a conflict rolls back the entire batch. Automatic starts are requested after
+commit according to the saved policy. A native browser fixture exercised the
+filter, stale conflict, rollback and successful decisions. The Rust library
+suite passed 285 tests with seven ignored; 128 frontend tests, the frontend
+build and terminology check passed. The Linux ARM64 release binary from source
+commit `81a49ad`, packaged on the previous worktree image rather than built
+from the Dockerfile, passed 36 remote browser tests, PDF isolation and outage
+checks, and 51 workflow tests. Image
+`sha256:a5e98d3b33ad8fe6c40c062600e413de2e61f7a5c54205bc113deb3d0d9c272a`
+is deployed to the isolated worktree. Before restart there were no active CLI,
+import or workflow jobs, and a consistent database backup passed `quick_check`.
+The previous image remains tagged `aruvi-studio-worktree-backup:pre-batch-decisions`.
+After restart both services were healthy; browser controls and an authenticated
+MCP catalog call passed. The loopback port is dynamic. At that checkpoint drag ordering, a clean
+Dockerfile build and staging acceptance remain open.
+
+### Browser work-item decisions
+
+The browser Work view now supports individual approval and rejection as well
+as the existing explicit approve-and-start action. Approval follows the saved
+automatic-start policy; rejection requires a reason and returns the item to
+draft. Browser decisions compare the full displayed work-item snapshot and
+reject active workflow or CLI conflicts. The desktop, MCP and browser task
+decision paths now update status and insert the approval record atomically.
+Desktop and MCP retain their existing automatic-start behavior.
+
+An injected database failure verified rollback through mobile API and MCP paths;
+the native browser and isolated container browser fixtures exercised approval,
+stale rejection and rejection after refresh. The native Rust suite passed 284
+tests with seven ignored; 128 frontend tests, the frontend build and terminology
+check passed. A host-backed Linux ARM64 release binary packaged onto the prior
+worktree image passed 35 remote browser tests, the PDF outage check and 51
+workflow tests. At that checkpoint, bulk decisions, status filtering and drag ordering remained open;
+this is not a clean Dockerfile build or staging acceptance.
+After source commit `c76ead8`, image
+`sha256:fa1d7a23f1b314b5ac563fd53d02316d898f1a2603d2b3317e68702dac8bbc40`
+was deployed to the isolated worktree. A consistent database backup passed
+`quick_check` after confirming no active jobs; the previous image remains as
+`aruvi-studio-worktree-backup:pre-task-decisions`. App and PDF health, the new
+browser controls and authenticated MCP catalog access passed after restart.
+The published loopback port is dynamic.
+
+### Multi-process startup recovery
+
+Starting a second Studio process against the same SQLite database previously
+marked a live external CLI run and a running bulk import as interrupted. Unix
+processes now hold a shared database-specific startup lock; only the first
+cooperating process performs recovery. CLI recovery's event insertion and state
+update are transactional. A native fixture reproduced the original bug, then
+passed with two processes, a live fake CLI, a synthetic running import, and
+simulated interrupted records after both processes stopped. A Linux ARM64
+fixture passed the same checks using two containers and a shared named volume.
+Lock takeover, symlink rejection and transactional rollback tests passed; the
+native library suite passed 283 tests with seven ignored. The locking and
+orphan-process limitations are described in `headless-server.md`.
+The Linux candidate was built with host-backed storage and packaged on the
+previous worktree image; it passed 34 isolated browser tests, the PDF outage
+check and 51 workflow tests. This is not a clean Dockerfile build or staging
+acceptance.
+After source commit `9b11ceb`, image
+`sha256:b7b6bb7dcbd72fb8e32b40b5c873f0c5e1be04720c4e4912fa0baec365068501`
+was deployed to the isolated worktree. The previous image is retained as
+`aruvi-studio-worktree-backup:pre-cli-recovery`; a consistent database backup
+passed `quick_check` after confirming no active workflow, CLI run or import.
+The app and PDF sidecar became healthy, authenticated MCP catalog access
+passed, and the new lock file was present. The loopback port is dynamic.
+
+### External CLI browser and MCP migration
+
+The work item External CLI tab now has opt-in browser and MCP operations using
+the shared Rust launcher. Remote execution requires an operator-supplied CLI
+home and does not inherit server environment variables. Output and run history
+are bounded, and same-item active runs block conflicting launches, workspace
+changes, deletion and new workflows. This is not a sandbox or coordination
+between different items that share a workspace. The image still has no actual
+CLI executables or provider credentials; see `headless-server.md`.
+
+A disposable fake-CLI fixture passed through native and Linux container browser
+and MCP paths, including scope override, disabled mode, authentication,
+output limits, failure and restart persistence. The final native library suite
+passed 278 tests with seven ignored. The frontend suite passed 128 tests, and
+the frontend build and terminology check passed. A host-backed Linux ARM64 release
+binary was packaged on top of the previously built worktree image; that
+candidate passed 34 remote browser tests, the PDF outage check and 51 workflow
+tests. This is not a clean Dockerfile rebuild, real CLI-provider acceptance or
+staging validation. The shared Docker disk remained near capacity.
+
+The candidate was then deployed to the worktree as image
+`sha256:d44c18821350ee96a39c685e058532953e232baac43effd063d3db36e3a1cc78`
+after source commit `dee2555`. The prior image was retained as
+`aruvi-studio-worktree-backup:pre-external-cli`, and a consistent SQLite
+backup passed `quick_check` before the switch. App and PDF services became
+healthy; the updated browser UI and authenticated MCP action discovery passed,
+and an authenticated launch request confirmed remote execution is disabled by
+default. The published loopback port is dynamic. This worktree deployment does
+not establish real CLI-provider integration or stable staging acceptance.
+
+### Integration adapter scoped-token preparation
+
+The scoped-integration worktree's existing native candidate binary was tested
+again with the current `c88773f`-based Studio worktree image and a temporary
+copy of the real `qwen-05b-comparison` model. A fresh inference-only token was
+denied Model Host management, while discovery, Studio MCP completion and
+general Copilot, browser API streaming and headless browser general Copilot
+streaming passed. The fixture now exercises both general-Copilot paths as well
+as chat. Its temporary host, model state and Studio container were removed;
+neither deployed service was changed. This is one small model and does not
+establish production readiness or deployed scoped-credential support.
+
+The existing untracked Model Host `deploy/compose.integration.yaml` now passes
+the optional `MODEL_HOST_INFERENCE_TOKEN` into the app, matching the candidate
+worktree, staging and production adapters. A temporary Compose configuration
+check confirmed that a supplied inference token and the management token are
+passed separately, and that an omitted inference token defaults to empty. This
+is a configuration check only: the integration adapter and other host checkout
+changes remain uncommitted, and the scoped-token host branch has not been merged
+or deployed. No running service was changed. Reconcile and review the host
+changes together before building and testing the merged integration environment.
+
+A later disposable three-way reconciliation of host candidate `ffb4cfb` and
+the host main checkout's tracked changes applied cleanly except for one README
+conflict. The temporary resolution kept the newer integration/staging status
+and the scoped-token instructions; the two untracked adapter/document files
+were copied into the snapshot. Seven native adapter tests, the integration
+Compose configuration check and 17 simulated-worker lifecycle tests passed.
+The lifecycle test used the existing candidate host binary rather than rebuilding
+the combined tree. The snapshot was removed; neither host checkout was merged
+or committed, and this does not establish a deployed integration service.
+
+The same reconciliation was subsequently prepared in the separate Model Host
+worktree `aruvi-model-host-scoped-integration` and pushed as
+`codex/scoped-inference-integration` at `0336d34`. It incorporates the existing
+main-checkout environment changes without changing or clearing that checkout.
+Seven native adapter tests and 17 simulated lifecycle tests passed there, again
+using the existing candidate host binary. The native integration plan preserved
+the legacy service identity; the command was read-only. Review the combined
+branch and complete integration acceptance before deployment. A subsequent
+fresh offline macOS ARM64 build of `0336d34` passed ten Rust unit tests and 17
+simulated lifecycle tests. Disposable native and Docker Studio MCP fixtures
+passed with a scoped credential and denied host management. A disposable host
+using the freshly built executable and real `qwen-05b-comparison` CPU model
+passed scoped discovery, management denial, MCP completion, browser API
+streaming and headless browser streaming. This is one text model and does not
+establish deployed integration acceptance. The branch has not been merged,
+and no running service was changed.
+
+The same freshly built host subsequently passed the disposable scoped-token
+rotation fixture: Studio preserved its provider while the new credential was
+not yet accepted and recovered after the host restarted. A real
+`qwen25-coder-7b-q4` GPU fixture passed scoped discovery, management denial,
+Docker Studio MCP completion, browser API and headless-browser streaming; the
+generated JavaScript function also passed the fixture's isolated assertions.
+This is one coding prompt and does not establish general model reliability.
 
 ### Studio inference-credential opt-in
 
@@ -34,6 +4452,26 @@ mode still passed real 7B-model discovery, completion, streaming and token-limit
 checks against the running host.
 
 ### Candidate inference-only Model Host credential
+
+The candidate has now been applied to an isolated Model Host worktree based on
+`6edb84979f0b670c304192600052f98533a86439`, committed as `a927792` and pushed
+on `codex/studio-inference-scope`. Seven Rust unit tests, six native adapter
+tests, 17 simulated lifecycle tests and a disposable native Studio MCP test
+passed; the latter verified completion with the inference token and denial of
+host management. The Studio fixture required `PYTHONPATH` pointing to the host
+worktree. The running host was not changed. The main host checkout still has
+uncommitted changes, including an integration Compose adapter that is not in
+this branch; reconcile those changes and independently review authorization,
+configuration and deployment before using the scoped credential in the live
+service. This candidate is not a deployment or a substitute for TLS.
+
+The candidate branch was advanced to `ffb4cfb` to make all four cross-project
+fixtures directly runnable without a `PYTHONPATH` workaround and to document
+their required environment. Native Studio, Docker Studio, token rotation, and
+the independent Docker client each passed against a simulated scoped host. The
+rotation test verified that Studio retained its provider until the restarted
+host accepted the new credential. These remain synthetic fixtures; deployment
+and reconciliation with the host's separate integration adapter remain open.
 
 The Model Host source at `6edb84979f0b670c304192600052f98533a86439` currently
 uses the same bearer credential for inference and management. A candidate patch
@@ -379,6 +4817,72 @@ This does not establish actual build execution, native UI behavior or promotion
 readiness. The original Aruvici revision still fails the protocol audit. The
 candidate is not committed to or deployed from Aruvici; its isolated checkout
 request remains pending. Docker transport remains open.
+
+The candidate has since been applied in the isolated Aruvici worktree
+`/Users/rajanthegoat/work/aruvici-studio-ci-protocol` and pushed as branch
+`codex/studio-ci-protocol`, commit `c2efef3`. Artifact readiness and chunk
+reads open path components relative to directory descriptors with no-follow
+flags and reject hard-linked regular files, reducing the earlier symlink
+check/open race. The candidate passed 60 Rust tests, formatting and clippy;
+the disposable native Studio fixture again passed health, target binding,
+artifact integrity and guarded retry with worker execution locked. Promotion
+eligibility remains false. The running Aruvici service was not changed; an
+actual build, container-to-host transport, shared workspace identity and review
+remain open. The patch in `docs/integration` reflects this branch.
+
+The native fixture now has an explicit `--execute-build` mode. Against the
+isolated Aruvici candidate `c2efef3` and a native Studio binary, it created a
+temporary Git repository, approved its fixed Rust/Docker plan, and queued a
+build through Studio MCP. The real gitleaks, formatting, clippy, Rust test,
+OCI packaging and package-verification stages passed; the browser API reported
+the passed run and the candidate verified the OCI artifact's integrity while
+remaining ineligible for promotion. This used a minimal dependency-free Rust
+fixture and a scratch image, not the Studio application or a native window.
+Gitleaks 8.30.1 was obtained temporarily from its official release and checked
+against that release's checksum; the binary was removed after testing. No image
+was loaded or deployed. The fixture can be repeated with
+`bash scripts/test native-ci-service STUDIO_BINARY ARUVICI_BINARY --audit-protocol --execute-build`
+when gitleaks, the Rust toolchain and Docker Buildx are available on PATH.
+The Docker-to-host CI transport and shared-workspace identity remain open.
+
+An opt-in local CI relay now forwards a bounded allowlist of requests from a
+token-authenticated TCP connection on host loopback to the private Aruvici Unix
+socket. Studio accepts an explicitly configured local relay and does not fall
+back to its socket if relay configuration fails. A disposable real Aruvici and
+Docker Studio fixture passed MCP and authenticated browser API status reads;
+incorrect credentials and a disallowed deploy method were rejected. The existing
+simulated Unix-socket CI test and focused Rust socket tests passed. This is a
+plaintext trusted-host transport, not TLS or an access boundary against Docker
+administrators. It is not installed or deployed. The subsequent checkpoint
+below covers the host/container mapping and a container-initiated build.
+
+Studio now supports an explicit host/container repository-root mapping for CI.
+It confines mapped target paths to the configured roots, resolves the container
+path and checks it on binding and before queueing. A disposable Docker Studio
+fixture mounted a real host Git repository read-only, used the authenticated
+relay and candidate Aruvici service, bound the target and queued a real minimal
+Rust/OCI build. All expected scan, formatting, lint, test, packaging and artifact
+verification stages passed, and the browser API read the result. Unit tests
+cover mismatches, traversal and symlink escape. An opt-in worktree Compose
+override and `scripts/ci-shared-worktree-up` provide the read-only mount; its
+rendered configuration was checked. The operator must ensure the roots are the
+same files: path translation is not independent proof of shared identity. Live
+CI deployment, stable-environment mounts, real product builds and writable
+workspace delivery through this mount remain open.
+
+The disposable container-to-host fixture was rerun with a real headless Chrome
+browser against the completed minimal build. The CI page showed the target,
+commit and passed run, exposed all expected stages, displayed a real Rust-test
+log and requested OCI artifact verification. `scripts/test native-ci-service`
+accepts `--browser` with `--execute-build`, and optionally
+`--browser-executable` to use a local Chromium installation. This exercises
+inspection, not cancellation or a deployed CI service. A follow-up run exposed
+that the browser hid mapped targets by comparing host and container paths as
+strings. The target selector now leaves identity validation to the backend, which
+checks mapping and attachment during assignment and queueing. Chrome selected a
+second commit and queued a distinct real build through the relay; it passed and
+reported the selected commit. The simulated browser fixture also verified that a
+mismatched target is rejected. Live deployment and other target types remain open.
 
 ### Disposable native Aruvici connection
 
@@ -1047,17 +5551,18 @@ scope is reviewed, not merely until an example passes.
 
 | Requirement | Current evidence | Remaining work |
 | --- | --- | --- |
-| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and by a separate fixture pinned to `12791e9fcd018ea4847ff7a2591535d4de07914e`; 28 independent native and Linux tests passed offline. A non-root, read-only Linux probe passed real Model Host text and synthetic Piper/Whisper speech. One unclassified integration-host failure occurred with a preceding pin before a successful retry. | Investigate an integration-host failure if it recurs; decide independent ownership, versioning and migration for other projects. The current pin is a checkpoint, not a published release. |
+| Reusable Rust library | `crates/aruvi-model-client` is consumed by Studio and a separate fixture pinned to `484cce1f698be34c7ae901717640e6ad299deb95`. Its consumer tests passed on macOS, ARM64 Linux and hosted AMD64 Linux; real-host text passed on native AMD64, and text and synthetic Piper/Whisper probes passed on macOS, ARM64 Linux and emulated AMD64 Linux. The pin check confirms the current client sources and manifest match. | Validate native AMD64 speech, and decide independent ownership, versioning and migration for other projects. The current pin is a checkpoint, not a published release. |
 | OpenAI-compatible and Anthropic protocols | Shared clients cover text, streaming, discovery and error handling; OpenAI-compatible voice is implemented. Contract fixtures cover both protocols and the reasoning request profile. | Live third-party OpenAI, Anthropic, DeepSeek and LM Studio sessions remain unverified; compatibility with each model and provider cannot be inferred from adapter capabilities. |
 | Local coding integration | The isolated 7B Model Host passed real MCP completion and an extend-module workflow through code review and a disposable local Git remote. A later new-module attempt produced a missing function definition; independent behavior checks caught it before delivery. | Investigate reliability on broader coding tasks and actual authenticated network delivery; syntax-only checks do not establish correctness. |
 | Speech and local fallback | Real Model Host speech generation and transcription and checksum-pinned local Whisper have been exercised with synthetic audio; browser and MCP fixtures exist. | Physical microphone permission/capture, audible playback, other languages and recognition quality remain unverified. |
 | Desktop, browser and MCP parity | Browser and MCP support many model, planner, agent, repository and product workflows; the detailed action inventory is in `web-parity-audit.md`. Recent native Rust, frontend and isolated web suites passed. | Complete action-by-action comparison, especially native IDE/dialogs, runtime management, settings and CI. A locked Mac prevented native window interaction; simulated Tauri tests are not native acceptance. |
 | Data, configuration and credentials | The branch has isolated Docker data and a loopback endpoint; the model-host setup stores its token outside Git. Inspected Model Host source uses the same token for inference and management. Migration 053 passed backup, integrity and foreign-key checks. | Inference-only host credentials are not established; review host restart operations, cross-platform behavior and upgrade paths. Existing external-channel bindings remain unscoped until explicitly migrated or replaced. |
-| Security and release evidence | Independent client and npm scans found no advisories; the latest Studio lockfile scan found an RSA advisory and maintenance/soundness warnings. | Review those advisories and the locally patched SQLx dependency; verify target platforms and complete release acceptance. No release or master merge is authorized by this goal. |
+| Security and release evidence | On 2026-11-21, independent client and npm scans found no advisories; the Studio lockfile scan found an RSA advisory and maintenance/soundness warnings, including a newly reported chrono maintenance warning. | Review those advisories and the locally patched SQLx dependency; verify target platforms and complete release acceptance. No release or master merge is authorized by this goal. |
 
 The currently running branch app is a worktree deployment. Its port is dynamic;
 use `bash scripts/env worktree status` to identify it rather than relying on a
-historical checkpoint address. Staging, production promotion and release are
+historical checkpoint address. Staging deployment has been requested and remains subject to the shared
+integration and promotion gates. Production promotion and release remain
 outside this work until separately requested.
 
 - [x] Inspect the model-host API, deployments and installed models, and the
@@ -1968,6 +6473,39 @@ verified by deterministic tests only.
 
 ## Browser planner node review
 
+- The clean hosted ARM64 build and both hosted test runs for runtime revision
+  `4afc0ee6ed97904446c69602118aea0b909d40d6` passed. Its archive checksum and
+  revision matched. The extracted server binary was layered onto the previous
+  unchanged worktree runtime, producing derived image
+  `sha256:f8326af7a230b73d81de96d8779cae7694a13b2490ac160a8d0205edbca8f972`,
+  not the complete hosted image. Disposable Linux tests passed 43 browser cases
+  (one skipped), including HTTP/MCP scope matching, 53 workflow cases and the
+  PDF outage check. After a checked SQLite backup, the worktree deployment
+  passed product, authorization, PDF and persistence acceptance across restart,
+  MCP-origin checks, a deployed scoped-match request and real 7B coding and
+  general-Copilot MCP requests. The prior image was retained. To make space,
+  two superseded downloaded archives (`1e5d3e5` and `c889053`) were removed;
+  their candidate images and the current rollback image remain. This does not
+  establish staging or physical desktop acceptance.
+- The shared recent-action matcher can now use selected-node ancestors supplied
+  by desktop, browser or MCP to reject explicit product/area conflicts, and
+  checks a known parent capability when matching newly created child nodes.
+  Callers that omit ancestors retain the earlier name-only behavior. Missing
+  scope is still ambiguous; renamed ancestors can hide older matches, and
+  equal names within the same scope may still match. This remains a page-session
+  aid, not durable identity or an audit log. A Rust matcher test covers matching
+  and conflicting product, area and parent names, normalized scope comparisons
+  and legacy calls; authenticated HTTP and MCP return the same result. A
+  simulated browser fixture and six mocked desktop planner tests verify the
+  clients send ancestor scope. A disposable native server and headless browser
+  selected two identically named nodes in different product areas, verified
+  each displayed its own scoped action plus an ambiguous unscoped action, and
+  checked the same result through MCP (`bash scripts/test native-planner-matches`
+  after building the native server). The native Rust library suite passed 325 tests
+  with seven ignored before the final scope-comparison normalization; focused
+  matcher and HTTP/MCP tests passed again afterward. The frontend build and
+  128 frontend tests passed. The later Linux deployment is recorded above;
+  physical desktop acceptance remains open.
 - Desktop and browser now use a shared Rust matcher for plan actions associated
   with the selected node, also exposed as MCP `match_planner_actions`. The
   browser shows the latest plan held by the current page; this is not durable
@@ -3941,3 +8479,1048 @@ reports no available space. Persistent volumes were not removed, and database
 integrity has not been rechecked since this latest failure. Restore Docker
 capacity before restarting the app, checking database integrity and repeating
 write-dependent validation. Other services share this daemon.
+
+## Recovery check: 2026-11-20
+
+Docker reported 33 GB available and the existing worktree app and PDF service
+were healthy. A read-only SQLite `quick_check` returned `ok` and
+`foreign_key_check` returned no violations. A real Model Host text completion
+and synthetic Piper-to-Whisper round trip passed through the Docker Studio MCP
+endpoint. The browser-origin MCP check passed on the published port and rejected
+missing credentials and tested cross-origin requests. The dedicated coding
+fixture failed at its MCP call with its default model/provider; this check does
+not identify the cause and coding-model validation remains open. These checks
+do not establish native window, physical audio, or live cloud-provider parity.
+
+## Staging adapter checkpoint
+
+The staging Compose adapter now starts the same network-isolated PDF sidecar
+as the worktree and connects the app to its Unix socket. A disposable local
+Compose project using the worktree image reached healthy status for both
+services; the app connected to the socket, and the renderer reported no network
+and a read-only root filesystem. This did not test a complete export or a VPS
+deployment. The fixture and its disposable volumes were removed.
+
+On 2026-11-20, `origin/main` was `1edb9dd` and did not contain the feature
+branch. The organization promotion process calls for a merged default-branch
+revision and Mac integration acceptance before VPS staging. No staging
+deployment has been made. The integration adapter, target platform, ingress,
+real Model Host connectivity and persistent staging acceptance still need review.
+
+In a later disposable Mac Compose run of the staging adapter using the current
+worktree image, an authenticated browser API request and an MCP request each
+generated a PDF with a valid PDF header. After restarting both services, the
+fixture product remained present and another API PDF export succeeded. The
+fixture and its volumes were removed. This checks the adapter locally; it is
+not an acceptance test of the VPS staging host or its data.
+
+## Mac integration adapter
+
+The repository now has a separate integration Compose adapter with persistent
+app data and an isolated PDF renderer. It binds loopback port 20280 on the Mac;
+the organization registry reserves that port for this product's integration,
+while the staging reservation applies on the VPS. Integration and staging use
+separate project identities and generated credentials. The new
+`scripts/test integration-ui` runs the existing section-navigation smoke test
+against an already deployed integration stack; `scripts/test integration`
+continues to mean Rust integration tests.
+
+A disposable Compose project using the integration adapter and worktree image
+started both services healthy, created a product and exported a PDF through the
+authenticated API, then retained the product and generated another PDF after
+both services restarted. Temporary credentials were distinct across integration
+and staging and stored with mode 0600. This does not establish a merged revision,
+real integration deployment, tailnet access or second-device acceptance. The
+organization registry reservation lives in the separate `.org` checkout and
+must be made available wherever that shared checkout is installed.
+
+The production Compose adapter also specifies the isolated PDF renderer and
+socket. A disposable Mac project using the worktree image started both services
+healthy and generated a PDF for an authenticated test product. The fixture and
+its volumes were removed; this is not a production deployment, VPS validation,
+or acceptance of a release artifact.
+
+## Default-branch reconciliation
+
+On 2026-11-20, `origin/main` was `1edb9dd`. It already contained the earlier
+Studio branch through `e35292c`; its only additional commit pinned the CI
+runner to Ubuntu 24.04. The feature branch's later work had not been merged.
+The CI change was merged into the feature branch without conflicts at
+`3e44115`; it changed only the workflow runner configuration. The running
+worktree app remained healthy. This is not a merge of the feature branch into
+main, a CI result, or staging acceptance.
+
+## Browser bridge configuration status
+
+The browser Activity view now displays an authenticated, read-only bridge
+configuration summary and derives the MCP URL from the browser's current
+origin, rather than presenting the container's internal bind as an external
+address. The summary identifies configured bind values and their sources,
+whether an MCP token is configured, and whether configuration permits requests;
+it does not return credentials. These bind values are configuration and can
+differ from the active listener until restart. A native API test checked mobile
+authentication and credential redaction. The deployed-branch navigation smoke,
+29 remote UI tests, one simulated CI test and 51 workflow tests passed; the
+browser smoke checked the actual published origin and token omission. The
+worktree app and PDF renderer were healthy at port 55093. Browser editing of
+bridge configuration, reverse-proxy deployment and native-window acceptance
+remain open.
+
+## Coding host recovery
+
+The coding-validation Model Host worktree was no longer registered with
+launchd; its endpoint file contained an old port. Its existing verified native
+artifact was restarted on a new loopback port, and
+`scripts/configure-native-model-host` refreshed the existing Studio provider
+and discovered `qwen25-coder-7b-q4`. On 2026-11-20 the running Docker Studio
+passed the real MCP coding fixture using that model: generated JavaScript passed
+three independent assertions in a network-isolated container, and a one-token
+request returned the expected truncation error. Authenticated browser streaming
+chat also returned coding-model output. This addresses the earlier failed
+fixture for this model and prompt; it does not establish general model quality.
+The test explicitly set `ARUVI_CODING_TEST_MODEL=qwen25-coder-7b-q4`; the
+fixture's default remains the separate 15B model. The validation host still
+uses a management-capable token, and its dynamically assigned port can change
+after a restart.
+
+## Shared transport factory
+
+The shared client exposes `GatewayConfig` and `create_gateway` for explicit
+OpenAI-compatible, Anthropic and DeepSeek voice transport construction. Studio
+now uses that factory for its text gateways while retaining application-specific
+validation, credential resolution and provider settings. The config type does
+not implement Debug or serialization. The client suite passed 63 tests, the
+native Studio suite passed 267 with seven ignored, and all 51 isolated browser
+and MCP workflow checks passed. The rebuilt branch passed real 7B coding and
+token-limit checks and synthetic Piper/Whisper speech through MCP. The independent
+consumer now pins `4152e1cad1836190190ebd033ff1672fd42dbe13` and its multipart
+transcription fixture constructs the gateway through the new public factory.
+All 28 independent tests passed on macOS and in a Linux Docker build whose test
+step had networking disabled after vendoring. The live-host probes in this
+checkpoint initially used Studio. The independent consumer's host probe now
+also constructs its gateway through the factory. Running as a non-root user in
+a read-only Linux container, it passed real `qwen-05b-comparison` discovery,
+completion, streaming and token-limit handling plus synthetic Piper-to-Whisper
+speech. A separate probe passed discovery, completion, streaming, JSON-object
+completion and token-limit handling against `qwen25-coder-7b-q4`. The probe
+uses the currently configured management-capable host credentials; scoped live
+deployment and physical audio remain open.
+
+Studio's DeepSeek voice gateway now also uses the shared factory; its existing
+provider validation, secret lookup, speech selectors, and request mapping are
+retained. Twelve native speech tests passed with one local Whisper fixture
+ignored. The rebuilt worktree image passed all 51 isolated workflow tests,
+including simulated DeepSeek speech and transcription through browser, API,
+and MCP. Both app and PDF service were healthy at port 55091. This does not
+validate the live DeepSeek service.
+
+Anthropic streaming now rejects duplicate indexed content-block starts, indexed
+text deltas without an open text block, stops for unopened indexed blocks, and
+message termination while indexed blocks remain open. Unindexed proxy events
+remain accepted and full event ordering is not enforced. The client suite passed
+64 tests; the rebuilt Studio image passed all 51 isolated browser/MCP workflow
+checks, including simulated Anthropic streaming. The branch services were
+healthy on port 55092. Live Anthropic validation remains open.
+The independent consumer now pins `b0b1087c1c0f41d77a08990d76ab31917fa728b1`;
+its 29 tests passed on macOS and Linux with the Linux test step offline. The
+new independent test confirms that a partial indexed stream ending with an
+unclosed block returns an error after emitting its earlier text.
+
+## Coding final-response guidance
+
+A real 7B extend-module workflow removed the existing exports and put corrected
+code only in its final response. Its syntax gate passed, but independent
+behavioral checks rejected it before delivery. The coding tool prompt now
+states that final-response content is a report, not a file edit, and asks the
+model to preserve and update module exports in the actual file. The focused
+prompt test passed. After rebuilding Studio, one repeat of the same real-model
+workflow passed syntax, independent behavioral checks and delivery to a
+disposable local Git remote. This is one follow-up sample; it does not prove
+the guidance caused success or prevent inaccurate model claims. Project-level
+behavioral tests and review remain necessary. The rebuilt worktree app and PDF
+renderer were healthy on port 55085.
+
+## Earlier agent template reference clarification
+
+Desktop and browser agent editors now state that the prompt-template reference
+is stored metadata and is not applied during execution. Seeded references have
+no corresponding template resolution path at that checkpoint. The frontend build
+passed and the rebuilt worktree app and PDF sidecar were healthy at the newly
+assigned port `55079`; the UI text itself was not separately browser-tested.
+
+The current branch's native desktop binary and macOS debug app bundle built on
+2026-11-20. An isolated data directory and profile were used to start it, but
+the Mac console reported locked and the computer interface returned
+`cgWindowNotFound`; native-window acceptance was not performed. The fixture
+processes were stopped and their temporary data directory removed. A successful
+build is not evidence of native interaction or physical audio parity.
+
+## Previously ignored native checks
+
+On 2026-11-20, six of the seven ignored native library checks were run
+individually and passed. Three used headless Chrome for real PDF generation,
+including the desktop export command and checks that scripts and external
+fetches do not run. The shared Product Book renderer matched fixture output
+captured from the mocked desktop UI for Docs HTML, Book HTML, EPUB and PDF.
+The EPUB fixture produced an archive from that UI capture; EPUBCheck was not
+run in this pass. The native local Whisper test transcribed synthetic Piper
+speech using the existing `whisper-tiny-metal` model. These are headless or
+synthetic checks, not native-window or physical microphone acceptance.
+The ignored multi-iteration live calculator test was not run in this pass;
+separate disposable real-model coding workflows are recorded elsewhere.
+
+## Staging browser smoke on Linux
+
+The staging smoke launcher previously used Docker Desktop's host alias on all
+platforms, which cannot reach a Linux host's loopback-bound app from the default
+container bridge. On Linux it now runs the browser with host networking and a
+loopback URL; Docker Desktop keeps its existing host alias. A mocked Docker
+invocation checked Linux argument selection. On the Mac, the actual worktree
+smoke, 29 remote browser tests, simulated CI test and 51 workflow tests passed.
+This does not validate real Linux host networking, the VPS deployment, its
+artifact identity or persistence. The environment contract still requires a
+merged default-branch revision to pass Mac integration before VPS staging.
+
+## Browser IDE save shortcut
+
+The browser workspace editor now accepts ⌘/Ctrl+S while the editor is focused,
+using the same conflict-checked save as its button. The rebuilt Docker image
+passed all 29 isolated browser tests, including a keyboard save followed by an
+MCP file readback; the PDF outage check also passed. The rebuilt worktree app
+and PDF sidecar restarted healthy. At that checkpoint the browser used a plain
+text area and native dialogs were unavailable; see the later editor checkpoint.
+
+## Local speech provider editing
+
+The browser could register a local Whisper provider but could not subsequently
+edit or disable it because both the form and mobile API required an HTTP URL.
+The form now accepts a server file path for local providers. The backend checks
+a changed path against an existing regular file and preserves the optimistic
+concurrency check, including the provider type. An unchanged missing file does
+not prevent disabling a provider. The rebuilt image passed 51 isolated workflow
+tests, including local provider disable/re-enable, valid and invalid replacement
+paths, stale edits and existing hosted-provider URL validation. These fixtures
+do not validate the replacement model's contents or physical audio. The native
+Rust library suite passed 273 tests with seven ignored, and the branch app and
+PDF renderer restarted healthy.
+
+A follow-up Linux container fixture used the checksum-pinned Tiny English
+Whisper model and synthetic audio generated by the configured Model Host. After
+changing the local provider to a second copy of the verified model through the
+browser, transcription returned the expected words through the browser Voice
+screen, mobile API and MCP. All 51 isolated workflow tests passed in that run.
+This checks synthetic English audio rather than physical capture or general
+recognition quality.
+
+## Browser workflow artifacts
+
+The Work view can open generated workflow artifacts as bounded UTF-8 text. The
+mobile endpoint requires authentication and matching work-item ownership, and
+resolves paths within the artifact directory. Its 2 MiB limit is enforced while
+reading. The Rust fixture covered invalid scope, outside paths and symlinks,
+oversized and non-text files; a browser workflow opened a generated coding
+artifact and compared it with MCP. All 51 isolated workflow tests passed using
+the rebuilt image. Independent filesystem writers can race path checks, and
+desktop/MCP artifact readers still have separate behavior.
+
+## Browser code editor
+
+The Docker image includes the pinned Monaco distribution and serves its assets
+locally. The Workspaces view can switch between Monaco and the existing plain
+editor without discarding open buffers; server-side conflict checks and mixed
+line-ending restrictions remain in force. A browser fixture covered unavailable
+asset fallback, JavaScript language detection, edits and undo across tabs, a
+delayed file open, ⌘/Ctrl+S, concurrent-write rejection and a read-only mixed
+line-ending file. A follow-up check also saved a CRLF file and verified that its
+line endings remained CRLF through MCP. Requests in the fixture stayed on the Studio origin. Native
+servers require an explicit asset-directory configuration; native application
+packaging, other languages, mobile devices and full desktop IDE behavior remain
+unvalidated. Per-file buffers still do not survive a page reload.
+
+The rebuilt image passed 34 isolated remote-browser tests and 51 workflow
+tests; the native Rust library suite passed 275 tests with seven ignored. A
+subsequent worktree restart hit a SQLite disk I/O error because Docker's VM
+filesystem was full. One identified AruviStudio Cargo build-cache entry was
+removed, the existing database passed read-only `quick_check`, and the same
+image restarted healthy without rebuilding. Authenticated MCP catalog reading
+and local editor-asset delivery then passed. Docker VM capacity remained tight
+at approximately 1.7 GiB free; future builds and writes need available space.
+
+## Browser work list pagination
+
+The Work list no longer silently stops at the first 100 work items. It uses
+the existing mobile pagination metadata, retains loaded rows after a page
+failure and permits retry, resets on refresh, and ignores delayed pages after
+changing product. A browser fixture exercised 101 real work items, a failed
+page, retry and an in-flight product switch. Offset pagination is not a snapshot;
+changes to earlier rows can move or skip items until the list is refreshed.
+
+## Work item workspace override
+
+Desktop, browser and MCP now share a backend operation to set or clear a work
+item's registered workspace and branch. Browser edits use an assignment baseline;
+MCP can opt into the same comparison. A valid Git branch name is required when
+provided, and assignment is rejected while a workflow is running or paused.
+This changes the prior desktop behavior, which allowed editing during execution.
+The choice does not check out a branch or require product attachment. Isolated
+tests covered browser/MCP conflicts, clearing, invalid and missing inputs, and
+active-run rejection. A simulated-model workflow selected an override different
+from the product default, wrote its generated file there and left the default
+workspace unchanged. Actual network Git delivery and non-cooperating database
+writers remain outside this validation.
+
+A real-model override fixture subsequently used `qwen25-coder-7b-q4` and a
+disposable product default distinct from the assigned work-item workspace. Two
+initial attempts stopped on truncated provider responses: one used the 7B model
+throughout and the other used 15B for non-coding stages. A third used 7B with a
+4,096-token non-coding-agent response budget and completed both approval gates,
+syntax validation, independent network-isolated behavioral assertions, and
+delivery of the verified file to a disposable local Git remote. The selected
+override contained the file and the product-default workspace did not. The test
+uses a management-capable credential on a temporary Studio container and synthetic
+work; it is one successful sample, not a guarantee of model quality, delivery to
+an authenticated network remote, or a deployed inference-only credential.
+`scripts/test host-coding-workflow --workspace-override` enables this scenario;
+`--non-coding-max-tokens` changes only disposable agent settings.
+
+## Work item deletion
+
+Browser Work now offers deletion with a confirmation explaining record and file
+effects. Desktop, browser and MCP share a backend check that rejects deleting an
+item or detaching a direct child while either has a running or paused workflow.
+The browser compares previously loaded work-item fields; MCP can supply the
+same baseline. The focused Rust test covered authorization, stale data, an
+active child and retained detached child. Isolated browser and workflow tests
+cover cancellation, stale MCP edits, confirmed deletion and active-run rejection.
+Non-cooperating database writers and any separately retained filesystem artifacts
+remain outside this check. The rebuilt image passed 33 remote UI and 51 workflow
+tests; the native Rust library suite passed 275 tests with seven ignored.
+
+## Independent browser Copilot model
+
+Browser workspace Copilot can choose an enabled registered provider/model
+without changing the Connection model, or use the Connection selection. The
+choice is page-local. Refreshing the list preserves an unavailable choice and
+blocks sending until the user chooses an available model. The isolated browser
+fixture verified the selected model reaches a simulated provider, Connection
+remains unchanged, and disabling/re-enabling the model is handled without an
+implicit fallback. All 29 remote tests and the PDF outage check passed; the
+rebuilt branch app and PDF sidecar restarted healthy. This is not live cloud
+provider validation or complete desktop IDE parity.
+
+## Browser MCP through a disposable TLS proxy
+
+`bash scripts/test tls-mcp-proxy` started a separate worktree fixture and a
+local HTTPS proxy preserving Host. Headless Chrome loaded the browser app and
+successfully sent an authenticated same-origin MCP ping through the proxy. A
+missing token returned 401, and a different hostname returned 403 even with the
+token. The test uses a self-signed temporary certificate and disables browser
+certificate verification; it does not validate trust or the actual VPS ingress.
+The current npm audit reported zero vulnerabilities. LM Studio was not listening
+on localhost:1234, and OpenAI, Anthropic and DeepSeek API keys were not present
+in the current shell; this does not rule out credentials in other secret stores.
+
+## Scoped credential with the real 7B coding model
+
+The isolated Model Host candidate `ffb4cfb` was run with a temporary copy of
+`qwen25-coder-7b-q4`, a fresh inference-only token and separate temporary data.
+It denied that token on the management API and advertised the model through
+discovery. Disposable Docker Studio completed an MCP coding request; the generated
+JavaScript passed independent assertions in a network-isolated container. Browser
+API streaming and a headless Chrome streaming session also completed. Temporary
+services and data were removed. This checks one coding prompt and does not deploy
+the candidate or establish general model quality; the existing live host still
+uses a management-capable integration credential. GitHub Actions run 44854070337
+passed for revision `3403738`; later revisions need their own completed checks.
+
+## Existing VPS staging inspection
+
+Read-only SSH inspection found healthy native staging and production services
+on loopback ports 8788 and 8787, both at `2d1130f921e9967cc8dffa77953ebc1355802e25`.
+The staging Nginx route targets the native service and does not route MCP. The
+new Compose adapter uses 20280 with separate persistent volumes and is not
+deployed there. The VPS is Linux x86_64 with a rootless Docker daemon; root's
+default Docker context was unavailable and the default root-path organization
+contract was absent. Both native SQLite databases were present. No service,
+data, ingress, credential or host configuration was changed. The transition
+and acceptance prerequisites are documented in `headless-server.md`; a clean
+merged revision and Mac integration acceptance are still required first.
+
+## Explicit MCP browser origins for staging
+
+The server accepts optional comma-separated exact external MCP origins from
+`ARUVI_MCP_ALLOWED_ORIGINS`, still requiring Origin to match Host and rejecting
+forwarded-host headers. Any nonblank list requires an MCP token even for a
+localhost-bound server. The four environment adapters pass the setting through.
+Two native Rust origin tests passed; rust-objcopy reported a missing libLLVM
+debug-stripping warning. An isolated container rejected tokenless localhost MCP
+with an external origin configured. The rebuilt image passed 30 browser tests,
+including proxy-header authorization, mismatched host and origin rejection,
+and the PDF outage check. The worktree app and PDF sidecar restarted healthy.
+Actual TLS ingress and VPS staging acceptance remain untested.
+
+## CI terminology guard correction
+
+GitHub Actions run 44852419796 failed the terminology guard because a coding
+prompt used “module” for a source-code module. The same run reported 268 Rust
+library tests passing with seven ignored and 46 desktop Playwright tests
+passing. The guard now narrowly recognizes the source-code prompt; a disposable
+fixture confirmed it still rejects the legacy `module_id` identifier, and the
+full terminology check passed locally. A new CI run is needed for this revision.
+
+## Real-model new-file workflow revalidation
+
+With `qwen25-coder-7b-q4` on the native Model Host validation worktree, a
+disposable Studio MCP workflow created `src/math.js`, reached both approval
+gates, passed the workflow syntax check and independent network-isolated
+functional assertions, and delivered the verified file to a disposable local
+Git remote. This is a single successful new-file sample after an earlier
+failure; it does not establish general coding reliability, external Git delivery,
+or safety of model-generated code. The host credential remains management-capable.
+
+## Product Book bounded serialization
+
+The shared backend renderer now enforces its 64 MiB input limit while writing
+JSON, rather than serializing the full value and checking afterward. Unit tests
+covered exact byte limits, escaped multibyte content and rejection. The rebuilt
+image passed 30 isolated browser tests, including browser and MCP Product Book
+exports, and the PDF outage check; the worktree services restarted healthy. The
+database snapshot was still loaded without a size bound at that checkpoint.
+
+The snapshot now performs a product-scoped preflight in the same SQLite read
+transaction, before loading the tree, work items and reference candidates. It
+rejects more than 64 MiB of raw column values or 100,000 candidate rows without
+truncation. It counts all table columns and candidate references, so it can reject
+data that would be smaller after filtering; neither this check nor the JSON limit
+is a strict process-memory cap. Focused tests covered byte and row limits,
+product isolation and snapshot consistency; the existing 2,102-item export
+passed. The rebuilt image passed all 30 isolated browser tests and the PDF outage
+check. The direct work-item list query remains uncapped outside this snapshot.
+
+## Compose-network browser smoke
+
+The staging and integration browser smoke tests no longer rely on Docker host
+networking or Docker Desktop's host alias. They check the published loopback
+health endpoint from the host and run the browser on the Compose default network
+against the app service. This also avoids assuming rootless Docker shares the
+host's network namespace. On the Mac, the worktree smoke, 30 remote browser tests,
+simulated CI test and 51 workflow tests passed. The browser portion does not
+exercise published-port or external-ingress navigation, and the rootless VPS
+deployment remains untested. This supersedes the earlier host-network approach.
+
+On the VPS, a disposable fixture on the existing `dockerapps` rootless daemon
+verified that a second container could resolve and reach the `app` network alias,
+and that a dynamically published loopback port was reachable from the host. The
+fixture used an already-cached Python-capable image, not Studio or Compose, and
+was removed afterward. The existing native staging and production services
+remained active. This is infrastructure evidence only; the actual rootless Studio
+stack, browser, ingress and persistent staging acceptance remain untested.
+
+## Environment product and restart acceptance
+
+Added `scripts/test environment-acceptance PROFILE [--restart]` for worktree,
+integration and staging. It creates a uniquely tagged product, area and task via
+MCP, checks mobile authentication and product reads, and verifies a PDF export.
+The explicit restart option waits for app and PDF health, rediscovers a dynamic
+published port and repeats reads and export. The fixture product is archived in
+cleanup; its records remain in the environment. Two successful worktree runs
+passed after restart. An earlier run exposed a changing published port and left
+a fixture active when cleanup used the old port; that specific fixture was then
+archived through the current endpoint. The final script waits for both service
+health checks and rediscovers the endpoint for cleanup. Real integration and
+VPS staging, external ingress and model inference remain unvalidated by it.
+
+## VPS AMD64 branch-image fixture
+
+On the VPS, rootless Docker built the committed branch revision
+`e45d63855f3213b79dee6f5a25fdb563f90c056e` for Linux AMD64 from a temporary
+`git archive` source, with per-build-container resource limits of 6 GiB and two
+CPU equivalents. The local image ID was
+`sha256:443b6c861f892f520dedaf0cd33d11bf975bdea69976c8dac05cf3181060169e`.
+A uniquely named disposable Compose project using the staging adapter started
+the app and network-isolated PDF service on a dynamic loopback port. It created
+a product and area via authenticated MCP, rejected unauthenticated mobile reads,
+checked product reads and PDF output, restarted both services, and verified the
+product and PDF again. The fixture's containers, network, volumes, temporary
+source and image tag were removed. Build cache was not pruned. The existing
+native staging and production services remained active.
+
+This was a branch compatibility fixture, not a deployment or acceptance of the
+stable staging environment. The image was removed and cannot be promoted. A
+merged default-branch revision must still pass Mac integration, then a
+target-compatible artifact from that revision needs real VPS staging, ingress,
+browser, model-host and persistence acceptance.
+
+## VPS Studio to Model Host HTTPS fixture
+
+The VPS Model Host staging endpoint advertised `smol-test` (text) and
+`sd-v1-5` (image); no coding model was advertised. The small text model returned
+a nonempty completed response. A separate rootless Studio container built for
+Linux AMD64 from branch revision `56bbeb28d5b4d0a7000584486807bd6da3174d67`
+used the real staging Model Host HTTPS endpoint. Authenticated discovery listed
+`smol-test`, MCP returned a nonempty completion, and mobile API streaming reached
+its terminal event with text. The host's management-capable staging token was
+used only in the disposable fixture; Studio data was on tmpfs and the container,
+temporary source and uniquely tagged image were removed. Build cache was retained.
+The Model Host staging container remained healthy, and native Studio staging and
+production remained active. Inference may warm the existing host and record its
+normal telemetry; no service configuration or deployment was changed.
+
+This validates one real HTTPS path with a small text fixture, not a coding model,
+physical browser, scoped deployed host token or stable Studio staging deployment.
+
+## Clean branch image and CI browser origin
+
+On 2026-11-21, an isolated BuildKit worker built the Dockerfile without cache
+from committed revision `0fa6849922474837c95bfb0afc7fe308c107b32a` for
+Linux ARM64. Its OCI manifest was
+`sha256:e5e79ed0c14ae6f0f024a6e05c251a605f563fd1a30131b6bb1fd5a5293c3726`.
+The private artifact and build log are retained under this worktree's environment
+artifacts. The temporary filesystem was unmounted and truncated in the VM;
+the previous branch image and a checked SQLite backup were retained for rollback.
+Only unshared, reclaimable AruviStudio BuildKit records were removed to recover
+capacity before this build; other products and persistent volumes were preserved.
+
+The branch app and network-isolated PDF service started healthy using the clean
+image. Product and work-item creation via MCP, mobile authorization, PDF export,
+restart and persistence passed. Forty-one remote browser tests, PDF isolation
+and outage checks, 51 workflow tests, and the simulated CI artifact test passed.
+The published-port browser MCP test accepted an authenticated same-origin ping
+and rejected missing credentials and cross-origin requests. Both hosted checks
+for this revision passed. These are branch tests, not staging acceptance.
+
+The initial combined UI test failed at CI artifact download because the
+container browser used a non-local HTTP origin, where Chromium disables Web
+Crypto. The CI fixture now forwards a loopback browser origin to the isolated
+app and explicitly checks that the origin is secure; no application security
+policy was relaxed. The corrected container CI test and the host-Chrome CI
+fixture both passed. The original combined invocation did not finish; its
+remaining workflow suite was run separately and passed.
+
+The clean image predates the test-fixture and documentation changes in this
+checkpoint, which do not change the runtime image. Complete desktop parity,
+real-provider and device checks, Mac integration on a merged default revision,
+and persistent VPS staging with ingress and Model Host acceptance remain open.
+
+A further settings source audit found that desktop's `docker_host` and
+`max_workflow_retries` values are persisted but have no backend consumers in
+the current source. New workflow runs initialize their maximum to three; the
+test stage executes the configured command in the server environment and the
+Docker service is a stub. This is an existing behavior gap, not evidence that a
+Docker sandbox or the configured retry limit is active. See the settings action
+inventory in `web-parity-audit.md`; retry semantics and execution isolation still
+need design and validation.
+
+## Workflow test policy conflict protection
+
+The browser now sends its loaded effective product test policy as an expected
+snapshot. The server compares it with the current product override and inherited
+default under an immediate SQLite transaction, and rejects stale changes with
+HTTP 409. The browser retains its draft on conflict and offers an explicit
+reload. The snapshot remains optional for existing API clients; legacy API and
+generic MCP writes are still last-write-wins. A focused API test covered a
+changed default, a changed product override and concurrent writes from the same
+snapshot; a disposable native server and host Chrome exercised draft retention,
+reload and retry. The native Rust library suite passed 293 tests with seven
+ignored, and the terminology check passed. This protects policy changes but does not provide command
+isolation or implement the unused Docker and retry settings noted above.
+
+The clean Linux ARM64 Dockerfile build of commit
+`b5004f779f5fc63c033af01856c0b4fdb4ad50f4` produced image manifest
+`sha256:95f531d7de7625555467e55cf581d221aa2d5f0701f3f44eaccce9a5c8f52da8`.
+The isolated worktree app and PDF sidecar are running that image, with the
+previous image and a checked pre-deployment SQLite backup retained. The full
+worktree UI command passed: section navigation, 41 remote tests, PDF isolation
+and outage checks, the simulated CI test and 52 workflow tests including the
+new conflict case. MCP product and work-item creation, authenticated mobile
+reads, PDF export and restart persistence passed. Browser-origin MCP rejected
+missing credentials and cross-origin requests, and the local 7B coding-model
+fixture passed through MCP. The temporary BuildKit filesystem was released.
+These checks do not establish complete desktop parity or staging acceptance.
+
+## Workflow command child cleanup
+
+A native regression test reproduced a successful test command leaving a
+background child running. On Unix the test runner now signals the command's
+process group on normal exit, timeout and future cancellation. On macOS and
+Linux it observes the leader's exit without reaping before signaling, avoiding
+normal-exit process-group ID reuse. Focused macOS tests cover all three paths;
+the native Rust library suite passed 296 tests with seven ignored. An isolated
+workflow fixture also checks for a surviving child. Processes can
+change group or session, and this is not a sandbox; command execution isolation
+and the unused Docker/retry settings remain open.
+
+The clean Linux ARM64 image built from commit
+`70525aa56780748cf1ce8482441d277d034e8bba` has manifest
+`sha256:33e28ea9b963f0893094358784645216942a301cd82efc8d184b86cc370cde8a`.
+Before deploying it, the isolated Linux workflow fixture passed 52 tests and
+confirmed that a test command's delayed background child did not leave a marker.
+After deployment, the app and PDF service passed product creation, authorization,
+PDF and restart-persistence acceptance; 41 remote UI tests, PDF isolation and
+outage checks, the simulated CI fixture, published-port browser MCP checks, and
+the real local 7B coding-model MCP fixture passed. Timeout and cancellation
+cleanup were tested natively on macOS; those two paths were not independently
+exercised on Linux. The previous branch image and a checked database backup are
+retained. An older image was removed from Docker after verifying its retained
+OCI archive, and only old rebuildable Studio compiler outputs were deleted to
+make build space. Staging and complete desktop parity remain open.
+
+## OpenAI-compatible stream finish ordering
+
+A regression fixture reproduced an OpenAI-compatible SSE stream accepting a
+second choice after `finish_reason: stop`, including a later text delta or a
+duplicate finish. The shared client now rejects either sequence for streamed
+and buffered SSE, while allowing usage-only events followed by `[DONE]` and
+still accepting compatible providers that omit a finish reason. Earlier
+streaming callbacks may already have received text before a later error. All
+66 standalone client tests passed, and the changed client streamed a real
+`qwen25-coder-7b-q4` response from the local Model Host. This single host/model
+sample does not validate other compatible services or live cloud providers.
+The standalone package was built and its 66 tests passed after extraction;
+Studio's native Rust suite passed 296 tests with seven ignored.
+
+The documented independent-consumer pin now references the pushed client
+commit `342520c95f4481d72646f83f9394c45134dc2864`. Cargo vendored its locked
+dependencies, and a read-only, network-disabled Linux container passed all 30
+independent consumer tests. The vendored client source matched the Studio
+checkout. A separately built non-root, read-only Linux probe using that pin
+reached the real local host and passed discovery, buffered completion, streaming
+and token-limit checks with `qwen25-coder-7b-q4`. It used the existing
+management-capable host credential; this does not resolve credential scope or
+establish compatibility with other hosts and models.
+
+The independent fixture subsequently added a regression case for a choice
+arriving after `stop`. The full fixture passed 31 tests both on macOS offline
+and in a read-only, network-disabled Linux container using vendored sources.
+
+The clean Linux ARM64 image from Studio commit
+`6e705cebeed762e3418aefbe194c68f22eaa313f` has manifest
+`sha256:1db276f62096887775eb3809ddafa74d90d0e7210f49eca512bb63d2aaf55598`.
+Its disposable workflow fixture passed 52 tests before the branch deployment
+was refreshed. The running app and PDF sidecar passed product, MCP, mobile
+authorization, PDF and restart-persistence acceptance; 41 remote browser tests,
+PDF isolation/outage and simulated CI checks passed. Browser-origin MCP checks,
+a real local 7B MCP coding request and authenticated real-model browser streaming
+also passed. A checked database backup and the prior image were retained. This
+does not establish live cloud-provider compatibility or staging acceptance.
+
+## Real-model existing-module workflow revalidation
+
+On the deployed `6d23c1d`-based branch image, a new disposable run used
+`qwen25-coder-7b-q4`, JSON-object coding mode, a work-item workspace override,
+and a 4,096-token non-coding budget. The real workflow reached plan approval
+and test review; the model received the duplicate-definition guidance and its
+generated edit passed the workflow syntax check. Independent assertions ran
+the generated code in a network-disabled, read-only, non-root container and
+checked both existing `sumEven` behavior and the new `clamp` cases, including
+the invalid range. A task-specific duplicate-declaration check also passed.
+The product default workspace remained untouched, and after review the
+disposable Git remote contained the verified file. This single successful run
+does not resolve the failures or establish general model reliability.
+
+A second run with the same setup used headless Chrome for both the plan and
+test-review approvals (`--browser-approvals`). The browser observed each gate
+and completed the action against the isolated container. Independent syntax,
+behavioral and duplicate-declaration checks passed before the browser approved
+delivery; MCP then confirmed the workflow was done and the disposable Git
+remote contained the reviewed file. An initial browser attempt failed before
+approval because its test selector matched several controls; it confirmed that
+the remote was unchanged. These runs are samples with a 7B model, not a claim
+of general model or physical desktop reliability.
+
+Against the refreshed branch image and real `qwen25-coder-7b-q4`, a disposable
+existing-module workflow used an alternate work-item workspace and a 4,096-token
+budget for non-coding agents. Its syntax test passed, but independent review
+found a duplicate function declaration and stopped delivery; the product's
+default workspace and disposable Git remote were unchanged. A second run with
+the managed coding prompt template completed both approval gates, syntax and
+independent behavioral and duplicate checks, and delivered the reviewed file
+to the disposable local remote. These two samples use a management-capable host
+credential and do not establish model reliability or authenticated network Git
+delivery. The syntax-only test gate by itself does not detect duplicate
+declarations.
+
+The coding tool-loop prompt now asks agents to edit existing definitions in
+place rather than duplicating them, and to inspect the result for duplicate
+definitions and missing exports when repository reads are permitted. A prompt
+test checks both the read-enabled and write-only configurations. This guidance
+does not enforce correctness or replace project-specific behavioral tests and
+review; its effect on real-model reliability requires further samples. The
+native Rust library suite passed 296 tests with seven ignored.
+
+On the candidate image with that guidance, a third real-model attempt showed
+the guidance in the recorded coding request, but produced invalid JavaScript.
+The syntax gate stopped the workflow and the disposable remote remained
+unchanged. Its trace showed a successful multi-line replacement followed by a
+different replacement using the original line number without a fresh read.
+
+The coding tool loop now guards against this sequence when file reads are
+permitted: after a successful write, patch or range replacement, another range
+replacement on that path requires a complete, untruncated read covering the
+current target lines. Reads of other files, truncated reads and unrelated line
+ranges do not satisfy the check. Write-only agents retain their previous
+distinct-edit behavior because they cannot perform the required read. This is
+an in-process safeguard for cooperating tool calls, not protection from external
+writers, model errors after a read, or every possible stale edit. A coding-stage
+fixture exercises rejection of a changed replacement after an earlier write;
+the native Rust library suite passed 298 tests with seven ignored.
+
+The clean Linux ARM64 image from commit
+`bf9d43f6e0f3379a98f55b1809236e6b60cadc19` has manifest
+`sha256:73f264c49baded4ddb5b66a4bedd4aa8425486a0a76c125943bbae0f157c4377`.
+Before deployment, 52 simulated workflow tests passed. A separate disposable
+real `qwen25-coder-7b-q4` existing-module workflow confirmed that the new
+guidance reached the coding model, passed syntax and independent behavior and
+duplicate checks, and delivered the reviewed code to a local Git remote. The
+work-item override was used and the product-default workspace stayed unchanged.
+This run did not trigger the stale-line guard; its rejection path was exercised
+by the deterministic coding-stage fixture. After deployment, product creation,
+MCP and mobile authorization, PDF export and restart persistence passed. A
+checked pre-deployment database backup and the previous image are retained. One
+successful model sample does not prove general reliability or staging readiness.
+The deployed image also passed 41 remote browser tests, PDF isolation/outage,
+the simulated CI fixture, published-port browser MCP checks and a real local
+7B MCP coding request. An additional focused guard test verified that an
+offset read cannot satisfy the fresh-line requirement; that test-only change
+postdates the built image.
+
+## Database override conflict protection
+
+Database path override changes now use a temporary file and atomic rename,
+with a process mutex and an advisory file lock on Unix for cooperating Studio
+processes. Browser saves compare their loaded override and preserve the draft
+on conflict; an explicit discard-and-reload action retrieves the saved value.
+MCP clients may supply the same expected snapshot. Existing desktop and legacy
+API/MCP writes remain last-write-wins, direct file writers and older binaries
+do not take the lock, and value comparison does not detect an A-to-B-to-A
+change. The write still does not validate the database at the new path.
+
+Focused tests covered stale and simultaneous API updates, MCP conflicts,
+cross-process coordination and atomic reader visibility. A disposable native
+server and host Chrome exercised a conflicting MCP write, browser draft
+preservation and reload, then migration, override and clear across restarts and
+environment precedence. The native Rust library suite passed 303 tests with
+seven ignored. This does not establish Windows cross-process locking,
+all historical migrations, or staging acceptance.
+
+The clean Linux ARM64 image from commit
+`029a5619d89ce60489e75430d6682835553cd13e` has manifest
+`sha256:5de7577d779ae1f8d8fa560fdd039332755da3904d6c0acad1f218d4ede7fe06`.
+A disposable two-container test sharing one data volume reproduced lost
+updates on the prior image and verified ten concurrent guarded update pairs on
+the candidate, each with one success and one conflict. The isolated browser
+workflow suite passed 52 tests, including a browser draft conflicting with a
+legacy MCP update. After refreshing the worktree deployment, product/MCP,
+mobile authorization, PDF and restart-persistence acceptance passed, as did
+41 remote UI tests, PDF isolation/outage, the simulated CI fixture, browser
+MCP-origin checks and a real local 7B MCP coding request. The old image and a
+checked pre-deployment database backup are retained. These are branch checks,
+not validation of the stable integration or VPS staging environments.
+
+## Docker Desktop host-local model connection
+
+The seeded LM Studio provider in the current branch uses `localhost:1234`,
+which refers to the Studio container in Docker. No LM Studio server was
+listening on the Mac during this check. The browser Models form now offers an
+explicit Docker Desktop host conversion for loopback HTTP(S) URLs; it preserves
+the port and path, rejects credentials, queries and fragments, and only changes
+the form until the user saves. Existing provider settings are not silently
+rewritten. A native browser fixture checked new and existing provider forms,
+IPv4/IPv6, invalid inputs and explicit save.
+
+A disposable Docker Studio fixture created two synthetic providers against a
+Mac-loopback OpenAI-compatible test service: container loopback discovery
+failed as expected, while `host.docker.internal` supported model discovery and
+MCP completion. This validates the Docker Desktop networking path, not a live
+LM Studio server, HTTPS certificate, other operating systems or model quality.
+
+The clean Linux ARM64 image built from commit
+`7e53964a07ca39a0944b92c8271af3ddcb11de48` has manifest
+`sha256:e6fd74e9591abe565a3d78b7f25f72425f9a4d2ed59cbb209930b4320a22aff3`.
+The disposable Docker host fixture passed against this image, as did all 42
+remote browser tests and the PDF outage check. After refreshing the worktree
+deployment, product, MCP and mobile authorization, PDF and restart persistence
+acceptance passed. Published-port browser MCP origin checks and a real local
+`qwen25-coder-7b-q4` coding request and token-limit error also passed. A
+checked pre-deployment database backup and the previous image are retained.
+These checks do not establish live LM Studio compatibility, full desktop parity,
+or integration and staging acceptance.
+
+## Workflow start capacity
+
+New workflow starts now atomically reserve the work item and team slot when
+creating the assigned run. This prevents a capacity rejection from leaving a
+phantom active run and prevents concurrent starts from taking the same final
+slot. A SQLite fixture covered contention, rejected-run absence, slot reuse and
+duplicate work-item rejection; the native Rust library suite passed 304 tests
+with seven ignored. A subsequent change also checks capacity atomically when
+an active run is assigned or moved to a team; a focused contention fixture
+checks slot reuse. The native library suite passed 305 tests with seven ignored
+after this change. Automatic stage retries and execution isolation remain open. This change has
+not yet been deployed to the running worktree image or tested in staging.
+An attempted clean Linux ARM64 image build from commit `5cff1f1` was stopped
+when free host storage fell below the 3 GiB safety threshold. The isolated
+builder exited and its scratch filesystem was unmounted and truncated; the
+previous worktree image remains running. The later hosted build and its
+validation are recorded below; deployment still needs Docker headroom.
+
+## Independent client pin drift
+
+The consumer pin check now compares the current client manifest, source file
+set and license with the pinned Git revision, in addition to checking the
+documented revision and lockfile. A temporary Git fixture verifies matching,
+modified, added and removed source files. The current checkout matches the
+independent consumer pin. The check requires that Git revision locally; it
+does not replace the separate offline consumer build or live provider checks.
+The normal GitHub test workflow now runs this guard. A shallow-clone fixture
+verified that a missing pinned commit is reported and that fetching the exact
+revision allows the checks to pass. The hosted workflow itself still needs a
+completed run after this change.
+
+## Hosted ARM64 candidate and Docker capacity
+
+GitHub Actions run 44908077935 built commit
+`b2e429737275b1f3f74d75608980aa0a4516aed0` without cache on Linux ARM64.
+The downloaded archive passed its SHA-256 check and recorded that revision.
+The hosted Docker image configuration was
+`sha256:5e752d730adde021e49e60ad4428dd1b602c16ca306dbe9fad74b1061cdb5154`;
+Docker Desktop represented the loaded image by manifest ID
+`sha256:17662c938a300611f973cf3f298b718004e72b66340e6d9352994acb988560ad`.
+Exporting the loaded image confirmed the same configuration digest. The
+candidate passed 52 workflow tests, 42 browser tests, the simulated CI fixture,
+PDF isolation/outage checks, and the Docker-to-Mac model-host fixture.
+
+After the candidate was loaded, the shared Docker VM filesystem became full.
+Both the candidate and previous image then failed SQLite startup with a disk
+I/O error. The candidate image was removed from Docker, while its verified
+archive was retained in the worktree artifact directory. With space restored,
+the previous image `sha256:e6fd74e9591abe565a3d78b7f25f72425f9a4d2ed59cbb209930b4320a22aff3`
+restarted successfully. Product, MCP/mobile authorization, PDF and restart
+persistence acceptance, browser MCP origin checks, and a real local 7B MCP
+coding request passed on the restored image. A checked database backup from
+before the attempted deployment is retained. The candidate is not deployed;
+its worktree deployment still requires sufficient Docker filesystem headroom
+and acceptance. A separate derived image was subsequently deployed as described
+below. This does not establish staging or full desktop parity.
+
+## Branch deployment using the hosted server binary
+
+The server binary was extracted from the verified hosted image archive and
+installed over the previous branch runtime image. Its SHA-256 is
+`ed157a11c317c8bbe208c1684d82d482d671fa6a74007e2830f84fb58ad42a82`;
+the derived image's Docker Desktop manifest ID is
+`sha256:089db6c1f6a4fba2f0ad2bea5419a616cc069da365420dfe6b4700bd4260fb09`.
+Its source revision is `b2e429737275b1f3f74d75608980aa0a4516aed0`.
+Between the previous image's source revision `7e53964` and that revision,
+runtime code changes were limited to workflow service and repository files;
+the Dockerfile, frontend, dependency manifests, lockfile, resources and
+shared client source were unchanged. The derived image is not the clean hosted
+image: it retains the previous image's runtime layers. Its Dockerfile, logs,
+hosted archive and checked pre-deployment database backup are retained in the
+worktree artifacts.
+
+The derived image passed 52 isolated workflow and 42 browser tests, PDF
+isolation and outage checks, and the Docker host-model fixture. After branch
+deployment, product creation, MCP/mobile authorization, PDF and persistence
+passed after restart; browser MCP origin checks and a real local 7B MCP coding
+request also passed. Docker VM free space remained about 2.5 GiB. To recover
+space after an initial derived build unpacked the base layers, one unused older
+rollback image was removed from Docker after verifying its preserved OCI
+archive and manifest; the current previous image is retained. Integration,
+staging and complete desktop parity remain unverified.
+
+The isolated workflow suite now also covers team capacity through MCP and the
+authenticated browser API. With capacity one, it starts the first work item,
+checks that a second start reports capacity without creating a workflow run,
+raises capacity through MCP and starts the second item. All 53 workflow tests
+passed against the deployed branch image with the simulated model provider.
+This validates those interface flows; it does not establish automatic retries,
+live third-party providers or staging acceptance.
+
+The two-server Linux planner fixture now also primes one server with a staged
+design, clears it through the other, and verifies the stale server's subsequent
+confirmation does not apply the cleared product area. It passed three repeated
+runs on the running branch image along with its existing concurrent-edit and duplicate-confirmation
+checks. This is one ordered clear/confirm scenario for cooperating processes;
+it does not cover every concurrent interleaving or non-cooperating writer.
+
+## Atomic workflow transitions
+
+The main workflow stage transitions and failure recording now update the
+stage, lifecycle and history in one SQLite transaction, conditioned on the
+observed stage and a running status. A conflicting or finalized run is not
+overwritten. The separate advance path uses the same database operation and
+marks a transition to `done` as completed. Fault-injection tests cover history
+write rollback, concurrent stale transitions, failure recording and terminal
+state protection. The native Rust library suite passed 311 tests with seven
+ignored before the final terminal-guard fixture, which was checked separately.
+This does not make agent side effects, coordinator pending-stage updates or Git
+push atomic with SQLite. The advance path can perform a Git push before its
+database transition and concurrent external delivery remains a separate risk.
+Against a disposable native server and simulated provider, a browser/MCP
+capacity workflow and a browser approval flow that changed coordinators and
+reached test review both passed. Subsequent container validation and branch
+deployment are recorded below.
+
+A macOS subprocess fixture subsequently started two independent processes
+against one temporary SQLite database and raced the same transition. Across
+five runs exactly one process succeeded, the other received a conflict and one
+history entry was recorded. This checks one transition on the local filesystem;
+the later hosted Linux test run also passed. External side effects remain
+separate checks.
+
+The new `workflow-transition-multiprocess` fixture starts two disposable
+Linux Studio containers against one temporary volume, holds a SQLite write lock
+while both request the same gate rejection, and checks the resulting state and
+history. Against the previously deployed image it reproduced two successful
+decisions. The atomic-transition candidate passed five races with one success,
+one rejected decision and one history entry per race.
+
+The hosted clean Linux ARM64 build of
+`68e46c9a059f6c99da26dd608367cafb6b32fa96` passed; its archive checksum and
+source revision were verified. The extracted server binary (SHA-256
+`c57411451542129709a081443362d7bcc2166d631d83c622b2703d17b87c5375`) was
+installed over the preceding branch runtime, producing derived image
+`sha256:6d5e6e0059ac96fad429b4a5d8f757cf51ba0ac181fe319dbab329b7059d527c`.
+This is not the complete hosted image. In addition to the two-container race,
+the candidate passed 53 workflow tests, 43 general browser tests, the dedicated
+bridge-token browser fixture, PDF isolation/outage and the Docker host-model
+fixture. After deployment, product, MCP/mobile authorization, PDF and
+persistence acceptance passed after restart, as did browser MCP-origin and real
+local 7B MCP coding checks. The verified archive, build records, checked
+pre-deployment database backup and previous image are retained. Docker VM free
+space remained about 2.0 GiB. Git pushes and other external effects are still
+outside the SQLite transaction; integration and staging are unverified.
+
+## Browser bridge bind settings
+
+The browser Activity view now loads and edits the saved server bind host and
+port. Its authenticated API validates inputs and atomically compares both
+loaded settings before writing, preserving an unsaved draft when another client
+changes either value. It explains restart, environment override and Docker port
+publishing behavior. A disposable native server and headless browser exercised
+a conflicting MCP edit, draft preservation, reload and successful save. A Rust
+API test covered authorization, malformed input, transactional rollback and
+simultaneous writes. Token administration remains a separate parity item; the
+settings do not themselves change the currently bound listener. The native Rust
+library suite passed 306 tests with seven ignored, and the frontend build and
+terminology check passed. Subsequent branch image validation is recorded below.
+
+`bash scripts/test native-bridge-bind <server-binary>` additionally starts a
+disposable native server with temporary credentials and storage. It verified
+unauthorized reads are rejected, the saved host and port persist across
+restarts, environment overrides take precedence, and the server listens on the
+saved port after the overrides are removed. This does not validate container
+port publication or a remote network client.
+
+The hosted clean Linux ARM64 build of commit
+`7c47d8c2db46a0619c5bf3c90b6c51e922c12cb0` succeeded; its archive checksum
+and recorded revision were verified. The server binary, SHA-256
+`69d00c100f991cd13045fe7ec4b18742a8c9206db658fbf8e72f743aa08c41b2`,
+was applied to the preceding branch runtime image to create the derived image
+`sha256:8ddba210fef2a8b959b4239c66a17c79f7b8bd9a006b3f79a347d6226665879e`.
+This is a derived image, not deployment of the complete hosted artifact. It
+passed 43 isolated browser and 53 workflow tests, PDF isolation/outage and the
+Docker host-model fixture. The refreshed worktree passed product, MCP/mobile
+authorization, PDF and persistence acceptance after restart, browser MCP-origin
+checks and a real local 7B MCP coding request. A checked database backup and
+the previous image are retained. The Docker VM still had approximately 2.3 GiB
+free; integration, staging and full desktop parity remain unverified.
+
+## Browser bridge token administration
+
+Activity now exposes write-only replacement and clearing for saved mobile and
+MCP tokens. The authenticated API returns only configuration flags and opaque,
+process-local keyed revisions; compare-and-swap rejects stale changes. Token
+changes take effect immediately unless an environment token overrides them. A
+browser replacing its active saved mobile token switches to the new credential;
+clearing it disables browser/mobile access until an administrator configures a
+token externally. The form warns before both actions and preserves a draft on a
+conflict or request error. A response interrupted after a successful write can
+leave the new credential active. Revisions are process-local and value-based;
+they do not detect an A-to-B-to-A change, and another process or restart requires
+a reload. Generic desktop/MCP setting operations still expose stored values.
+
+A disposable native server and headless browser verified conflict preservation,
+environment-provided MCP credential precedence, active mobile token rotation,
+old-token rejection, persistence after restart, access removal on clear and
+recovery using an environment token. The Rust library suite
+passed 307 tests with seven ignored; frontend build and terminology checks
+passed. The subsequent branch image and deployment checks are recorded below.
+
+The clean hosted ARM64 build of `9a9d9c0ffa56723cd90760e79389d8d2acfb4f24`
+passed and its archive checksum and source revision were verified. The server
+binary (SHA-256 `b01ebbfbe762d46f3c25c6486010b6fd02678d41b05418f38f34f10e32de0941`)
+was installed over the preceding branch runtime, yielding derived image
+`sha256:c6918007d3051beb517d71d8cf75f2aeb4cc3abffafa47d31500ba7733bfdc03`.
+This is not the complete hosted image. A disposable Docker volume, container
+and headless browser verified token conflict, rotation, restart, clearing and
+environment recovery; the same candidate passed 43 other browser tests, 53
+workflow tests, PDF isolation/outage and the Docker host-model fixture. After
+deployment, product, MCP/mobile authorization, PDF and persistence acceptance
+passed after restart, as did browser MCP-origin and real local 7B MCP coding
+checks. A read-only check confirmed the running branch's mobile and MCP tokens
+are environment-controlled. The verified archive, build records, checked
+pre-deployment backup and previous image are retained. Docker VM free space
+remained about 2.2 GiB; this is not integration or staging acceptance.
+
+## Workflow Git delivery coordination
+
+Manual workflow advancement and the normal Git delivery stage now coordinate
+through a per-run in-process lock and, on Unix with a file-backed SQLite database,
+a private advisory lock beside the database. Advancement records entry to the Git
+stage before delivery and completes only after the push succeeds; an error is
+recorded as a failed Git stage. A persisted delivery commit permits retry after a
+failed push. This changes manual advancement from push preparation to proceed
+through delivery to completion in the same call. A failure from a delayed stage
+executor is rejected if another request has already advanced the workflow.
+
+Focused native tests exercised two concurrent advances against a local bare Git
+remote, an unavailable delivery, and separate processes contending for the same
+lock. The native Rust library suite passed 316 tests with seven ignored. The lock
+requires cooperating versions and a filesystem that supports shared
+advisory locks; Windows and in-memory databases have only in-process coordination.
+It cannot make a remote Git push and a SQLite update one atomic operation: a
+crash after a successful push may cause a retry of the same recorded commit.
+These tests do not establish full parity or staging acceptance.
+
+The final native Rust suite on `1e5d3e5677650d1f43bcea713c26c0f4fa391eb7`
+passed 316 tests with seven ignored; 128 frontend tests, the frontend production
+build and terminology check also passed. Both hosted test runs and the clean
+Linux ARM64 image build passed for that revision. Its archive checksum and source
+revision were verified. The extracted server binary (SHA-256
+`c9744655773d871a5474aad3741c6ad8e650c9d9c65fe11889b77711ca1ed341`)
+was applied to the preceding branch runtime, whose non-Rust runtime inputs were
+unchanged, producing derived image
+`sha256:dcd18b42b42845e3950d9e98215bd91ba0da575b5d5d535a68308ae14c9cbaf5`.
+This is a derived image, not the full hosted artifact.
+
+The candidate passed five two-container transition races, 53 isolated workflow
+tests, 43 general browser tests and a separate token-administration browser
+test, PDF isolation/outage checks, and Docker-to-host model discovery and MCP
+completion against a fixture. After deployment, product, MCP/mobile authorization,
+PDF and persistence acceptance passed across a restart; the published-port
+browser MCP-origin checks and a real local 7B MCP coding request also passed.
+The branch endpoint after acceptance was `127.0.0.1:55253`; its port can change
+when restarted or recreated. A SQLite backup passed `quick_check`, and the prior image is
+retained for rollback. Mac integration, staging, real external services and full
+desktop parity remain unverified.
+
+The two-container fixture was subsequently extended to hold the delivery lock
+while two MCP clients advance the same workflow against a local bare Git remote.
+The candidate waited and produced one delivery commit and a completed workflow;
+the preceding image failed the fixture by bypassing the held lock. This proves the
+tested cross-process scenario, not exactly-once delivery after a process crash.
+
+### Workflow model-call parity (in validation)
+
+The selected work item's latest workflow can now display its recorded model
+calls in the browser. MCP exposes the same desktop query through
+`aruvi_workflows` / `list_agent_model_calls_for_workflow` with a
+`workflow_run_id` argument; the browser uses an authenticated workflow-specific
+endpoint. The added isolated workflow test checks authorization, workflow
+filtering, MCP/HTTP agreement, and the browser display. See the later deployment
+checkpoint at the top of this file for the completed Linux and branch checks.
+This adds call summaries; it is not proof
+of complete desktop workflow-review parity. The query currently returns all
+calls in the workflow, as does the desktop query, without pagination.

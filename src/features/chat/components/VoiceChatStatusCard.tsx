@@ -43,7 +43,7 @@ export function VoiceChatStatusCard({
       <div style={styles.statusBody}>{status}</div>
       <div style={styles.chips}>
         <div style={styles.chip}>{voiceEnabled ? "Mic enabled" : "Mic disabled in Settings"}</div>
-        <div style={styles.chip}>{speechModelName || "No speech model configured"}</div>
+        <div style={styles.chip}>{speechModelName ? `${speechModelName} (resolved at start)` : "Speech model resolved by server at start"}</div>
         <div style={styles.chip}>{turnState}</div>
       </div>
       <div style={styles.transcript}>

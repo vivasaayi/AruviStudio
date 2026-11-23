@@ -4,6 +4,7 @@ import type { DraftValidationSummary } from "./plannerDraftTree";
 import type { PlannerPlan, PlannerTreeNode } from "./plannerPageTypes";
 
 export type DesignReviewPacketInput = {
+  snapshotKind?: "proposal";
   title: string;
   generatedAt: string;
   activeProductName?: string | null;
@@ -50,8 +51,6 @@ export function buildDesignReviewPacketHtml(input: DesignReviewPacketInput) {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>${escapeHtml(input.title)} - Design Review Packet</title>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
-    <script>window.addEventListener("DOMContentLoaded", function () { if (window.mermaid) mermaid.initialize({ startOnLoad: true, theme: "base" }); });</script>
     <style>
       :root {
         color-scheme: light;
@@ -91,6 +90,8 @@ export function buildDesignReviewPacketHtml(input: DesignReviewPacketInput) {
       .warn { color: var(--warn); }
       .danger { color: var(--danger); }
       .diagram { background: #ffffff; border: 1px solid var(--border); border-radius: 12px; padding: 12px; overflow: auto; }
+      .diagram svg { display: block; min-width: 100%; }
+      .tree-row { margin: 3px 0; }
       pre { white-space: pre-wrap; word-break: break-word; background: #0f172a; color: #e2e8f0; border-radius: 12px; padding: 14px; overflow: auto; }
       .approval { border-color: #bfdbfe; background: #eff6ff; }
       @media print { body { background: white; } .shell { max-width: none; padding: 0; } .section, .hero { break-inside: avoid; } }
@@ -106,7 +107,7 @@ export function buildDesignReviewPacketHtml(input: DesignReviewPacketInput) {
           <div class="metric"><div class="metric-label">Current Products</div><div class="metric-value">${input.currentProducts.length}</div></div>
           <div class="metric"><div class="metric-label">Draft Roots</div><div class="metric-value">${input.draftTreeNodes.length}</div></div>
           <div class="metric"><div class="metric-label">Proposed Changes</div><div class="metric-value">${input.plan?.actions.length ?? 0}</div></div>
-          <div class="metric"><div class="metric-label">Readiness</div><div class="metric-value">${input.validation.score}</div></div>
+          <div class="metric"><div class="metric-label">Readiness</div><div class="metric-value">${escapeHtml(input.validation.score)}</div></div>
         </div>
         <nav class="toc">
           ${[
@@ -145,7 +146,7 @@ export function buildDesignReviewPacketHtml(input: DesignReviewPacketInput) {
       ])}
 
       ${packetSection(3, "Proposed Architecture", [
-        `<div class="diagram"><pre class="mermaid">${escapeHtml(buildMermaidDiagram(input.draftTreeNodes))}</pre></div>`,
+        buildOfflineTree(input.draftTreeNodes),
         paragraph("The architecture diagram is generated from the staged design tree. Use it to inspect hierarchy, ownership, and major boundaries before applying changes."),
       ])}
 
@@ -230,36 +231,35 @@ export function list(items: string[]) {
   return `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>`;
 }
 
-export function buildMermaidDiagram(nodes: PlannerTreeNode[]) {
-  if (nodes.length === 0) {
-    return "flowchart TD\n  Empty[No staged design yet]";
+// Render a bounded visual overview plus the complete hierarchy without scripts or
+// external resources. A flat traversal avoids recursive rendering of deep drafts.
+export function buildOfflineTree(nodes: PlannerTreeNode[]) {
+  const rows: { node: PlannerTreeNode; depth: number; parent: number | null }[] = [];
+  const pending = nodes.map((node) => ({ node, depth: 0, parent: null as number | null })).reverse();
+  while (pending.length) {
+    const row = pending.pop()!;
+    const index = rows.push(row) - 1;
+    for (let i = row.node.children.length - 1; i >= 0; i--) {
+      pending.push({ node: row.node.children[i], depth: row.depth + 1, parent: index });
+    }
   }
-  const lines = ["flowchart TD"];
-  const seen = new Set<string>();
-
-  const walk = (node: PlannerTreeNode, parentId?: string) => {
-    const nodeId = mermaidNodeId(node.id);
-    if (!seen.has(nodeId)) {
-      lines.push(`  ${nodeId}["${escapeMermaidLabel(node.label)}"]`);
-      seen.add(nodeId);
-    }
-    if (parentId) {
-      lines.push(`  ${parentId} --> ${nodeId}`);
-    }
-    node.children.forEach((child) => walk(child, nodeId));
-  };
-
-  nodes.forEach((node) => walk(node));
-  return lines.join("\n");
-}
-
-export function mermaidNodeId(value: string) {
-  const cleaned = value.replace(/[^a-zA-Z0-9_]/g, "_");
-  return /^[a-zA-Z_]/.test(cleaned) ? cleaned : `node_${cleaned}`;
-}
-
-export function escapeMermaidLabel(value: string) {
-  return value.replace(/"/g, "'").replace(/\n/g, " ");
+  if (!rows.length) return '<div class="diagram">No staged design yet.</div>';
+  const shown = rows.slice(0, 100);
+  const width = 240 + Math.max(...shown.map((row) => Math.min(row.depth, 8))) * 160;
+  const height = shown.length * 50 + 20;
+  const shapes = shown.map((row, index) => {
+    const x = 10 + Math.min(row.depth, 8) * 160;
+    const y = 10 + index * 50;
+    const parent = row.parent === null ? "" : (() => {
+      const px = 150 + Math.min(shown[row.parent!].depth, 8) * 160;
+      const py = 26 + row.parent! * 50;
+      return `<path d="M ${px} ${py} H ${x} V ${y + 16}" fill="none" stroke="#94a3b8"/>`;
+    })();
+    const short = Array.from(row.node.label).slice(0, 20).join("");
+    return `${parent}<g><title>${escapeHtml(row.node.label)}</title><rect x="${x}" y="${y}" width="140" height="32" rx="5" fill="#eff6ff" stroke="#2563eb"/><text x="${x + 6}" y="${y + 21}" font-size="11">${escapeHtml(short)}</text></g>`;
+  }).join("");
+  const fullTree = rows.map((row) => `<div class="tree-row" role="listitem" aria-level="${row.depth + 1}" style="padding-left:${Math.min(row.depth, 8) * 20}px">${escapeHtml(row.node.label)}</div>`).join("");
+  return `<div class="diagram"><svg role="img" aria-label="Staged design hierarchy" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">${shapes}</svg>${rows.length > 100 ? "<p>Diagram shows the first 100 nodes; the complete tree follows.</p>" : ""}<div role="list" aria-label="Complete staged design hierarchy">${fullTree}</div></div>`;
 }
 
 export function escapeHtml(value: string | number | null | undefined) {

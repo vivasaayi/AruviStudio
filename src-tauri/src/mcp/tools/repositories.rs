@@ -1,4 +1,4 @@
-use crate::commands::repository_commands::{create_local_workspace_for_scope, register_repository_for_state};
+use crate::commands::repository_commands::{create_local_workspace_for_scope, lock_repository_root, register_repository_for_state, update_repository_for_state};
 use crate::error::AppError;
 use crate::persistence::repository_repo;
 use crate::services::repo_service;
@@ -26,6 +26,18 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             )
             .await?;
             action_result("register_repository", repository)
+        }
+        "update_repository" => {
+            let repository = update_repository_for_state(
+                state,
+                args.required_string(&["id"], "id")?,
+                args.required_string(&["name"], "name")?,
+                args.required_string(&["local_path", "localPath"], "local_path")?,
+                args.required_string(&["remote_url", "remoteUrl"], "remote_url")?,
+                args.required_string(&["default_branch", "defaultBranch"], "default_branch")?,
+                Some(args.required_deserialize(&["expected"], "expected")?),
+            ).await?.ok_or_else(|| AppError::Validation("Workspace changed or was removed".into()))?;
+            action_result("update_repository", repository)
         }
         "list_repositories" => action_result(
             "list_repositories",
@@ -63,6 +75,10 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let scope_id = args.required_string(&["scope_id", "scopeId"], "scope_id")?;
             action_result("list_repository_attachments", repository_repo::list_repository_attachments(&state.db, &scope_type, &scope_id).await?)
         }
+        "list_all_repository_attachments" => action_result(
+            "list_all_repository_attachments",
+            repository_repo::list_all_repository_attachments(&state.db).await?,
+        ),
         "set_default_repository" | "detach_repository" => {
             let scope_type = normalize_repository_scope_type(&args.required_string(&["scope_type", "scopeType"], "scope_type")?)?;
             let scope_id = args.required_string(&["scope_id", "scopeId"], "scope_id")?;
@@ -119,66 +135,91 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         "read_repository_file" => {
             let repository_id =
                 args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
-            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
             let content = repo_service::read_repository_file(
-                &repository.local_path,
+                &root,
                 &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
             )?;
-            action_result("read_repository_file", json!({ "content": content }))
+            transaction.commit().await?;
+            action_result("read_repository_file", json!({ "content": content, "workspace_root": root }))
+        }
+        "read_repository_binary" => {
+            use base64::Engine as _;
+            let repository_id = args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
+            let path = args.required_string(&["relative_path", "relativePath"], "relative_path")?;
+            let bytes = crate::services::repo_file_service::read_repository_binary(&root, &path)?;
+            let result = json!({"content_base64":base64::engine::general_purpose::STANDARD.encode(&bytes), "size":bytes.len(), "workspace_root":root});
+            transaction.commit().await?;
+            action_result("read_repository_binary", result)
         }
         "write_repository_file" => {
             let repository_id =
                 args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
-            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
             repo_service::write_repository_file(
-                &repository.local_path,
+                &root,
                 &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
                 &args.required_string(&["content"], "content")?,
             )?;
+            transaction.commit().await?;
             Ok(action_ok("write_repository_file"))
         }
         "get_repository_file_sha256" => {
             let repository_id =
                 args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
-            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
             let sha = repo_service::get_repository_file_sha256(
-                &repository.local_path,
+                &root,
                 &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
             )?;
-            action_result("get_repository_file_sha256", json!({ "sha256": sha }))
+            transaction.commit().await?;
+            action_result("get_repository_file_sha256", json!({ "sha256": sha, "workspace_root": root }))
         }
         "apply_reviewed_repository_patch" => {
             let repository_id = args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
-            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
             let expected_exists = args.optional_bool(&["expected_exists", "expectedExists"])?.ok_or_else(|| AppError::Validation("missing expected_exists".into()))?;
-            let sha = repo_service::apply_reviewed_repository_patch(&repository.local_path,
+            let sha = repo_service::apply_reviewed_repository_patch(&root,
                 &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
                 &args.required_string(&["patch"], "patch")?,
                 &args.required_string(&["base_sha256", "baseSha256"], "base_sha256")?, expected_exists)?;
+            transaction.commit().await?;
             action_result("apply_reviewed_repository_patch", json!({ "sha256": sha }))
         }
         "preview_repository_patch" => {
             let repository_id = args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
-            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
             let preview = repo_service::preview_repository_patch(
-                &repository.local_path,
+                &root,
                 &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
                 &args.required_string(&["patch"], "patch")?,
                 args.optional_string(&["base_sha256", "baseSha256"])?.as_deref(),
             )?;
-            action_result("preview_repository_patch", preview)
+            let mut result = serde_json::to_value(preview)?;
+            result["workspace_root"] = json!(root);
+            transaction.commit().await?;
+            action_result("preview_repository_patch", result)
         }
         "apply_repository_patch" => {
             let repository_id =
                 args.required_string(&["repository_id", "repositoryId"], "repository_id")?;
-            let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
+            let expected = args.optional_string(&["expected_root", "expectedRoot"])?;
+            let (transaction, root) = lock_repository_root(state, &repository_id, expected.as_deref()).await?;
             let sha = repo_service::apply_repository_patch(
-                &repository.local_path,
+                &root,
                 &args.required_string(&["relative_path", "relativePath"], "relative_path")?,
                 &args.required_string(&["patch"], "patch")?,
                 args.optional_string(&["base_sha256", "baseSha256"])?
                     .as_deref(),
             )?;
+            transaction.commit().await?;
             action_result("apply_repository_patch", json!({ "sha256": sha }))
         }
         "get_git_status" => {

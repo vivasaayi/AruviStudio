@@ -261,8 +261,15 @@ export function useProductOverviewPageController({
         break;
     }
 
+    const plannerCatalogNode = action.kind === "enhance_product_area" || action.kind === "add_product_area_child"
+      ? { productId: product.id, nodeType: "product_area", nodeId: action.product_area.id }
+      : action.kind === "enhance_capability" || action.kind === "add_capability_child" || action.kind === "add_capability_work_item"
+        ? { productId: product.id, nodeType: "capability", nodeId: action.capability.id }
+        : action.kind === "enhance_work_item"
+          ? { productId: product.id, nodeType: "work_item", nodeId: action.workItem.id }
+          : { productId: product.id, nodeType: "product", nodeId: product.id };
     setActiveView("planner");
-    navigate("/planner", { state: { plannerPrompt: prompt, plannerView: "conversation" } });
+    navigate("/planner", { state: { plannerPrompt: prompt, plannerView: "conversation", plannerCatalogNode } });
   };
 
   return {

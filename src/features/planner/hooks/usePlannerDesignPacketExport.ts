@@ -5,12 +5,12 @@ import {
   buildPlannerReviewPacket,
   exportProductOverviewHtml,
   getProductTree,
+  renderPlannerPacketSnapshot,
+  validatePlannerTree,
 } from "../../../lib/tauri";
 import type { Product, ProductTree, WorkItem } from "../../../lib/types";
 import {
-  buildDesignReviewPacketHtml,
   makeId,
-  slugifyPacketName,
   type PlannerMessage,
   type PlannerPlan,
   type PlannerTreeNode,
@@ -54,30 +54,31 @@ export function usePlannerDesignPacketExport({
   const [designPacketError, setDesignPacketError] = useState<string | null>(null);
   const [isExportingDesignPacket, setIsExportingDesignPacket] = useState(false);
 
-  const exportDesignReviewPacket = async () => {
+  const exportDesignReviewPacket = async (proposal?: PlannerMessage) => {
     if (isExportingDesignPacket) {
       return;
     }
-    const packetRootName = draftTreeNodes[0]?.label ?? activeProductName ?? "Design Review Packet";
+    const packetNodes = proposal ? proposal.proposalDraftSnapshot ?? [] : draftTreeNodes;
+    const packetRootName = packetNodes[0]?.label ?? activeProductName ?? "Design Review Packet";
     try {
       setIsExportingDesignPacket(true);
       setDesignPacketError(null);
       let packet: { filename: string; html: string };
-      if (sessionId) {
+      if (proposal && !proposal.plan) throw new Error("The selected proposal is unavailable.");
+      if (sessionId && !proposal) {
         packet = await buildPlannerReviewPacket(sessionId, draftTreeNodes, selectedDraftNode?.id ?? null);
       } else {
         const exportProductTrees = selectedProductId
           ? [await queryClient.fetchQuery({ queryKey: ["plannerProductTree", selectedProductId], queryFn: () => getProductTree(selectedProductId) })]
           : productTrees;
-        packet = {
-          filename: `${slugifyPacketName(packetRootName)}-design-review-packet.html`,
-          html: buildDesignReviewPacketHtml({
+        packet = await renderPlannerPacketSnapshot({
+            ...(proposal ? { snapshotKind: "proposal" } : {}),
             title: packetRootName, generatedAt: new Date().toLocaleString(), activeProductName,
             currentProducts: products, currentProductTrees: exportProductTrees, currentWorkItems: workItems,
-            currentWorkItemsHasMore: plannerWorkItemsHasMore, draftTreeNodes, plan: latestDraftPlan,
-            validation: draftValidation, selectedNode: selectedDraftNode, latestAssistantText: latestAssistantMessage?.content ?? null,
-          }),
-        };
+            currentWorkItemsHasMore: plannerWorkItemsHasMore, draftTreeNodes: packetNodes, plan: proposal?.plan ?? latestDraftPlan,
+            validation: proposal ? await validatePlannerTree<DraftValidationSummary>(packetNodes) : draftValidation,
+            selectedNode: proposal ? null : selectedDraftNode, latestAssistantText: proposal?.content ?? latestAssistantMessage?.content ?? null,
+        });
       }
       const path = await exportProductOverviewHtml({ fileName: packet.filename, html: packet.html });
       setDesignPacketPath(path);

@@ -2,11 +2,12 @@ use crate::error::AppError;
 use crate::persistence::{product_area_repo, product_capability_repo, product_core_repo, product_repo, work_item_repo, work_item_write_repo};
 use sqlx::SqliteConnection;
 use crate::services::planner_action_fields::{format_joined, string_array_field, string_field};
+use crate::services::planner_catalog_binding::{apply_bound_area, apply_bound_capability, apply_bound_work_item, check_bound_product};
 use crate::services::planner_draft::{build_draft_node_path, find_draft_ancestor_node_by_type};
 use crate::services::planner_service::PlannerDraftPlan;
 #[cfg(test)]
 use crate::state::AppState;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[cfg(test)]
 pub(crate) async fn commit_draft_plan(
@@ -27,6 +28,10 @@ pub(crate) async fn commit_draft_plan_in_conn(
     let mut product_ids: HashMap<String, String> = HashMap::new();
     let mut product_area_ids: HashMap<String, String> = HashMap::new();
     let mut capability_ids: HashMap<String, String> = HashMap::new();
+    if draft_plan.nodes.iter().any(|node| node.details.get("_catalog_binding").is_some() && !matches!(node.node_type.as_str(), "product" | "product_area" | "capability" | "work_item")) {
+        return Err(AppError::Validation("Staged catalog binding has an unsupported node kind.".into()));
+    }
+    let has_bound_nodes = draft_plan.nodes.iter().any(|node| node.node_type != "product" && node.details.get("_catalog_binding").is_some());
 
     let mut products = draft_plan
         .nodes
@@ -52,14 +57,29 @@ pub(crate) async fn commit_draft_plan_in_conn(
         let product_evidence = string_field(details, "evidence");
         let existing_product = match product_core_repo::get_product_in_conn(conn, &product_node.id).await {
             Ok(product) => Some(product),
-            Err(_) => product_core_repo::list_products_in_conn(conn)
-                .await?
-                .into_iter()
-                .find(|product| {
-                    normalize_name(Some(product.name.as_str()))
-                        == normalize_name(Some(product_node.name.as_str()))
-                }),
+            Err(AppError::NotFound(_)) => {
+                if string_field(details, "type").as_deref() == Some("update_product") {
+                    return Err(AppError::Validation("The product linked to this draft no longer exists; review the design before applying it.".into()));
+                }
+                let mut matches = product_core_repo::list_products_in_conn(conn)
+                    .await?
+                    .into_iter()
+                    .filter(|product| {
+                        normalize_name(Some(product.name.as_str()))
+                            == normalize_name(Some(product_node.name.as_str()))
+                    });
+                let first = matches.next();
+                if matches.next().is_some() {
+                    return Err(AppError::Validation(format!(
+                        "Multiple products match draft product \"{}\"; resolve its identity before applying the design.",
+                        product_node.name
+                    )));
+                }
+                first
+            }
+            Err(error) => return Err(error),
         };
+        check_bound_product(&product_node, existing_product.as_ref(), has_bound_nodes)?;
         let product = if let Some(existing_product) = existing_product {
             product_core_repo::update_product_in_conn(
                 conn,
@@ -129,7 +149,9 @@ pub(crate) async fn commit_draft_plan_in_conn(
             let test_guidance = string_field(&product_area_node.details, "testGuidance")
                 .or_else(|| string_field(&product_area_node.details, "test_guidance"))
                 .unwrap_or_default();
-            let product_area = product_area_repo::create_product_area_in_conn(
+            let bound = apply_bound_area(conn, &product_area_node, &product.id).await?;
+            let was_bound = bound.is_some();
+            let product_area = if let Some(area) = bound { area } else { product_area_repo::create_product_area_in_conn(
                 conn,
                 product_repo::CreateProductAreaInput {
                     id: &id,
@@ -144,10 +166,10 @@ pub(crate) async fn commit_draft_plan_in_conn(
                     test_guidance: &test_guidance,
                 },
             )
-            .await?;
+            .await? };
             lines.push(format!(
-                "Created product area \"{}\" in \"{}\".",
-                product_area.name, product.name
+                "{} product area \"{}\" in \"{}\".",
+                if was_bound { "Updated" } else { "Created" }, product_area.name, product.name
             ));
             product_area_ids.insert(product_area_node.id.clone(), product_area.id.clone());
         }
@@ -227,7 +249,9 @@ pub(crate) async fn commit_draft_plan_in_conn(
             let test_guidance = string_field(&capability_node.details, "testGuidance")
                 .or_else(|| string_field(&capability_node.details, "test_guidance"))
                 .unwrap_or_default();
-            let capability = product_capability_repo::create_capability_in_conn(
+            let bound = apply_bound_capability(conn, &capability_node, &product_area_id, parent_capability_id.as_deref()).await?;
+            let was_bound = bound.is_some();
+            let capability = if let Some(capability) = bound { capability } else { product_capability_repo::create_capability_in_conn(
                 conn,
                 product_repo::CreateCapabilityInput {
                     id: &id,
@@ -246,8 +270,8 @@ pub(crate) async fn commit_draft_plan_in_conn(
                     test_guidance: &test_guidance,
                 },
             )
-            .await?;
-            lines.push(format!("Created capability \"{}\".", capability.name));
+            .await? };
+            lines.push(format!("{} capability \"{}\".", if was_bound { "Updated" } else { "Created" }, capability.name));
             capability_ids.insert(capability_node.id.clone(), capability.id.clone());
             progressed = true;
         }
@@ -275,50 +299,48 @@ pub(crate) async fn commit_draft_plan_in_conn(
         .collect::<Vec<_>>();
     work_items.sort_by(|left, right| left.name.cmp(&right.name));
 
-    for work_item_node in work_items {
-        let mut product_id = None;
-        let mut product_area_id = None;
-        let mut capability_id = None;
-        let mut parent = work_item_node.parent_id.as_deref();
-        while let Some(parent_id) = parent {
-            if let Some(node) = draft_plan
-                .nodes
-                .iter()
-                .find(|candidate| candidate.id == parent_id)
-            {
+    let mut work_item_ids: HashMap<String, String> = HashMap::new();
+    let mut pending = work_items;
+    while !pending.is_empty() {
+        let mut remaining = Vec::new();
+        let mut progressed = false;
+        for work_item_node in pending {
+            let mut product_id = None;
+            let mut product_area_id = None;
+            let mut capability_id = None;
+            let mut parent_work_item_id = None;
+            let mut parent = work_item_node.parent_id.as_deref();
+            let mut seen = HashSet::new();
+            seen.insert(work_item_node.id.as_str());
+            let mut waiting = false;
+            while let Some(parent_id) = parent {
+                if !seen.insert(parent_id) {
+                    return Err(AppError::Validation("Draft work item ancestry is cyclic.".into()));
+                }
+                let node = draft_plan.nodes.iter().find(|candidate| candidate.id == parent_id)
+                    .ok_or_else(|| AppError::Validation("Draft work item parent is missing.".into()))?;
                 match node.node_type.as_str() {
-                    "capability" => {
-                        capability_id = capability_ids.get(&node.id).cloned();
+                    "work_item" => {
+                        if parent_work_item_id.is_none() {
+                            if let Some(id) = work_item_ids.get(&node.id) { parent_work_item_id = Some(id.clone()); }
+                            else { waiting = true; }
+                        }
                     }
-                    "product_area" => {
-                        product_area_id = product_area_ids.get(&node.id).cloned();
-                    }
-                    "product" => {
-                        product_id = product_ids.get(&node.id).cloned();
-                    }
-                    _ => {}
+                    "capability" => { if capability_id.is_none() { capability_id = capability_ids.get(&node.id).cloned(); } }
+                    "product_area" => { product_area_id = product_area_ids.get(&node.id).cloned(); }
+                    "product" => { product_id = product_ids.get(&node.id).cloned(); }
+                    _ => return Err(AppError::Validation("Draft work item has an unsupported parent.".into())),
                 }
                 parent = node.parent_id.as_deref();
-            } else {
-                parent = None;
             }
-        }
-        let product_id = product_id
-            .or_else(|| {
-                product_area_id.as_ref().and_then(|product_area_id| {
-                    draft_plan
-                        .nodes
-                        .iter()
-                        .find(|node| product_area_ids.get(&node.id) == Some(product_area_id))
-                        .and_then(|node| node.parent_id.as_ref())
-                        .and_then(|parent_id| product_ids.get(parent_id))
-                        .cloned()
-                })
-            })
-            .ok_or_else(|| {
-                AppError::Validation("Draft work item is missing a product".to_string())
-            })?;
-
+            if waiting { remaining.push(work_item_node); continue; }
+            let product_id = product_id.ok_or_else(|| AppError::Validation("Draft work item is missing a product".into()))?;
+            if let Some(item) = apply_bound_work_item(conn, &work_item_node, &product_id, product_area_id.as_deref(), capability_id.as_deref(), parent_work_item_id.as_deref()).await? {
+                lines.push(format!("Updated work item \"{}\".", item.title));
+                work_item_ids.insert(work_item_node.id.clone(), item.id);
+                progressed = true;
+                continue;
+            }
         let id = uuid::Uuid::new_v4().to_string();
         let problem_statement = string_field(&work_item_node.details, "problemStatement")
             .or_else(|| work_item_node.summary.clone())
@@ -344,7 +366,7 @@ pub(crate) async fn commit_draft_plan_in_conn(
                 capability_id: capability_id.as_deref(),
                 source_node_id: None,
                 source_node_type: None,
-                parent_work_item_id: None,
+                parent_work_item_id: parent_work_item_id.as_deref(),
                 title: &work_item_node.name,
                 problem_statement: &problem_statement,
                 description: &description,
@@ -357,6 +379,11 @@ pub(crate) async fn commit_draft_plan_in_conn(
         )
         .await?;
         lines.push(format!("Created work item \"{}\".", work_item.title));
+            work_item_ids.insert(work_item_node.id.clone(), work_item.id);
+            progressed = true;
+        }
+        if !progressed { return Err(AppError::Validation("Draft work items could not resolve their parents.".into())); }
+        pending = remaining;
     }
 
     Ok(lines)

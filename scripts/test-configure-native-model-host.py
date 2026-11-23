@@ -208,11 +208,13 @@ class WatchTests(unittest.TestCase):
         with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--watch", "--poll-seconds", "1"]), \
              mock.patch.object(module, "read_host_state", side_effect=state), \
              mock.patch.object(module, "configure", return_value=result) as configure, \
+             mock.patch.object(module, "probe_studio") as probe, \
              mock.patch.object(module.time, "sleep", side_effect=stop_after_four_sleeps), \
              contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()) as errors:
             with self.assertRaises(KeyboardInterrupt):
                 module.main()
         self.assertEqual(configure.call_count, 2)
+        self.assertEqual(probe.call_count, 1)
         self.assertEqual([call.args[:2] for call in configure.call_args_list], [(10001, "synthetic-one"), (10002, "synthetic-two")])
         self.assertEqual([call.kwargs["rotate_credential"] for call in configure.call_args_list], [True, True])
         self.assertIn("retrying", errors.getvalue())
@@ -276,17 +278,39 @@ class WatchTests(unittest.TestCase):
         self.assertEqual(configure.call_count, 2)
         self.assertEqual([call.kwargs["rotate_credential"] for call in configure.call_args_list], [True, False])
 
+    def test_studio_outage_is_detected_and_revalidated_without_rotating_key(self):
+        state = (10001, "synthetic-token", 101)
+        failure = subprocess.CalledProcessError(1, "private-command", output="synthetic-token", stderr="synthetic-token")
+        with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--watch", "--poll-seconds", "1"]), \
+             mock.patch.object(module, "read_host_state", return_value=state), \
+             mock.patch.object(module, "configure", return_value={"provider": "Fixture"}) as configure, \
+             mock.patch.object(module, "probe_studio", side_effect=failure) as probe, \
+             mock.patch.object(module.time, "sleep", side_effect=[None, None, KeyboardInterrupt()]), \
+             contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()) as errors:
+            with self.assertRaises(KeyboardInterrupt):
+                module.main()
+        self.assertEqual(probe.call_count, 1)
+        self.assertEqual([call.kwargs["rotate_credential"] for call in configure.call_args_list], [True, False])
+        self.assertIn("retrying", errors.getvalue())
+        self.assertNotIn("synthetic-token", errors.getvalue() + output.getvalue())
+
+    def test_studio_probe_rejects_malformed_provider_list(self):
+        with mock.patch.object(module, "mcp", return_value=[]): module.probe_studio()
+        with mock.patch.object(module, "mcp", return_value={}), self.assertRaises(module.SetupError): module.probe_studio()
+
     def test_new_process_on_same_endpoint_is_revalidated_without_key_rotation(self):
         states = [(10001, "synthetic-token", 101), (10001, "synthetic-token", 102), (10001, "synthetic-token", 102)]
         with mock.patch.object(sys, "argv", ["configure-native-model-host", ".", "--watch", "--poll-seconds", "1"]), \
              mock.patch.object(module, "read_host_state", side_effect=states), \
              mock.patch.object(module, "configure", return_value={"provider": "Fixture"}) as configure, \
+             mock.patch.object(module, "probe_studio") as probe, \
              mock.patch.object(module.time, "sleep", side_effect=[None, None, KeyboardInterrupt()]), \
              contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(KeyboardInterrupt):
                 module.main()
         self.assertEqual(configure.call_count, 2)
         self.assertEqual([call.kwargs["rotate_credential"] for call in configure.call_args_list], [True, False])
+        self.assertEqual(probe.call_count, 1)
 
 
 if __name__ == "__main__":

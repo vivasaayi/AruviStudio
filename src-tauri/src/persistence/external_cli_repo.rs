@@ -65,6 +65,20 @@ pub async fn create_external_cli_run(
     get_external_cli_run(pool, id).await
 }
 
+pub async fn create_remote_external_cli_run(
+    pool: &SqlitePool, id: &str, invocation: &ExternalCliInvocation, repository_id: &str,
+) -> Result<ExternalCliRun, AppError> {
+    let result = sqlx::query("INSERT INTO external_cli_runs (id,work_item_id,provider,label,command,args_json,prompt,cwd,status,session_log_path,started_at) SELECT ?,?,?,?,?,?,?,?,'running',?,datetime('now') WHERE EXISTS (SELECT 1 FROM work_items w WHERE w.id=? AND COALESCE((SELECT id FROM repositories WHERE id=w.repo_override_id),(SELECT id FROM repositories WHERE id=w.active_repo_id),(SELECT r.id FROM repositories r JOIN repository_attachments a ON a.repository_id=r.id WHERE a.scope_type='product_area' AND a.scope_id=w.product_area_id AND a.is_default=1 LIMIT 1),(SELECT r.id FROM repositories r JOIN repository_attachments a ON a.repository_id=r.id WHERE a.scope_type='product' AND a.scope_id=w.product_id AND a.is_default=1 LIMIT 1))=? AND EXISTS (SELECT 1 FROM repositories r WHERE r.id=? AND r.local_path=?)) AND NOT EXISTS (SELECT 1 FROM external_cli_runs WHERE work_item_id=? AND status='running') AND NOT EXISTS (SELECT 1 FROM workflow_runs WHERE work_item_id=? AND status IN ('running','paused') AND current_stage NOT IN ('done','failed','cancelled'))")
+        .bind(id).bind(&invocation.work_item_id).bind(&invocation.provider).bind(&invocation.label)
+        .bind(&invocation.command).bind(serde_json::to_string(&invocation.args)?).bind(&invocation.prompt)
+        .bind(&invocation.cwd).bind(&invocation.session_log_path).bind(&invocation.work_item_id).bind(repository_id)
+        .bind(repository_id).bind(&invocation.cwd).bind(&invocation.work_item_id).bind(&invocation.work_item_id).execute(pool).await?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::Validation("Workspace changed or a CLI run or workflow is active; refresh and review".into()));
+    }
+    get_external_cli_run(pool, id).await
+}
+
 pub struct CompleteExternalCliRunInput<'a> {
     pub id: &'a str,
     pub status: &'a str,
@@ -186,6 +200,7 @@ pub async fn list_external_cli_run_events(
 pub async fn mark_interrupted_external_cli_runs(pool: &SqlitePool) -> Result<u64, AppError> {
     let message =
         "Run marked failed because Aruvi Studio restarted before the external CLI process reported completion.";
+    let mut transaction = pool.begin().await?;
     sqlx::query(
         "INSERT INTO external_cli_run_events (
             id,run_id,work_item_id,stream,message,sequence
@@ -205,7 +220,7 @@ pub async fn mark_interrupted_external_cli_runs(pool: &SqlitePool) -> Result<u64
          WHERE r.status = 'running'",
     )
     .bind(message)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
 
     let result = sqlx::query(
@@ -221,9 +236,9 @@ pub async fn mark_interrupted_external_cli_runs(pool: &SqlitePool) -> Result<u64
          WHERE status='running'",
     )
     .bind(message)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
-
+    transaction.commit().await?;
     Ok(result.rows_affected())
 }
 
@@ -240,4 +255,12 @@ pub async fn list_external_cli_runs_for_work_item(
     .fetch_all(pool)
     .await
     .map_err(|e| e.into())
+}
+
+pub async fn list_recent_external_cli_runs_for_work_item(
+    pool: &SqlitePool,
+    work_item_id: &str,
+) -> Result<Vec<ExternalCliRun>, AppError> {
+    sqlx::query("SELECT id,work_item_id,provider,label,command,args_json,prompt,cwd,status,exit_code,duration_ms,stdout_chars,stderr_chars,session_log_path,output_artifact_id,error_message,started_at,ended_at,created_at FROM external_cli_runs WHERE work_item_id=? ORDER BY started_at DESC, id DESC LIMIT 100")
+        .bind(work_item_id).map(row_to_external_cli_run).fetch_all(pool).await.map_err(|e| e.into())
 }

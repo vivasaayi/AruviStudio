@@ -38,7 +38,7 @@ try:
         if subprocess.run(["docker", kind, "inspect", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0:
             raise ValueError(f"Disposable {kind} name already exists")
     volume_owned = True
-    compose_env = dict(os.environ, APP_IMAGE=environment(envfile)["APP_IMAGE"], PRODUCT_SOURCE=str(root), TEST_SOCKET_NAME=volume, TEST_PDF_SOCKET_NAME=pdf_volume, COMPOSE_IGNORE_ORPHANS="true")
+    compose_env = dict(os.environ, APP_IMAGE=os.environ.get("ARUVI_TEST_APP_IMAGE") or environment(envfile)["APP_IMAGE"], PRODUCT_SOURCE=str(root), TEST_SOCKET_NAME=volume, TEST_PDF_SOCKET_NAME=pdf_volume, COMPOSE_IGNORE_ORPHANS="true")
     compose = ["docker", "compose", "--project-name", studio["project"], "--project-directory", str(root), "--env-file", str(envfile), "-f", str(root / "deploy/compose.test.yaml")]
     command(compose + ["run", "--rm", "-d", "--name", container, "-p", "127.0.0.1::8787", "fixture"], env=compose_env)
     container_created = True
@@ -65,8 +65,11 @@ try:
     provider = mcp("aruvi_models", "create_provider", {"name":"File Copilot fixture", "base_url":f"http://host.docker.internal:{port}/v1", "auth_secret_ref":"ref:coding-fixture"})
     repo = mcp("aruvi_repositories", "register_repository", {"name":"File fixture", "local_path":"/repositories/copilot-fixture", "default_branch":"main"})
     file = post("/api/mobile/repository-inspect", {"action":"read_repository_file", "repository_id":repo["id"], "relative_path":"math.js"}, "workflow-mobile-test")
+    snapshot = mcp("aruvi_repositories", "get_repository_file_sha256", {"repository_id":repo["id"], "relative_path":"math.js"})
+    if snapshot["sha256"] != file["sha256"] or snapshot["workspace_root"] != repo["local_path"]:
+        raise ValueError("MCP digest and workspace snapshot did not match the opened file")
     model = os.environ.get("ARUVI_CODING_TEST_MODEL", "qwen25-coder-7b-q4")
-    payload = {"repository_id":repo["id"], "relative_path":"math.js", "expected_sha256":file["sha256"], "provider_id":provider["id"], "model_name":model, "question":"Name the function defined in this file."}
+    payload = {"repository_id":repo["id"], "relative_path":"math.js", "expected_sha256":snapshot["sha256"], "expected_root":snapshot["workspace_root"], "provider_id":provider["id"], "model_name":model, "question":"Name the function defined in this file."}
     answer = post("/api/mobile/repository-file/copilot", payload, "workflow-mobile-test")
     if "multiplybyseven" not in answer.get("content", "").lower():
         raise ValueError("Model response did not identify the fixture function")
@@ -92,7 +95,7 @@ try:
         if proposal.get("type") != "patch_proposal" or len(proposal.get("patches", [])) != 1 or proposal["patches"][0].get("path") != "math.js":
             raise ValueError(f"{interface} proposal had an unexpected shape: {content[:800]}")
         patch = proposal["patches"][0]["patch"]
-        args = {"repository_id": repo["id"], "relative_path": "math.js", "patch": patch, "base_sha256": file["sha256"]}
+        args = {"repository_id": repo["id"], "relative_path": "math.js", "patch": patch, "base_sha256": snapshot["sha256"], "expected_root": snapshot["workspace_root"]}
         try:
             preview = post("/api/mobile/repository-inspect", dict(args, action="preview_repository_patch"), "workflow-mobile-test") if interface == "web" else mcp("aruvi_repositories", "preview_repository_patch", args)
         except (ValueError, urllib.error.HTTPError) as error:
@@ -110,7 +113,7 @@ try:
         mcp("aruvi_repositories", "write_repository_file", {"repository_id":repo["id"], "relative_path":"math.js", "content":file["content"]})
         print(f"Real {model} {interface} patch proposal was previewed and applied successfully")
     browser = subprocess.run(["node", "scripts/test-host-patch-ui.mjs"], cwd=root,
-        input=json.dumps({"address": address, "provider": provider["id"], "model": model}),
+        input=json.dumps({"address": address, "provider": provider["id"], "model": model, "repository": repo["id"]}),
         text=True, capture_output=True, timeout=240)
     if browser.returncode:
         raise ValueError("Browser proposal fixture failed: " + browser.stderr[-2000:])

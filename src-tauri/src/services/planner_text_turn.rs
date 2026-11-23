@@ -17,7 +17,7 @@ use crate::services::planner_text_turn_response::{
 };
 use crate::services::planner_tool_loop::{run_tool_loop, PlannerToolLoopInput};
 use crate::services::planner_turn_policy::{
-    has_draft_mutations, heuristic_plan, is_informational_only, requires_confirmation,
+    ensure_draft_product_scope, has_draft_mutations, heuristic_plan, is_informational_only, requires_confirmation,
     scope_plan_to_selected_product, seed_draft_with_product,
 };
 use crate::services::planner_types::PlannerTurnResponse;
@@ -56,6 +56,13 @@ pub(crate) async fn submit_planner_turn_locked(
 ) -> Result<PlannerTurnResponse, AppError> {
     let mut trace = vec![];
     let mut session = get_or_load_session(&planner_service, &state.db, &session_id).await?;
+    let selected_product = if let Some(product_id) = selected_product_id.as_deref() {
+        let product = product_repo::get_product(&state.db, product_id).await?;
+        ensure_draft_product_scope(&state.db, session.draft_plan.as_ref(), &product).await?;
+        Some(product)
+    } else {
+        None
+    };
     push_trace(
         &mut trace,
         "session",
@@ -94,12 +101,6 @@ pub(crate) async fn submit_planner_turn_locked(
             .await
             .save_session(&session_id, session.clone());
     }
-
-    let selected_product = if let Some(product_id) = selected_product_id.as_deref() {
-        Some(product_repo::get_product(&state.db, product_id).await?)
-    } else {
-        None
-    };
 
     let normalized = user_input.trim().to_lowercase();
     if matches!(normalized.as_str(), "yes" | "confirm" | "go ahead") && session.draft_plan.is_some()
@@ -187,7 +188,7 @@ pub(crate) async fn submit_planner_turn_locked(
         heuristic_plan(&user_input)
     };
     if let Some(product) = selected_product.as_ref() {
-        scope_plan_to_selected_product(&mut plan, product);
+        scope_plan_to_selected_product(&mut plan, product)?;
     }
     push_trace(
         &mut trace,
@@ -390,6 +391,7 @@ pub(crate) async fn submit_planner_turn_locked(
     })
 }
 
+#[cfg(test)]
 pub async fn confirm_planner_plan(
     planner_service: Arc<Mutex<PlannerService>>,
     state: &AppState,

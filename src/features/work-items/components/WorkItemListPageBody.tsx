@@ -313,6 +313,7 @@ export function WorkItemListPageBody({ controller }: WorkItemListPageBodyProps) 
 
       {artifactModalArtifact && (
         <WorkItemArtifactModal
+          key={artifactModalArtifact.id}
           artifact={artifactModalArtifact}
           content={artifactModalContent}
           onClose={() => setArtifactModalArtifact(null)}

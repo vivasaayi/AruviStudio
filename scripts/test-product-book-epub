@@ -13,6 +13,19 @@ cd "$root"
 export ARUVI_EPUB_FIXTURE_PATH="$temp_dir/fixture.json"
 export ARUVI_EPUB_TEST_OUTPUT="$temp_dir/book.epub"
 npx playwright test e2e/product-book-export.spec.js --workers=1
+# Exercise the image-packaging path in the actual desktop-rendered XHTML.
+python3 - "$ARUVI_EPUB_FIXTURE_PATH" <<'PY'
+import json, sys
+path = sys.argv[1]
+with open(path, encoding='utf-8') as stream:
+    fixture = json.load(stream)
+image = '<figure><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Static GIF fixture" /></figure>'
+if '</body>' not in fixture['html']:
+    raise SystemExit('Desktop EPUB fixture is missing its body')
+fixture['html'] = fixture['html'].replace('</body>', image + '</body>', 1)
+with open(path, 'w', encoding='utf-8') as stream:
+    json.dump(fixture, stream)
+PY
 cargo test --locked --manifest-path src-tauri/Cargo.toml --lib desktop_renderer_fixture_produces_real_epub -- --ignored
 docker run --rm --network none \
   --mount "type=bind,source=$epubcheck_dir,target=/epubcheck,readonly" \

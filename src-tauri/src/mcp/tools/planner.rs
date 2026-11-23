@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::services::planner_service::{
     add_planner_draft_child, analyze_repository_for_planner, clear_planner_pending,
-    confirm_planner_plan, create_planner_session, delete_planner_draft_node,
+    create_planner_session, delete_planner_draft_node,
     rename_planner_draft_node, submit_planner_turn, submit_planner_voice_turn,
     update_planner_session,
 };
@@ -18,6 +18,16 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "stage_catalog_node" => action_result(
+            "stage_catalog_node",
+            crate::services::planner_catalog_binding::stage_catalog_node(
+                state.planner_service.clone(), &state.db,
+                args.required_string(&["session_id", "sessionId"], "session_id")?,
+                args.required_string(&["product_id", "productId"], "product_id")?,
+                args.required_string(&["node_type", "nodeType"], "node_type")?,
+                args.required_string(&["node_id", "nodeId"], "node_id")?,
+            ).await?,
+        ),
         "match_planner_actions" => {
             let node: Option<crate::services::planner_suggestions::SuggestionNode> = args.optional_deserialize(&["node"], "node")?;
             let actions: Vec<Value> = args.required_deserialize(&["actions"], "actions")?;
@@ -47,6 +57,10 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 args.optional_string(&["model_name", "modelName"])?,
             )
             .await?,
+        ),
+        "render_planner_packet_snapshot" => action_result(
+            "render_planner_packet_snapshot",
+            crate::services::planner_packet_snapshot::render_snapshot(args.required_deserialize(&["snapshot"], "snapshot")?).await?,
         ),
         "export_planner_review_packet" => action_result(
             "export_planner_review_packet",
@@ -91,10 +105,13 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         ),
         "confirm_planner_plan" => action_result(
             "confirm_planner_plan",
-            confirm_planner_plan(
+            submit_planner_turn(
                 state.planner_service.clone(),
                 state,
                 args.required_string(&["session_id", "sessionId"], "session_id")?,
+                "confirm".to_string(),
+                None,
+                args.optional_string(&["product_id", "productId"])?,
             )
             .await?,
         ),

@@ -153,11 +153,15 @@ pub fn run() {
             commands::repository_commands::exports::export_product_overview_pdf,
             commands::repository_commands::list_repository_tree,
             commands::repository_commands::read_repository_file,
+            commands::repository_commands::get_repository_root_snapshot,
+            commands::repository_commands::read_repository_file_snapshot,
             commands::repository_commands::write_repository_file,
+            commands::repository_commands::write_repository_file_guarded,
             commands::repository_commands::get_repository_file_sha256,
             commands::repository_commands::apply_repository_patch,
             commands::repository_commands::matching_repository_files,
             commands::repository_commands::preview_repository_patch,
+            commands::repository_commands::preview_repository_patch_snapshot,
             commands::repository_commands::apply_reviewed_repository_patch,
             // Approval commands
             commands::approval_commands::approve_work_item,
@@ -234,6 +238,7 @@ pub fn run() {
             commands::model_commands::stream::cancel_model_chat_stream,
             // Planner commands
             commands::planner_commands::build_planner_review_packet_command,
+            commands::planner_commands::render_planner_packet_snapshot_command,
             commands::planner_commands::validate_planner_tree_command,
             commands::planner_commands::planner_suggested_prompts_command,
             commands::planner_commands::planner_relevant_actions_command,
@@ -244,6 +249,7 @@ pub fn run() {
             commands::planner_commands::submit_planner_voice_turn_command,
             commands::planner_commands::confirm_planner_plan_command,
             commands::planner_commands::rename_planner_draft_node_command,
+            commands::planner_commands::stage_planner_catalog_node_command,
             commands::planner_commands::add_planner_draft_child_command,
             commands::planner_commands::delete_planner_draft_node_command,
             commands::planner_commands::analyze_repository_for_planner_command,
@@ -254,6 +260,7 @@ pub fn run() {
             // Artifact commands
             commands::artifact_commands::list_work_item_artifacts,
             commands::artifact_commands::read_artifact_content,
+            commands::artifact_commands::read_artifact_page,
             // Finding commands
             commands::finding_commands::list_work_item_findings,
             // Settings commands
@@ -268,6 +275,7 @@ pub fn run() {
             commands::settings_commands::clear_database_path_override,
             // Speech commands
             commands::speech_commands::transcribe_audio_command,
+            commands::speech_commands::get_desktop_transcription_target,
             commands::speech_commands::speak_text_natively_command,
             // Observability commands
             commands::observability_commands::get_logs,
@@ -294,8 +302,17 @@ pub fn run_headless_server() -> Result<(), Box<dyn std::error::Error>> {
     observability::logger::init_logging();
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async {
+        #[cfg(unix)]
+        let shutdown = {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut terminate = signal(SignalKind::terminate())?;
+            let mut interrupt = signal(SignalKind::interrupt())?;
+            async move { tokio::select! { _ = terminate.recv() => {}, _ = interrupt.recv() => {} } }
+        };
+        #[cfg(not(unix))]
+        let shutdown = async { let _ = tokio::signal::ctrl_c().await; };
         let state = bootstrap::initialize_app_state(Some("com.aruvi.studio")).await?;
-        services::webhook_service::start_webhook_server(state)
+        services::webhook_service::start_webhook_server_with_shutdown(state, shutdown)
             .await
             .map_err(std::io::Error::other)?;
         Ok(())

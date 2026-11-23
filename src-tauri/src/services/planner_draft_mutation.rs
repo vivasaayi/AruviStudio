@@ -51,6 +51,7 @@ fn allowed_draft_child_types(parent_type: &str) -> &'static [&'static str] {
         "product" => &["product_area", "work_item"],
         "product_area" => &["capability", "work_item"],
         "capability" => &["capability", "work_item"],
+        "work_item" => &["work_item"],
         _ => &[],
     }
 }
@@ -289,6 +290,7 @@ pub(crate) fn add_draft_child_node(
             "title": trimmed_name,
             "work_item_name": trimmed_name,
             "description": trimmed_summary,
+            "workItemType": if parent.node_type == "work_item" { "task" } else { "story" },
             "target": {
                 "productName": product_name,
                 "productAreaName": product_area_name,

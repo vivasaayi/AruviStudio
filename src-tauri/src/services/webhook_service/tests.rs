@@ -10,6 +10,34 @@ use tauri::test::MockRuntime;
 use tauri::Manager;
 use tower::ServiceExt;
 
+#[tokio::test]
+async fn webhook_shutdown_waits_for_in_flight_http_requests() {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let (entered_tx, entered_rx) = tokio::sync::oneshot::channel();
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+    let gate = std::sync::Arc::new(std::sync::Mutex::new(Some((entered_tx, release_rx))));
+    let router = axum::Router::new().route("/slow", axum::routing::get(move || {
+        let gate = gate.clone();
+        async move {
+            let (entered, release) = gate.lock().unwrap().take().unwrap();
+            let _ = entered.send(());
+            let _ = release.await;
+            "complete"
+        }
+    }));
+    let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
+    let server = tokio::spawn(super::serve_webhook(listener, router, async { let _ = shutdown_rx.await; }));
+    let request = tokio::spawn(async move { reqwest::get(format!("http://{address}/slow")).await.unwrap().text().await.unwrap() });
+    tokio::time::timeout(std::time::Duration::from_secs(5), entered_rx).await.unwrap().unwrap();
+    shutdown_tx.send(()).unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(!server.is_finished(), "server exited before the active response completed");
+    release_tx.send(()).unwrap();
+    assert_eq!(request.await.unwrap(), "complete");
+    tokio::time::timeout(std::time::Duration::from_secs(5), server).await.unwrap().unwrap().unwrap();
+}
+
 async fn send_json(
     router: &axum::Router,
     method: Method,
@@ -45,8 +73,143 @@ async fn send_json(
     )
 }
 
+#[tokio::test]
+async fn hierarchy_reordering_is_scoped_atomic_and_detects_stale_snapshots() {
+    async fn catalog(state: &AppState, action: &str, args: Value) -> Value {
+        crate::mcp::dispatch_tool(state, "aruvi_catalog", json!({"action":action,"arguments":args})).await.unwrap()["result"].clone()
+    }
+    let app: tauri::App<MockRuntime> = make_test_app("hierarchy_reordering").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "reorder-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let product = catalog(&state,"create_product",json!({"name":"Reorder"})).await;
+    let other = catalog(&state,"create_product",json!({"name":"Other"})).await;
+    let product_id = product["id"].as_str().unwrap();
+    let a = catalog(&state,"create_product_area",json!({"product_id":product_id,"name":"Area A"})).await;
+    let b = catalog(&state,"create_product_area",json!({"product_id":product_id,"name":"Area B"})).await;
+    let a_id = a["id"].as_str().unwrap(); let b_id = b["id"].as_str().unwrap();
+    let c = catalog(&state,"create_capability",json!({"product_area_id":a_id,"name":"Capability C"})).await;
+    let d = catalog(&state,"create_capability",json!({"product_area_id":a_id,"name":"Capability D"})).await;
+    let c_id = c["id"].as_str().unwrap(); let d_id = d["id"].as_str().unwrap();
+    let uri = format!("/api/mobile/products/{product_id}/hierarchy/reorder");
+    let area_order = json!({"expected_order":[a_id,b_id],"ordered_ids":[b_id,a_id]});
+    assert_eq!(send_json(&router,Method::POST,&uri,None,Some(area_order.clone())).await.0,StatusCode::UNAUTHORIZED);
+    let other_uri = format!("/api/mobile/products/{}/hierarchy/reorder",other["id"].as_str().unwrap());
+    assert_eq!(send_json(&router,Method::POST,&other_uri,Some("reorder-token"),Some(area_order.clone())).await.0,StatusCode::CONFLICT);
+    assert_eq!(send_json(&router,Method::POST,&uri,Some("reorder-token"),Some(json!({"expected_order":[a_id,b_id],"ordered_ids":[a_id,a_id]}))).await.0,StatusCode::BAD_REQUEST);
+    sqlx::query(&format!("CREATE TRIGGER reject_reorder BEFORE UPDATE OF sort_order ON product_areas WHEN OLD.id='{a_id}' BEGIN SELECT RAISE(ABORT,'fixture'); END")).execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router,Method::POST,&uri,Some("reorder-token"),Some(area_order.clone())).await.0,StatusCode::BAD_REQUEST);
+    let original: Vec<String> = sqlx::query_scalar("SELECT id FROM product_areas WHERE product_id=? ORDER BY sort_order").bind(product_id).fetch_all(&state.db).await.unwrap();
+    assert_eq!(original,vec![a_id,b_id]);
+    sqlx::query("DROP TRIGGER reject_reorder").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router,Method::POST,&uri,Some("reorder-token"),Some(area_order.clone())).await.0,StatusCode::OK);
+    assert_eq!(send_json(&router,Method::POST,&uri,Some("reorder-token"),Some(area_order)).await.0,StatusCode::CONFLICT);
+    let cap_order = json!({"product_id":product_id,"area_id":a_id,"expected_order":[c_id,d_id],"ordered_ids":[d_id,c_id]});
+    catalog(&state,"reorder_hierarchy_checked",cap_order.clone()).await;
+    assert!(crate::mcp::dispatch_tool(&state,"aruvi_catalog",json!({"action":"reorder_hierarchy_checked","arguments":cap_order})).await.is_err());
+    let tree = product_repo::get_product_tree(&state.db,product_id).await.unwrap();
+    assert_eq!(tree.product_areas[0].product_area.id,b_id);
+    assert_eq!(tree.product_areas[1].features[0].capability.id,d_id);
+    crate::mcp::dispatch_tool(&state,"catalog.hierarchy.reorder_checked",json!({"productId":product_id,"areaId":a_id,"expectedOrder":[d_id,c_id],"orderedIds":[c_id,d_id]})).await.unwrap();
+    let tree = product_repo::get_product_tree(&state.db,product_id).await.unwrap();
+    assert_eq!(tree.product_areas[1].features[0].capability.id,c_id);
+    let request = json!({"productId":product_id,"areaId":a_id,"expectedOrder":[c_id,d_id],"orderedIds":[d_id,c_id]});
+    let (first, second) = tokio::join!(crate::mcp::dispatch_tool(&state,"catalog.hierarchy.reorder_checked",request.clone()), crate::mcp::dispatch_tool(&state,"catalog.hierarchy.reorder_checked",request));
+    assert_ne!(first.is_ok(), second.is_ok());
+}
+
+#[tokio::test]
+async fn hierarchy_creation_validates_scope_within_the_write_transaction() {
+    let app: tauri::App<MockRuntime> = make_test_app("hierarchy_create_scope_race").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db,"mobile.api_token","create-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    async fn catalog(state: &AppState, action: &str, args: Value) -> Value {
+        crate::mcp::dispatch_tool(state,"aruvi_catalog",json!({"action":action,"arguments":args})).await.unwrap()["result"].clone()
+    }
+    let a = catalog(&state,"create_product",json!({"name":"Product A"})).await;
+    let b = catalog(&state,"create_product",json!({"name":"Product B"})).await;
+    let a_id = a["id"].as_str().unwrap().to_string(); let b_id = b["id"].as_str().unwrap();
+    let area = catalog(&state,"create_product_area",json!({"product_id":a_id,"name":"Movable area"})).await;
+    let area_id = area["id"].as_str().unwrap().to_string();
+    let mut writer = state.db.begin_with("BEGIN IMMEDIATE").await.unwrap();
+    sqlx::query("UPDATE product_areas SET product_id=? WHERE id=?").bind(b_id).bind(&area_id).execute(&mut *writer).await.unwrap();
+    let request_router = router.clone(); let uri = format!("/api/mobile/products/{a_id}/hierarchy");
+    let body = json!({"name":"Wrong-scope child","product_area_id":area_id,"description":"test"});
+    let pending = tokio::spawn(async move { send_json(&request_router,Method::POST,&uri,Some("create-token"),Some(body)).await });
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert!(!pending.is_finished(), "creation should wait for the concurrent writer");
+    writer.commit().await.unwrap();
+    assert_eq!(pending.await.unwrap().0,StatusCode::BAD_REQUEST);
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM capabilities WHERE product_area_id=?").bind(&area_id).fetch_one(&state.db).await.unwrap();
+    assert_eq!(count,0);
+    let uri = format!("/api/mobile/products/{b_id}/hierarchy");
+    let (first,second) = tokio::join!(
+        send_json(&router,Method::POST,&uri,Some("create-token"),Some(json!({"name":"One","description":"area details"}))),
+        crate::mcp::dispatch_tool(&state,"aruvi_catalog",json!({"action":"create_product_area","arguments":{"product_id":b_id,"name":"Two"}})),
+    );
+    assert_eq!(first.0,StatusCode::CREATED); assert!(second.is_ok());
+    let orders: Vec<i64> = sqlx::query_scalar("SELECT sort_order FROM product_areas WHERE product_id=? AND name IN ('One','Two') ORDER BY sort_order").bind(b_id).fetch_all(&state.db).await.unwrap();
+    assert_eq!(orders.len(),2); assert_ne!(orders[0],orders[1]);
+    let (first,second) = tokio::join!(
+        send_json(&router,Method::POST,&uri,Some("create-token"),Some(json!({"name":"Cap One","product_area_id":area_id}))),
+        crate::mcp::dispatch_tool(&state,"aruvi_catalog",json!({"action":"create_capability","arguments":{"product_area_id":area_id,"name":"Cap Two"}})),
+    );
+    assert_eq!(first.0,StatusCode::CREATED); assert!(second.is_ok());
+    let orders: Vec<i64> = sqlx::query_scalar("SELECT sort_order FROM capabilities WHERE product_area_id=? AND name IN ('Cap One','Cap Two') ORDER BY sort_order").bind(&area_id).fetch_all(&state.db).await.unwrap();
+    assert_eq!(orders.len(),2); assert_ne!(orders[0],orders[1]);
+}
+
+#[tokio::test]
+async fn child_work_endpoint_is_authenticated_and_pages_direct_children() {
+    let app: tauri::App<MockRuntime> = make_test_app("child_work_pages").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db,"mobile.api_token","children-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let product = crate::mcp::dispatch_tool(&state,"aruvi_catalog",json!({"action":"create_product","arguments":{"name":"Child pages"}})).await.unwrap();
+    let product_id = product["result"]["id"].as_str().unwrap();
+    let parent = crate::mcp::dispatch_tool(&state,"aruvi_work_items",json!({"action":"create_story","arguments":{"product_id":product_id,"title":"Parent"}})).await.unwrap();
+    let parent_id = parent["result"]["id"].as_str().unwrap();
+    for index in 0..51 {
+        crate::mcp::dispatch_tool(&state,"aruvi_work_items",json!({"action":"create_task","arguments":{"story_id":parent_id,"title":format!("Child {index}")}})).await.unwrap();
+    }
+    let uri = format!("/api/mobile/work-items/{parent_id}/children");
+    assert_eq!(send_json(&router,Method::GET,&uri,None,None).await.0,StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router,Method::GET,"/api/mobile/work-items/missing",Some("children-token"),None).await.0,StatusCode::NOT_FOUND);
+    assert_eq!(send_json(&router,Method::GET,&format!("{uri}?offset=-1"),Some("children-token"),None).await.0,StatusCode::BAD_REQUEST);
+    assert_eq!(send_json(&router,Method::GET,"/api/mobile/work-items/missing/children",Some("children-token"),None).await.0,StatusCode::BAD_REQUEST);
+    let (status,first) = send_json(&router,Method::GET,&uri,Some("children-token"),None).await;
+    assert_eq!(status,StatusCode::OK); let first = parse_json(&first);
+    assert_eq!(first["items"].as_array().unwrap().len(),50); assert_eq!(first["has_more"],true);
+    let (status,last) = send_json(&router,Method::GET,&format!("{uri}?offset=50"),Some("children-token"),None).await;
+    assert_eq!(status,StatusCode::OK); let last = parse_json(&last);
+    assert_eq!(last["items"].as_array().unwrap().len(),1); assert_eq!(last["has_more"],false);
+    assert!(!first["items"].as_array().unwrap().iter().any(|item| item["id"] == last["items"][0]["id"]));
+}
+
 fn parse_json(body: &str) -> Value {
     serde_json::from_str(body).expect("response body should be JSON")
+}
+
+#[tokio::test]
+async fn planner_action_scope_matches_through_http_and_mcp() {
+    let app: tauri::App<MockRuntime> = make_test_app("planner_action_scope").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "scope-test-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let payload = json!({"node":{"label":"Inventory","node_type":"capability","ancestors":[{"label":"Store","node_type":"product"},{"label":"Warehouse","node_type":"product_area"}]},"actions":[
+        {"type":"update_capability","target":{"productName":"Store","productAreaName":"Warehouse","capabilityName":"Inventory"}},
+        {"type":"update_capability","target":{"productName":"Store","productAreaName":"Sales","capabilityName":"Inventory"}},
+        {"type":"update_capability","target":{"capabilityName":"Inventory"}}
+    ]});
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/planner/match-actions", None, Some(payload.clone())).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, body) = send_json(&router, Method::POST, "/api/mobile/planner/match-actions", Some("scope-test-token"), Some(payload.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+    let expected = json!([payload["actions"][0], payload["actions"][2]]);
+    assert_eq!(parse_json(&body), expected);
+    let result = crate::mcp::dispatch_tool(&state, "aruvi_planner", json!({"action":"match_planner_actions","arguments":payload})).await.unwrap();
+    assert_eq!(result["result"], expected);
 }
 
 #[tokio::test]
@@ -81,10 +244,16 @@ async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
     let empty_session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
     let empty_url = format!("/api/mobile/planner/sessions/{}/review-packet", empty_session.session_id);
     assert_eq!(send_json(&router, Method::GET, &empty_url, Some("draft-test-token"), None).await.0, StatusCode::BAD_REQUEST);
+    // Pending action details must be the same for desktop, browser, and MCP packets.
+    let pending = json!({"assistant_response":"Review", "needs_confirmation":true, "clarification_question":null,
+        "actions":[{"type":"create_work_item", "title":"Count stock", "description":"Count physical stock"}]});
+    sqlx::query("UPDATE planner_sessions SET pending_plan_json = ? WHERE id = ?")
+        .bind(pending.to_string()).bind(&session.session_id).execute(&state.db).await.unwrap();
     let snapshot = crate::services::planner_session::load_session_from_db(&state.db, &session.session_id).await.unwrap();
     let expected = crate::services::planner_draft::build_draft_tree_nodes(snapshot.draft_plan.as_ref().unwrap(), snapshot.selected_draft_node_id.as_deref());
     let desktop = crate::services::planner_review_packet::build_desktop_review_packet(state.planner_service.clone(), &state.db, session.session_id.clone(), expected.clone(), Some(child.clone())).await.unwrap();
     assert!(desktop.html.contains("&quot;selectedNode&quot;: &quot;Area&quot;"));
+    assert!(desktop.html.contains("<div>Count physical stock</div>"));
     let mut stale = expected.clone();
     stale[0].label = "Stale name".into();
     assert!(crate::services::planner_review_packet::build_desktop_review_packet(state.planner_service.clone(), &state.db, session.session_id.clone(), stale, None).await.is_err());
@@ -96,6 +265,7 @@ async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
     let packet = parse_json(&body);
     assert!(packet["filename"].as_str().unwrap().ends_with("-design-review-packet.html"));
     assert!(packet["html"].as_str().unwrap().contains("Approval Section"));
+    assert!(packet["html"].as_str().unwrap().contains("<div>Count physical stock</div>"));
     assert!(packet["html"].as_str().unwrap().contains("Area"));
     assert!(packet["html"].as_str().unwrap().contains("draftNodes"));
     assert!(packet["html"].as_str().unwrap().contains("Staged detail &lt;script&gt;fixture&lt;/script&gt;"));
@@ -103,6 +273,7 @@ async fn remote_planner_draft_edits_are_authenticated_and_persisted() {
     assert!(packet["html"].as_str().unwrap().contains("absence does not imply deletion"));
     let mcp_packet = crate::mcp::dispatch_tool(&state, "aruvi_planner", json!({"action":"export_planner_review_packet", "arguments":{"session_id":session.session_id}})).await.unwrap();
     assert!(mcp_packet["result"]["html"].as_str().unwrap().contains("Approval Section"));
+    assert!(mcp_packet["result"]["html"].as_str().unwrap().contains("<div>Count physical stock</div>"));
     let validation = format!("/api/mobile/planner/sessions/{}/validation", session.session_id);
     assert_eq!(send_json(&router, Method::GET, &validation, None, None).await.0, StatusCode::UNAUTHORIZED);
     let (status, summary) = send_json(&router, Method::GET, &validation, Some("draft-test-token"), None).await;
@@ -138,6 +309,24 @@ async fn health_reports_database_availability() {
     let (status, body) = send_json(&router, Method::GET, "/health", None, None).await;
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
     assert_eq!(body, "database unavailable");
+}
+
+#[tokio::test]
+async fn bridge_status_requires_mobile_auth_and_does_not_return_credentials() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_bridge_status").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "mobile-fixture-secret").await.unwrap();
+    settings_repo::set_setting(&state.db, "mcp.api_token", "mcp-fixture-secret").await.unwrap();
+    let router = build_webhook_router(state);
+    assert_eq!(send_json(&router, Method::GET, "/api/mobile/bridge-status", None, None).await.0, StatusCode::UNAUTHORIZED);
+    let (status, body) = send_json(&router, Method::GET, "/api/mobile/bridge-status", Some("mobile-fixture-secret"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let value = parse_json(&body);
+    assert_eq!(value["mcp_token_configured"], true);
+    assert!(value["configured_bind_port"].is_number());
+    assert!(!body.contains("mcp-fixture-secret"));
+    assert!(!body.contains("mobile-fixture-secret"));
+    assert!(value.get("endpoint_url").is_none());
 }
 
 #[tokio::test]
@@ -232,7 +421,196 @@ async fn remote_workspace_registration_is_authenticated_and_idempotent() {
     assert_eq!(status, StatusCode::OK, "{body}");
     let (_, body) = send_json(&router, Method::GET, "/api/mobile/repository-attachments", Some("workspace-test-token"), None).await;
     assert!(parse_json(&body).as_array().unwrap().iter().any(|item| item["repository_id"] == repository["id"] && item["is_default"] == true));
+    let workspace_root = tempfile::tempdir().unwrap();
+    let provisioned = crate::mcp::dispatch_tool(&state, "aruvi_repositories", json!({"action":"create_local_workspace", "arguments":{"product_id":product["id"], "preferred_path":workspace_root.path()}})).await.unwrap();
+    let created_path = provisioned["result"]["created_path"].as_str().unwrap();
+    let created_repo = git2::Repository::open(created_path).unwrap();
+    assert!(created_repo.status_should_ignore(std::path::Path::new("node_modules/react/index.js")).unwrap());
+    assert!(!created_repo.status_should_ignore(std::path::Path::new(concat!("node_", "product_areas/readme.md"))).unwrap());
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test]
+async fn workspace_edits_are_atomic_conflict_aware_and_block_active_work() {
+    let app: tauri::App<MockRuntime> = make_test_app("workspace_edit").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "edit-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let first = tempfile::tempdir().unwrap(); let second = tempfile::tempdir().unwrap();
+    let non_git = tempfile::tempdir().unwrap(); git2::Repository::init(second.path()).unwrap();
+    let first_root = first.path().canonicalize().unwrap().to_string_lossy().into_owned();
+    let second_root = second.path().canonicalize().unwrap().to_string_lossy().into_owned();
+    let repository = crate::persistence::repository_repo::create_repository(&state.db, "edit-repo", "Original", &first_root, "", "main").await.unwrap();
+    crate::persistence::repository_repo::create_repository(&state.db, "other-repo", "Other", &second_root, "", "main").await.unwrap();
+    let (_, product) = send_json(&router, Method::POST, "/api/mobile/products", Some("edit-token"), Some(json!({"name":"Edit fixture"}))).await;
+    let product = parse_json(&product);
+    let (_, item) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("edit-token"), Some(json!({"product_id":product["id"], "title":"Fixture"}))).await;
+    let item = parse_json(&item); let item_id=item["id"].as_str().unwrap();
+    sqlx::query("UPDATE work_items SET active_repo_id=?, branch_name='main' WHERE id=?").bind("edit-repo").bind(item_id).execute(&state.db).await.unwrap();
+    let expected = serde_json::to_value(&repository).unwrap();
+    let fields = json!({"name":"Edited", "local_path":first_root, "remote_url":"", "default_branch":"develop"});
+    let body = json!({"expected":expected,"fields":fields}); let uri="/api/mobile/repositories/edit-repo/update";
+    assert_eq!(send_json(&router, Method::POST, uri, None, Some(body.clone())).await.0, StatusCode::UNAUTHORIZED);
+    let mut invalid_path=body.clone(); invalid_path["fields"]["local_path"]=json!(non_git.path());
+    assert_eq!(send_json(&router, Method::POST, uri, Some("edit-token"), Some(invalid_path)).await.0, StatusCode::BAD_REQUEST);
+    let mut duplicate=body.clone(); duplicate["fields"]["local_path"]=json!(second_root);
+    assert_eq!(send_json(&router, Method::POST, uri, Some("edit-token"), Some(duplicate)).await.0, StatusCode::BAD_REQUEST);
+    workflow_repo::create_workflow_run(&state.db, "edit-active", item_id).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, uri, Some("edit-token"), Some(body.clone())).await.0, StatusCode::BAD_REQUEST);
+    sqlx::query("UPDATE workflow_runs SET status='completed',current_stage='done' WHERE id='edit-active'").execute(&state.db).await.unwrap();
+    sqlx::query("CREATE TRIGGER fail_edit_branch BEFORE UPDATE OF branch_name ON work_items BEGIN SELECT RAISE(ABORT, 'fixture'); END").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, uri, Some("edit-token"), Some(body.clone())).await.0, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(crate::persistence::repository_repo::get_repository(&state.db, "edit-repo").await.unwrap().default_branch, "main");
+    sqlx::query("DROP TRIGGER fail_edit_branch").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, uri, Some("edit-token"), Some(body.clone())).await.0, StatusCode::OK);
+    let branch: String=sqlx::query_scalar("SELECT branch_name FROM work_items WHERE id=?").bind(item_id).fetch_one(&state.db).await.unwrap(); assert_eq!(branch,"develop");
+    assert_eq!(send_json(&router, Method::POST, uri, Some("edit-token"), Some(body)).await.0, StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn workspace_write_guards_reject_a_changed_repository_root() {
+    use sha2::{Digest, Sha256};
+    let app: tauri::App<MockRuntime> = make_test_app("workspace_root_guard").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "workspace-root-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let first = tempfile::tempdir().unwrap(); let second = tempfile::tempdir().unwrap();
+    for directory in [first.path(), second.path()] { std::fs::write(directory.join("file.txt"), "same content\n").unwrap(); }
+    let first_root = first.path().canonicalize().unwrap().to_string_lossy().into_owned();
+    let second_root = second.path().canonicalize().unwrap().to_string_lossy().into_owned();
+    crate::persistence::repository_repo::create_repository(&state.db, "root-guard", "Fixture", &first_root, "", "main").await.unwrap();
+    sqlx::query("UPDATE repositories SET local_path=? WHERE id=?").bind(&second_root).bind("root-guard").execute(&state.db).await.unwrap();
+    let save = json!({"repository_id":"root-guard", "relative_path":"file.txt", "expected_root":first_root, "expected_content":"same content\n", "content":"wrong destination\n"});
+    assert_eq!(send_json(&router, Method::POST, "/api/mobile/repository-file/save", Some("workspace-root-token"), Some(save)).await.0, StatusCode::CONFLICT);
+    let sha = format!("{:x}", Sha256::digest(b"same content\n"));
+    let hash = crate::mcp::dispatch_tool(&state, "repositories.files.get_sha256", json!({"repositoryId":"root-guard", "relativePath":"file.txt"})).await.unwrap();
+    assert_eq!(hash["result"]["sha256"], sha);
+    assert_eq!(hash["result"]["workspace_root"], second_root);
+    for (tool, payload) in [
+        ("aruvi_repositories", json!({"action":"get_repository_file_sha256", "arguments":{"repository_id":"root-guard", "relative_path":"file.txt", "expected_root":first_root}})),
+        ("repositories.files.get_sha256", json!({"repositoryId":"root-guard", "relativePath":"file.txt", "expectedRoot":first_root})),
+    ] {
+        assert!(crate::mcp::dispatch_tool(&state, tool, payload).await.is_err());
+    }
+    let copilot = json!({"repository_id":"root-guard", "relative_path":"file.txt", "expected_root":first_root, "expected_sha256":sha, "provider_id":"missing-provider", "model_name":"fixture", "question":"Explain this file"});
+    for path in ["/api/mobile/repository-file/copilot", "/api/mobile/repository-file/copilot/stream"] {
+        assert_eq!(send_json(&router, Method::POST, path, Some("workspace-root-token"), Some(copilot.clone())).await.0, StatusCode::CONFLICT);
+    }
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_models", json!({"action":"run_file_copilot", "arguments":copilot})).await.unwrap_err().to_string().contains("Workspace path changed"));
+    let mut current_copilot = copilot.clone();
+    current_copilot["expected_root"] = json!(second_root);
+    let (status, body) = send_json(&router, Method::POST, "/api/mobile/repository-file/copilot", Some("workspace-root-token"), Some(current_copilot)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(!body.contains("Workspace path changed"));
+    let patch = "@@ -1,1 +1,1 @@\n-same content\n+patched content";
+    let stale_write = json!({"action":"write_repository_file", "arguments":{"repository_id":"root-guard", "relative_path":"file.txt", "expected_root":first_root, "content":"wrong MCP destination\n"}});
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_repositories", stale_write).await.is_err());
+    let stale_patch = json!({"action":"apply_reviewed_repository_patch", "arguments":{"repository_id":"root-guard", "relative_path":"file.txt", "expected_root":first_root, "base_sha256":sha, "expected_exists":true, "patch":patch}});
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_repositories", stale_patch).await.is_err());
+    let read = crate::mcp::dispatch_tool(&state, "aruvi_repositories", json!({"action":"read_repository_file", "arguments":{"repository_id":"root-guard", "relative_path":"file.txt"}})).await.unwrap();
+    assert_eq!(read["result"]["workspace_root"], second_root);
+    let mut body = json!({"action":"apply_reviewed_repository_patch", "repository_id":"root-guard", "expected_root":first_root, "relative_path":"file.txt", "base_sha256":sha, "expected_exists":true, "patch":patch});
+    assert_eq!(send_json(&router, Method::POST, "/api/mobile/repository-inspect", Some("workspace-root-token"), Some(body.clone())).await.0, StatusCode::CONFLICT);
+    assert_eq!(std::fs::read_to_string(second.path().join("file.txt")).unwrap(), "same content\n");
+    body["expected_root"] = json!(second_root);
+    assert_eq!(send_json(&router, Method::POST, "/api/mobile/repository-inspect", Some("workspace-root-token"), Some(body)).await.0, StatusCode::OK);
+    assert_eq!(std::fs::read_to_string(second.path().join("file.txt")).unwrap(), "patched content\n");
+}
+
+#[tokio::test]
+async fn remote_bridge_tokens_are_write_only_conflict_aware_and_rotate_auth() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_bridge_tokens").await;
+    let state = app.state::<AppState>().inner().clone();
+    let old_mobile = "synthetic-mobile-old";
+    let old_mcp = "synthetic-mcp-old";
+    settings_repo::set_setting(&state.db, "mobile.api_token", old_mobile).await.unwrap();
+    settings_repo::set_setting(&state.db, "mcp.api_token", old_mcp).await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let uri = "/api/mobile/bridge-tokens";
+    assert_eq!(send_json(&router, Method::GET, uri, None, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::POST, uri, None, Some(json!({"kind":"mcp","expected_revision":"stale","action":"clear"}))).await.0, StatusCode::UNAUTHORIZED);
+    let (_, body) = send_json(&router, Method::GET, uri, Some(old_mobile), None).await;
+    assert!(!body.contains(old_mobile) && !body.contains(old_mcp));
+    let initial = parse_json(&body);
+    let revision = initial["mcp"]["revision"].as_str().unwrap();
+    for invalid in ["", "has space", "not-ascii-λ", "line\nbreak"] {
+        let request = json!({"kind":"mcp","expected_revision":revision,"action":"replace","token":invalid});
+        assert_eq!(send_json(&router, Method::POST, uri, Some(old_mobile), Some(request)).await.0, StatusCode::BAD_REQUEST);
+    }
+    settings_repo::set_setting(&state.db, "mcp.api_token", "synthetic-mcp-other").await.unwrap();
+    let stale = json!({"kind":"mcp","expected_revision":revision,"action":"replace","token":"synthetic-mcp-next"});
+    assert_eq!(send_json(&router, Method::POST, uri, Some(old_mobile), Some(stale)).await.0, StatusCode::CONFLICT);
+    let (_, body) = send_json(&router, Method::GET, uri, Some(old_mobile), None).await;
+    let revision = parse_json(&body)["mcp"]["revision"].as_str().unwrap().to_string();
+    let first = send_json(&router, Method::POST, uri, Some(old_mobile), Some(json!({"kind":"mcp","expected_revision":revision,"action":"replace","token":"synthetic-mcp-one"})));
+    let second = send_json(&router, Method::POST, uri, Some(old_mobile), Some(json!({"kind":"mcp","expected_revision":revision,"action":"replace","token":"synthetic-mcp-two"})));
+    let (first, second) = tokio::join!(first, second);
+    assert!((first.0 == StatusCode::OK && second.0 == StatusCode::CONFLICT) || (second.0 == StatusCode::OK && first.0 == StatusCode::CONFLICT));
+    assert!(!first.1.contains("synthetic-mcp-one") && !second.1.contains("synthetic-mcp-two"));
+    let current_mcp = settings_repo::get_setting(&state.db, "mcp.api_token").await.unwrap().unwrap();
+    let ping = json!({"jsonrpc":"2.0","id":1,"method":"ping"});
+    assert_eq!(send_json(&router, Method::POST, "/api/mcp", Some(old_mcp), Some(ping.clone())).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::POST, "/api/mcp", Some(&current_mcp), Some(ping)).await.0, StatusCode::OK);
+    let (_, body) = send_json(&router, Method::GET, uri, Some(old_mobile), None).await;
+    let mobile_revision = parse_json(&body)["mobile"]["revision"].as_str().unwrap().to_string();
+    let next_mobile = "synthetic-mobile-new";
+    let rotate = json!({"kind":"mobile","expected_revision":mobile_revision,"action":"replace","token":next_mobile});
+    let (status, body) = send_json(&router, Method::POST, uri, Some(old_mobile), Some(rotate)).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.contains(next_mobile));
+    assert_eq!(send_json(&router, Method::GET, uri, Some(old_mobile), None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::GET, uri, Some(next_mobile), None).await.0, StatusCode::OK);
+    let clear = json!({"kind":"mobile","expected_revision":parse_json(&body)["revision"],"action":"clear"});
+    assert_eq!(send_json(&router, Method::POST, uri, Some(next_mobile), Some(clear)).await.0, StatusCode::OK);
+    assert_eq!(send_json(&router, Method::GET, uri, Some(next_mobile), None).await.0, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+#[tokio::test]
+async fn remote_bridge_bind_requires_auth_and_rejects_conflicts_atomically() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_bridge_bind").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "bridge-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let uri = "/api/mobile/bridge-bind";
+    let payload = json!({"expected":[null,null],"host":"127.0.0.1","port":"8787"});
+    assert_eq!(send_json(&router, Method::GET, uri, None, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::POST, uri, None, Some(payload.clone())).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::POST, uri, Some("bridge-token"), Some(json!({"expected":[null,null],"host":"bad/host","port":"0"}))).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send_json(&router, Method::POST, uri, Some("bridge-token"), Some(json!({"expected":[null,null],"host":"999.999.999.999","port":"8787"}))).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send_json(&router, Method::POST, uri, Some("bridge-token"), Some(payload)).await.0, StatusCode::OK);
+    settings_repo::set_setting(&state.db, "mobile.bind_port", "9000").await.unwrap();
+    let stale = json!({"expected":["127.0.0.1","8787"],"host":"0.0.0.0","port":"9001"});
+    assert_eq!(send_json(&router, Method::POST, uri, Some("bridge-token"), Some(stale)).await.0, StatusCode::CONFLICT);
+    let (_, body) = send_json(&router, Method::GET, uri, Some("bridge-token"), None).await;
+    assert_eq!(parse_json(&body)["raw"], json!(["127.0.0.1", "9000"]));
+    let first = send_json(&router, Method::POST, uri, Some("bridge-token"), Some(json!({"expected":["127.0.0.1","9000"],"host":"::1","port":"9001"})));
+    let second = send_json(&router, Method::POST, uri, Some("bridge-token"), Some(json!({"expected":["127.0.0.1","9000"],"host":"localhost","port":"9002"})));
+    let (first, second) = tokio::join!(first, second);
+    assert!((first.0 == StatusCode::OK && second.0 == StatusCode::CONFLICT) || (second.0 == StatusCode::OK && first.0 == StatusCode::CONFLICT));
+}
+
+#[tokio::test]
+async fn remote_database_override_rejects_stale_and_concurrent_updates() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_database_override_conflicts").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "config-token").await.unwrap();
+    let router = build_webhook_router(state);
+    let uri = "/api/mobile/database-settings";
+    let (status, _) = send_json(&router, Method::POST, uri, None, Some(json!({"path":"/tmp/unauthorized.db"}))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = send_json(&router, Method::POST, uri, Some("config-token"), Some(json!({"path":"/tmp/first.db","expected":{"path":null}}))).await;
+    assert_eq!(status, StatusCode::OK);
+    let stale = json!({"path":"/tmp/stale.db","expected":{"path":null}});
+    let (status, _) = send_json(&router, Method::POST, uri, Some("config-token"), Some(stale)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let first = send_json(&router, Method::POST, uri, Some("config-token"), Some(json!({"path":"/tmp/one.db","expected":{"path":"/tmp/first.db"}})));
+    let second = send_json(&router, Method::POST, uri, Some("config-token"), Some(json!({"path":"/tmp/two.db","expected":{"path":"/tmp/first.db"}})));
+    let (first, second) = tokio::join!(first, second);
+    assert!((first.0 == StatusCode::OK && second.0 == StatusCode::CONFLICT) || (first.0 == StatusCode::CONFLICT && second.0 == StatusCode::OK));
+    let (_, body) = send_json(&router, Method::GET, uri, Some("config-token"), None).await;
+    assert!(matches!(parse_json(&body)["override_path"].as_str(), Some("/tmp/one.db" | "/tmp/two.db")));
+    let (status, _) = send_json(&router, Method::POST, uri, Some("config-token"), Some(json!({"path":null}))).await;
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[tokio::test]
@@ -261,12 +639,285 @@ async fn remote_test_command_configuration_is_authenticated_and_validated() {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(parse_json(&body), json!({"mode":mode,"argv":argv}));
     }
+    // A changed inherited default must not be overwritten by a stale product tab.
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(json!({"argv":["other"]}))).await;
+    assert_eq!(status, StatusCode::OK);
+    let stale = json!({"product_id":id,"mode":"custom","argv":["false"],"expected":{"mode":"inherit","argv":["true"]}});
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(stale)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (_, body) = send_json(&router, Method::GET, &uri, Some("config-token"), None).await;
+    assert_eq!(parse_json(&body), json!({"mode":"inherit","argv":["other"]}));
+    let current = json!({"product_id":id,"mode":"custom","argv":["false"],"expected":{"mode":"inherit","argv":["other"]}});
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(current)).await;
+    assert_eq!(status, StatusCode::OK);
+    let stale = json!({"product_id":id,"mode":"disabled","expected":{"mode":"inherit","argv":["other"]}});
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(stale)).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (_, body) = send_json(&router, Method::GET, &uri, Some("config-token"), None).await;
+    assert_eq!(parse_json(&body), json!({"mode":"custom","argv":["false"]}));
+    let snapshot = json!({"mode":"custom","argv":["false"]});
+    let first = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(json!({"product_id":id,"mode":"disabled","expected":snapshot})));
+    let second = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(json!({"product_id":id,"mode":"custom","argv":["other"],"expected":snapshot})));
+    let (first, second) = tokio::join!(first, second);
+    assert!((first.0 == StatusCode::OK && second.0 == StatusCode::CONFLICT) || (first.0 == StatusCode::CONFLICT && second.0 == StatusCode::OK));
     let (status, _) = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(json!({"product_id":id,"mode":"custom","argv":[]}))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, _) = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(json!({"product_id":"missing","mode":"disabled"}))).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
     let (status, _) = send_json(&router, Method::POST, "/api/mobile/workflow-test-config", Some("config-token"), Some(json!({"argv":[]}))).await;
     assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn prompt_templates_support_guarded_management_and_legacy_references() {
+    let app: tauri::App<MockRuntime> = make_test_app("prompt_template_management").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "template-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let path = "/api/mobile/prompt-templates";
+    let fields = json!({"name":"Team coding","role":"coding","template_text":"Use clear commit messages."});
+    assert_eq!(send_json(&router, Method::POST, path, None, Some(fields.clone())).await.0, StatusCode::UNAUTHORIZED);
+    let (status, body) = send_json(&router, Method::POST, path, Some("template-token"), Some(fields.clone())).await;
+    assert_eq!(status, StatusCode::CREATED, "{body}");
+    let item = parse_json(&body); let id = item["id"].as_str().unwrap();
+    let reference = format!("template:{id}");
+    assert_eq!(crate::persistence::prompt_template_repo::resolve(&state.db, "coding_v1", "coding").await.unwrap(), None);
+    assert_eq!(crate::persistence::prompt_template_repo::resolve(&state.db, &reference, "coding").await.unwrap().as_deref(), Some("Use clear commit messages."));
+    assert!(crate::persistence::prompt_template_repo::resolve(&state.db, &reference, "planning").await.is_err());
+    assert!(crate::persistence::prompt_template_repo::resolve(&state.db, "template:missing", "coding").await.is_err());
+    let changed = json!({"name":"Revised","role":"*","template_text":"Review changes."});
+    let edit = json!({"id":id,"expected_version":1,"fields":changed});
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/prompt-templates/update", Some("template-token"), Some(edit.clone())).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(send_json(&router, Method::POST, "/api/mobile/prompt-templates/update", Some("template-token"), Some(edit)).await.0, StatusCode::CONFLICT);
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_agents", json!({"action":"update_prompt_template","arguments":{"id":id,"expected_version":1,"name":"Stale","role":"*","template_text":"Stale"}})).await.is_err());
+    let result = crate::mcp::dispatch_tool(&state, "aruvi_agents", json!({"action":"list_prompt_templates","arguments":{}})).await.unwrap();
+    assert_eq!(result["result"].as_array().unwrap().len(), 1);
+    sqlx::query("UPDATE agent_definitions SET prompt_template_ref=? WHERE id='coding-agent'").bind(&reference).execute(&state.db).await.unwrap();
+    let delete = json!({"id":id,"expected_version":2});
+    assert_eq!(send_json(&router, Method::POST, "/api/mobile/prompt-templates/delete", Some("template-token"), Some(delete.clone())).await.0, StatusCode::CONFLICT);
+    sqlx::query("UPDATE agent_definitions SET prompt_template_ref='coding_v1' WHERE id='coding-agent'").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, "/api/mobile/prompt-templates/delete", Some("template-token"), Some(delete)).await.0, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn work_order_moves_are_atomic_scoped_and_available_to_mcp() {
+    let app: tauri::App<MockRuntime> = make_test_app("work_order_moves").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "order-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/products", Some("order-token"), Some(json!({"name":"Order product"}))).await;
+    let product = parse_json(&body); let product_id = product["id"].as_str().unwrap();
+    for title in ["A", "B", "C", "D"] {
+        assert_eq!(send_json(&router, Method::POST, "/api/mobile/work-items", Some("order-token"), Some(json!({"product_id":product_id,"title":title}))).await.0, StatusCode::CREATED);
+    }
+    let read = || async { sqlx::query_as::<_, (String, i64)>("SELECT id,sort_order FROM work_items WHERE product_id=? ORDER BY sort_order,created_at DESC,id").bind(product_id).fetch_all(&state.db).await.unwrap() };
+    let original = read().await;
+    let entries = |rows: &[(String,i64)]| rows.iter().map(|(id,sort_order)| json!({"id":id,"sort_order":sort_order})).collect::<Vec<_>>();
+    let path = "/api/mobile/work-items/move";
+    let payload = json!({"product_id":product_id,"offset":1,"items":entries(&original[1..3]),"source_id":original[2].0});
+    assert_eq!(send_json(&router, Method::POST, path, None, Some(payload.clone())).await.0, StatusCode::UNAUTHORIZED);
+    let wrong_scope = json!({"product_id":"other","offset":1,"items":entries(&original[1..3]),"source_id":original[2].0});
+    assert_eq!(send_json(&router, Method::POST, path, Some("order-token"), Some(wrong_scope)).await.0, StatusCode::CONFLICT);
+    sqlx::query("CREATE TRIGGER fixture_order_failure BEFORE UPDATE OF sort_order ON work_items WHEN OLD.id=? BEGIN SELECT RAISE(ABORT, 'fixture'); END".replace("?", &format!("'{}'", original[2].0)).as_str()).execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, path, Some("order-token"), Some(payload.clone())).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(read().await, original);
+    let legacy_ids = original.iter().map(|row| row.0.clone()).collect::<Vec<_>>();
+    assert!(crate::persistence::work_item_repo::reorder_work_items(&state.db, &legacy_ids).await.is_err());
+    assert_eq!(read().await, original);
+    sqlx::query("DROP TRIGGER fixture_order_failure").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, path, Some("order-token"), Some(payload.clone())).await.0, StatusCode::OK);
+    let changed = read().await;
+    assert_eq!(changed.iter().map(|x| &x.0).collect::<Vec<_>>(), vec![&original[0].0,&original[2].0,&original[1].0,&original[3].0]);
+    assert_eq!(send_json(&router, Method::POST, path, Some("order-token"), Some(payload)).await.0, StatusCode::CONFLICT);
+    crate::mcp::dispatch_tool(&state, "aruvi_work_items", json!({"action":"move_work_item","arguments":{"product_id":product_id,"offset":0,"items":entries(&changed[0..3]),"source_id":changed[0].0}})).await.unwrap();
+    let final_order = read().await;
+    assert_eq!(final_order.iter().map(|x| &x.0).collect::<Vec<_>>(), vec![&original[2].0,&original[1].0,&original[0].0,&original[3].0]);
+    sqlx::query("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<105) INSERT INTO work_items(id,product_id,title,work_item_type,priority,complexity,status,sort_order) SELECT printf('order-extra-%03d',x),?,printf('Extra %03d',x),'task','medium','medium','draft',100+x FROM n")
+        .bind(product_id).execute(&state.db).await.unwrap();
+    let before_page_move = read().await;
+    let page_move = json!({"product_id":product_id,"offset":99,"items":entries(&before_page_move[99..102]),"source_id":before_page_move[101].0});
+    assert_eq!(send_json(&router, Method::POST, path, Some("order-token"), Some(page_move)).await.0, StatusCode::OK);
+    let after_page_move = read().await;
+    let mut expected = before_page_move.iter().map(|x| x.0.clone()).collect::<Vec<_>>();
+    let moved = expected.remove(101); expected.insert(99, moved);
+    assert_eq!(after_page_move.iter().map(|x| x.0.clone()).collect::<Vec<_>>(), expected);
+}
+
+#[tokio::test]
+async fn batch_task_decisions_are_atomic_scoped_and_available_to_mcp() {
+    let app: tauri::App<MockRuntime> = make_test_app("batch_task_decisions").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "batch-token").await.unwrap();
+    settings_repo::set_setting(&state.db, "workflow.auto_start_after_work_item_approval", "false").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/products", Some("batch-token"), Some(json!({"name":"Batch product"}))).await;
+    let product = parse_json(&body);
+    let mut items = Vec::new();
+    for title in ["First", "Second"] {
+        let (_, body) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("batch-token"), Some(json!({"product_id":product["id"],"title":title}))).await;
+        items.push(parse_json(&body));
+    }
+    let first = items[0]["id"].as_str().unwrap(); let second = items[1]["id"].as_str().unwrap();
+    let selected = json!([{"id":first,"expected":items[0]},{"id":second,"expected":items[1]}]);
+    let payload = json!({"product_id":product["id"],"action":"approve","notes":"Reviewed","items":selected});
+    let path = "/api/mobile/work-items/batch-decision";
+    assert_eq!(send_json(&router, Method::POST, path, None, Some(payload.clone())).await.0, StatusCode::UNAUTHORIZED);
+    sqlx::query("UPDATE work_items SET description='concurrent' WHERE id=?").bind(second).execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, path, Some("batch-token"), Some(payload.clone())).await.0, StatusCode::CONFLICT);
+    assert_eq!(crate::persistence::work_item_repo::get_work_item(&state.db,first).await.unwrap().status.to_string(), "draft");
+    assert!(crate::persistence::approval_repo::list_approvals(&state.db,first).await.unwrap().is_empty());
+    sqlx::query("UPDATE work_items SET description=? WHERE id=?").bind(items[1]["description"].as_str().unwrap()).bind(second).execute(&state.db).await.unwrap();
+    let duplicate = json!({"product_id":product["id"],"action":"approve","notes":"Reviewed","items":[{"id":first,"expected":items[0]},{"id":first,"expected":items[0]}]});
+    assert_eq!(send_json(&router, Method::POST, path, Some("batch-token"), Some(duplicate)).await.0, StatusCode::CONFLICT);
+    let wrong_product = json!({"product_id":"different","action":"approve","notes":"Reviewed","items":selected});
+    assert_eq!(send_json(&router, Method::POST, path, Some("batch-token"), Some(wrong_product)).await.0, StatusCode::CONFLICT);
+    let (status, body) = send_json(&router, Method::POST, path, Some("batch-token"), Some(payload)).await;
+    assert_eq!(status, StatusCode::OK, "{body}"); assert_eq!(parse_json(&body)["approvals"].as_array().unwrap().len(), 2);
+    let current_a = serde_json::to_value(crate::persistence::work_item_repo::get_work_item(&state.db,first).await.unwrap()).unwrap();
+    let current_b = serde_json::to_value(crate::persistence::work_item_repo::get_work_item(&state.db,second).await.unwrap()).unwrap();
+    let result = crate::mcp::dispatch_tool(&state, "aruvi_checkpoints", json!({"action":"reject_work_items","arguments":{"product_id":product["id"],"notes":"Revise","items":[{"id":first,"expected":current_a},{"id":second,"expected":current_b}]}})).await.unwrap();
+    assert_eq!(result["result"]["approvals"].as_array().unwrap().len(), 2);
+    for id in [first, second] {
+        assert_eq!(crate::persistence::work_item_repo::get_work_item(&state.db,id).await.unwrap().status.to_string(), "draft");
+        assert_eq!(crate::persistence::approval_repo::list_approvals(&state.db,id).await.unwrap().len(), 2);
+    }
+}
+
+#[tokio::test]
+async fn task_decisions_are_authenticated_atomic_and_conflict_checked() {
+    let app: tauri::App<MockRuntime> = make_test_app("task_decision_atomic").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "decision-token").await.unwrap();
+    settings_repo::set_setting(&state.db, "workflow.auto_start_after_work_item_approval", "false").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/products", Some("decision-token"), Some(json!({"name":"Decision product"}))).await;
+    let product = parse_json(&body);
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("decision-token"), Some(json!({"product_id":product["id"],"title":"Decision task"}))).await;
+    let item = parse_json(&body); let id = item["id"].as_str().unwrap();
+    let uri = format!("/api/mobile/work-items/{id}/decision");
+    let decision = json!({"action":"approve","notes":"Reviewed","expected":item});
+    assert_eq!(send_json(&router, Method::POST, &uri, None, Some(decision.clone())).await.0, StatusCode::UNAUTHORIZED);
+    sqlx::query("CREATE TRIGGER fixture_approval_failure BEFORE INSERT ON approvals BEGIN SELECT RAISE(ABORT, 'fixture'); END").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("decision-token"), Some(decision.clone())).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(crate::persistence::work_item_repo::get_work_item(&state.db,id).await.unwrap().status.to_string(), "draft");
+    assert!(crate::persistence::approval_repo::list_approvals(&state.db,id).await.unwrap().is_empty());
+    sqlx::query("DROP TRIGGER fixture_approval_failure").execute(&state.db).await.unwrap();
+    let (status, body) = send_json(&router, Method::POST, &uri, Some("decision-token"), Some(decision.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{body}"); assert_eq!(parse_json(&body)["auto_start_requested"], false);
+    sqlx::query("CREATE TRIGGER fixture_mcp_approval_failure BEFORE INSERT ON approvals BEGIN SELECT RAISE(ABORT, 'fixture'); END").execute(&state.db).await.unwrap();
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_checkpoints", json!({"action":"reject_work_item","arguments":{"work_item_id":id,"notes":"fixture"}})).await.is_err());
+    assert_eq!(crate::persistence::work_item_repo::get_work_item(&state.db,id).await.unwrap().status.to_string(), "approved");
+    sqlx::query("DROP TRIGGER fixture_mcp_approval_failure").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("decision-token"), Some(decision)).await.0, StatusCode::CONFLICT);
+    let current = serde_json::to_value(crate::persistence::work_item_repo::get_work_item(&state.db,id).await.unwrap()).unwrap();
+    let priority = current["priority"].as_str().unwrap().to_string();
+    let rejection = json!({"action":"reject","notes":"Revise the scope","expected":current});
+    sqlx::query("UPDATE work_items SET priority='high' WHERE id=?").bind(id).execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("decision-token"), Some(rejection.clone())).await.0, StatusCode::CONFLICT);
+    sqlx::query("UPDATE work_items SET priority=? WHERE id=?").bind(priority).bind(id).execute(&state.db).await.unwrap();
+    workflow_repo::create_workflow_run(&state.db,"decision-active",id).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("decision-token"), Some(rejection.clone())).await.0, StatusCode::CONFLICT);
+    sqlx::query("UPDATE workflow_runs SET status='failed',current_stage='failed' WHERE id='decision-active'").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("decision-token"), Some(rejection)).await.0, StatusCode::OK);
+    assert_eq!(crate::persistence::work_item_repo::get_work_item(&state.db,id).await.unwrap().status.to_string(), "draft");
+    assert_eq!(crate::persistence::approval_repo::list_approvals(&state.db,id).await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn external_cli_recovery_is_atomic_on_database_failure() {
+    let app: tauri::App<MockRuntime> = make_test_app("external_cli_recovery_atomic").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "recovery-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/products", Some("recovery-token"), Some(json!({"name":"Recovery product"}))).await;
+    let product = parse_json(&body);
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("recovery-token"), Some(json!({"product_id":product["id"],"title":"Recovery task"}))).await;
+    let item = parse_json(&body);
+    let invocation = crate::domain::external_cli::ExternalCliInvocation {
+        work_item_id:item["id"].as_str().unwrap().into(), provider:"codex".into(), label:"Fixture".into(),
+        command:"fixture".into(), args:vec![], prompt:"fixture".into(), cwd:"/tmp".into(), session_log_path:"".into(),
+    };
+    crate::persistence::external_cli_repo::create_external_cli_run(&state.db, "recovery-test-run", &invocation).await.unwrap();
+    sqlx::query("CREATE TRIGGER fixture_recovery_failure BEFORE UPDATE ON external_cli_runs BEGIN SELECT RAISE(ABORT, 'fixture'); END").execute(&state.db).await.unwrap();
+    assert!(crate::persistence::external_cli_repo::mark_interrupted_external_cli_runs(&state.db).await.is_err());
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM external_cli_run_events WHERE run_id='recovery-test-run'").fetch_one(&state.db).await.unwrap();
+    assert_eq!(count.0, 0);
+    assert_eq!(crate::persistence::external_cli_repo::get_external_cli_run(&state.db, "recovery-test-run").await.unwrap().status, "running");
+    sqlx::query("DROP TRIGGER fixture_recovery_failure").execute(&state.db).await.unwrap();
+    assert_eq!(crate::persistence::external_cli_repo::mark_interrupted_external_cli_runs(&state.db).await.unwrap(), 1);
+    let events = crate::persistence::external_cli_repo::list_external_cli_run_events(&state.db, "recovery-test-run", 10).await.unwrap();
+    assert_eq!(events.len(), 1);
+}
+
+#[tokio::test]
+async fn external_cli_remote_routes_require_authentication() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_external_cli_auth").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "external-cli-token").await.unwrap();
+    let router = build_webhook_router(state);
+    let path = "/api/mobile/work-items/missing/external-cli";
+    assert_eq!(send_json(&router, Method::GET, path, None, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::POST, path, None, Some(json!({"provider":"codex"}))).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::GET, "/api/mobile/work-items/missing/external-cli/run/events", None, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::GET, path, Some("external-cli-token"), None).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send_json(&router, Method::GET, "/api/mobile/work-items/missing/external-cli/run/events", Some("external-cli-token"), None).await.0, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn remote_delete_work_item_protects_stale_and_active_workflows() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_delete_work_item").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "delete-token").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/products", Some("delete-token"), Some(json!({"name":"Delete product"}))).await;
+    let product = parse_json(&body);
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("delete-token"), Some(json!({"product_id":product["id"],"title":"Delete parent"}))).await;
+    let item = parse_json(&body);
+    let id = item["id"].as_str().unwrap();
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("delete-token"), Some(json!({"product_id":product["id"],"title":"Keep child","parent_work_item_id":id,"work_item_type":"task"}))).await;
+    let child = parse_json(&body);
+    let expected = item.clone();
+    let uri = format!("/api/mobile/work-items/{id}/delete");
+    let request = json!({"expected":expected});
+    assert_eq!(send_json(&router, Method::POST, &uri, None, Some(request.clone())).await.0, StatusCode::UNAUTHORIZED);
+    sqlx::query("UPDATE work_items SET description='changed' WHERE id=?").bind(id).execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("delete-token"), Some(request.clone())).await.0, StatusCode::CONFLICT);
+    sqlx::query("UPDATE work_items SET description=? WHERE id=?").bind(item["description"].as_str().unwrap()).bind(id).execute(&state.db).await.unwrap();
+    workflow_repo::create_workflow_run(&state.db, "delete-child-active", child["id"].as_str().unwrap()).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("delete-token"), Some(request.clone())).await.0, StatusCode::CONFLICT);
+    sqlx::query("UPDATE workflow_runs SET status='failed',current_stage='failed' WHERE id='delete-child-active'").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("delete-token"), Some(request)).await.0, StatusCode::OK);
+    let child = crate::persistence::work_item_repo::get_work_item(&state.db, child["id"].as_str().unwrap()).await.unwrap();
+    assert!(child.parent_work_item_id.is_none());
+}
+
+#[tokio::test]
+async fn remote_workspace_assignment_checks_conflicts_and_active_workflows() {
+    let app: tauri::App<MockRuntime> = make_test_app("remote_workspace_assignment").await;
+    let state = app.state::<AppState>().inner().clone();
+    settings_repo::set_setting(&state.db, "mobile.api_token", "workspace-token").await.unwrap();
+    crate::persistence::repository_repo::create_repository(&state.db, "workspace-a", "Workspace A", "/tmp/a", "", "main").await.unwrap();
+    let router = build_webhook_router(state.clone());
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/products", Some("workspace-token"), Some(json!({"name":"Workspace product"}))).await;
+    let product = parse_json(&body);
+    let (_, body) = send_json(&router, Method::POST, "/api/mobile/work-items", Some("workspace-token"), Some(json!({"product_id":product["id"],"title":"Workspace item"}))).await;
+    let item = parse_json(&body);
+    let id = item["id"].as_str().unwrap();
+    let uri = format!("/api/mobile/work-items/{id}/workspace");
+    let initial = json!({"repo_override_id":null,"active_repo_id":null,"branch_name":null});
+    let body = json!({"repository_id":"workspace-a","branch_name":"work/fixture","expected":initial});
+    assert_eq!(send_json(&router, Method::POST, &uri, None, Some(body.clone())).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("workspace-token"), Some(json!({"repository_id":"missing","branch_name":"main","expected":initial}))).await.0, StatusCode::CONFLICT);
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("workspace-token"), Some(json!({"repository_id":"workspace-a","branch_name":"bad branch","expected":initial}))).await.0, StatusCode::CONFLICT);
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("workspace-token"), Some(body.clone())).await.0, StatusCode::OK);
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("workspace-token"), Some(body)).await.0, StatusCode::CONFLICT);
+    let assigned = json!({"repo_override_id":"workspace-a","active_repo_id":"workspace-a","branch_name":"work/fixture"});
+    workflow_repo::create_workflow_run(&state.db, "workspace-active", id).await.unwrap();
+    let clear = json!({"repository_id":null,"branch_name":null,"expected":assigned});
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("workspace-token"), Some(clear.clone())).await.0, StatusCode::CONFLICT);
+    sqlx::query("UPDATE workflow_runs SET status='failed',current_stage='failed' WHERE id='workspace-active'").execute(&state.db).await.unwrap();
+    assert_eq!(send_json(&router, Method::POST, &uri, Some("workspace-token"), Some(clear)).await.0, StatusCode::OK);
 }
 
 #[tokio::test]
@@ -291,11 +942,77 @@ async fn remote_test_result_is_scoped_and_confined_to_artifacts() {
     let (status, body) = send_json(&router, Method::GET, &uri, Some("result-token"), None).await;
     assert_eq!(status, StatusCode::OK);
     assert!(parse_json(&body)["content"].as_str().unwrap().contains("passed"));
+    let artifact_uri = format!("/api/mobile/work-items/{}/artifacts/{}", item["id"].as_str().unwrap(), artifact.id);
+    assert_eq!(send_json(&router, Method::GET, &artifact_uri, None, None).await.0, StatusCode::UNAUTHORIZED);
+    let (status, body) = send_json(&router, Method::GET, &artifact_uri, Some("result-token"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(parse_json(&body)["content"].as_str().unwrap().contains("passed"));
+    let mcp_read = || crate::mcp::dispatch_tool(&state, "aruvi_checkpoints", json!({"action":"read_artifact_content", "arguments":{"artifact_id":artifact.id}}));
+    let mcp = mcp_read().await.unwrap();
+    assert_eq!(mcp["result"]["content"], "{\"status\":\"passed\"}");
+    let desktop = crate::commands::artifact_commands::read_artifact_content(app.state::<AppState>(), artifact.id.clone()).await.unwrap();
+    assert_eq!(desktop, "{\"status\":\"passed\"}");
+    assert_eq!(send_json(&router, Method::GET, "/api/mobile/work-items/other/artifacts/test-result", Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
+    let paged = format!("{}🦀{}", "a".repeat(65_535), "b".repeat(2 * 1024 * 1024));
+    tokio::fs::write(&path, &paged).await.unwrap();
+    let page_uri = format!("{artifact_uri}/page");
+    assert_eq!(send_json(&router, Method::GET, &page_uri, None, None).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(send_json(&router, Method::GET, "/api/mobile/work-items/other/artifacts/test-result/page", Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
+    let (status, body) = send_json(&router, Method::GET, &page_uri, Some("result-token"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let first = parse_json(&body);
+    assert_eq!(first["content"].as_str().unwrap().len(), 65_535);
+    assert_eq!(first["next_offset"], 65_535);
+    let version = first["version"].as_str().unwrap();
+    let next_uri = format!("{page_uri}?offset=65535&version={version}");
+    let (status, body) = send_json(&router, Method::GET, &next_uri, Some("result-token"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(parse_json(&body)["content"].as_str().unwrap().starts_with('🦀'));
+    let page_mcp = crate::mcp::dispatch_tool(&state, "aruvi_checkpoints", json!({"action":"read_artifact_page", "arguments":{"artifact_id":artifact.id,"offset":65535,"version":version}})).await.unwrap();
+    assert!(page_mcp["result"]["content"].as_str().unwrap().starts_with('🦀'));
+    let desktop_page = crate::commands::artifact_commands::read_artifact_page(app.state::<AppState>(), artifact.id.clone(), 65_535, Some(version.into())).await.unwrap();
+    assert!(desktop_page.content.starts_with('🦀'));
+    assert_eq!(send_json(&router, Method::GET, &format!("{page_uri}?offset=65535"), Some("result-token"), None).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send_json(&router, Method::GET, &format!("{page_uri}?offset=65536&version={version}"), Some("result-token"), None).await.0, StatusCode::BAD_REQUEST);
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_checkpoints", json!({"action":"read_artifact_page", "arguments":{"artifact_id":artifact.id,"offset":-1}})).await.is_err());
+    tokio::fs::write(&path, "changed").await.unwrap();
+    assert_eq!(send_json(&router, Method::GET, &next_uri, Some("result-token"), None).await.0, StatusCode::BAD_REQUEST);
+    assert!(crate::commands::artifact_commands::read_artifact_page(app.state::<AppState>(), artifact.id.clone(), 0, Some(version.into())).await.is_err());
+    tokio::fs::write(&path, vec![b'x'; 2 * 1024 * 1024]).await.unwrap();
+    assert_eq!(mcp_read().await.unwrap()["result"]["content"].as_str().unwrap().len(), 2 * 1024 * 1024);
+    assert_eq!(crate::commands::artifact_commands::read_artifact_content(app.state::<AppState>(), artifact.id.clone()).await.unwrap().len(), 2 * 1024 * 1024);
+    tokio::fs::write(&path, vec![b'x'; 2 * 1024 * 1024 + 1]).await.unwrap();
+    assert_eq!(send_json(&router, Method::GET, &artifact_uri, Some("result-token"), None).await.0, StatusCode::BAD_REQUEST);
+    assert!(mcp_read().await.is_err());
+    assert!(crate::commands::artifact_commands::read_artifact_content(app.state::<AppState>(), artifact.id.clone()).await.is_err());
+    tokio::fs::write(&path, [0xff]).await.unwrap();
+    assert_eq!(send_json(&router, Method::GET, &artifact_uri, Some("result-token"), None).await.0, StatusCode::BAD_REQUEST);
+    assert_eq!(send_json(&router, Method::GET, &page_uri, Some("result-token"), None).await.0, StatusCode::BAD_REQUEST);
+    assert!(mcp_read().await.is_err());
+    assert!(crate::commands::artifact_commands::read_artifact_content(app.state::<AppState>(), artifact.id.clone()).await.is_err());
+    #[cfg(unix)]
+    {
+        let link = state.artifact_base_path.join("outside-link");
+        std::os::unix::fs::symlink("/etc/passwd", &link).unwrap();
+        sqlx::query("UPDATE artifacts SET storage_path=? WHERE id=?").bind(link.to_str().unwrap()).bind(&artifact.id).execute(&state.db).await.unwrap();
+        assert_eq!(send_json(&router, Method::GET, &artifact_uri, Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
+        assert!(mcp_read().await.is_err());
+        assert!(crate::commands::artifact_commands::read_artifact_content(app.state::<AppState>(), artifact.id.clone()).await.is_err());
+        assert_eq!(send_json(&router, Method::GET, &page_uri, Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
+        assert!(crate::mcp::dispatch_tool(&state, "aruvi_checkpoints", json!({"action":"read_artifact_page", "arguments":{"artifact_id":artifact.id}})).await.is_err());
+        assert!(crate::commands::artifact_commands::read_artifact_page(app.state::<AppState>(), artifact.id.clone(), 0, None).await.is_err());
+    }
     let (status, _) = send_json(&router, Method::GET, "/api/mobile/work-items/other/test-results/test-result", Some("result-token"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     sqlx::query("UPDATE artifacts SET storage_path=? WHERE id=?").bind("/etc/passwd").bind(&artifact.id).execute(&state.db).await.unwrap();
     let (status, _) = send_json(&router, Method::GET, &uri, Some("result-token"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(send_json(&router, Method::GET, &artifact_uri, Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
+    assert!(mcp_read().await.is_err());
+    assert!(crate::commands::artifact_commands::read_artifact_content(app.state::<AppState>(), artifact.id.clone()).await.is_err());
+    assert_eq!(send_json(&router, Method::GET, &page_uri, Some("result-token"), None).await.0, StatusCode::NOT_FOUND);
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_checkpoints", json!({"action":"read_artifact_page", "arguments":{"artifact_id":artifact.id}})).await.is_err());
+    assert!(crate::commands::artifact_commands::read_artifact_page(app.state::<AppState>(), artifact.id.clone(), 0, None).await.is_err());
 }
 
 #[tokio::test]
@@ -403,6 +1120,8 @@ async fn remote_work_api_auth_create_start_approve_and_delivery_flow() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(parse_json(&body)["workflow_run"]["id"], seeded_run.id);
 
+    sqlx::query("INSERT INTO findings(id,work_item_id,category,severity,title,description,status,is_blocking) VALUES(?,?,'security','high','Review fixture','Check isolation','open',1)")
+        .bind("remote-finding").bind(work_item_id).execute(&state.db).await.unwrap();
     let (status, body) = send_json(
         &router,
         Method::GET,
@@ -415,6 +1134,10 @@ async fn remote_work_api_auth_create_start_approve_and_delivery_flow() {
     let delivery = parse_json(&body);
     assert_eq!(delivery["work_item"]["status"], "approved");
     assert_eq!(delivery["workflow_run"]["id"], seeded_run.id);
+    assert_eq!(delivery["findings"].as_array().unwrap().len(), 1);
+    assert_eq!(delivery["findings"][0]["title"], "Review fixture");
+    assert_eq!(delivery["findings"][0]["is_blocking"], true);
+    assert_eq!(send_json(&router, Method::GET, &format!("/api/mobile/work-items/{work_item_id}/delivery"), None, None).await.0, StatusCode::UNAUTHORIZED);
 
     let (status, body) = send_json(
         &router,
@@ -425,6 +1148,45 @@ async fn remote_work_api_auth_create_start_approve_and_delivery_flow() {
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+
+    let failure_url = format!("/api/mobile/workflows/{}/mark-failed", seeded_run.id);
+    let failure = json!({"expected_stage":"pending_plan_approval", "expected_status":"running", "reason":"Recovery after confirming executor stopped"});
+    assert_eq!(send_json(&router, Method::POST, &failure_url, None, Some(failure.clone())).await.0, StatusCode::UNAUTHORIZED);
+    let stale = json!({"expected_stage":"draft", "expected_status":"running", "reason":"stale"});
+    assert_eq!(send_json(&router, Method::POST, &failure_url, Some(token), Some(stale)).await.0, StatusCode::CONFLICT);
+    assert!(crate::mcp::dispatch_tool(&state, "aruvi_workflows", json!({"action":"mark_workflow_run_failed", "arguments":{"workflow_run_id":seeded_run.id,"expected_stage":"draft","expected_status":"running"}})).await.is_err());
+    sqlx::query("CREATE TRIGGER reject_override_history BEFORE INSERT ON workflow_stage_history WHEN NEW.trigger='user_override' BEGIN SELECT RAISE(ABORT, 'fixture failure'); END").execute(&state.db).await.unwrap();
+    assert_ne!(send_json(&router, Method::POST, &failure_url, Some(token), Some(failure.clone())).await.0, StatusCode::OK);
+    let unchanged = workflow_repo::get_workflow_run(&state.db, &seeded_run.id).await.unwrap();
+    assert_eq!((unchanged.current_stage.as_str(), unchanged.status.as_str()), ("pending_plan_approval", "running"));
+    sqlx::query("DROP TRIGGER reject_override_history").execute(&state.db).await.unwrap();
+    let (status, body) = send_json(&router, Method::POST, &failure_url, Some(token), Some(failure.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let failed = workflow_repo::get_workflow_run(&state.db, &seeded_run.id).await.unwrap();
+    assert_eq!((failed.current_stage.as_str(), failed.status.as_str()), ("failed", "failed"));
+    assert_eq!(failed.error_message.as_deref(), Some("Recovery after confirming executor stopped"));
+    let history = workflow_repo::get_workflow_history(&state.db, &seeded_run.id).await.unwrap();
+    assert_eq!(history.iter().filter(|entry| entry.trigger == "user_override" && entry.to_stage == "failed").count(), 1);
+    assert_eq!(send_json(&router, Method::POST, &failure_url, Some(token), Some(failure)).await.0, StatusCode::CONFLICT);
+
+    let legacy = workflow_repo::create_workflow_run(&state.db, "partially-failed-run", work_item_id).await.unwrap();
+    workflow_repo::update_workflow_stage(&state.db, &legacy.id, "failed").await.unwrap();
+    let legacy_url = format!("/api/mobile/workflows/{}/mark-failed", legacy.id);
+    let (status, body) = send_json(&router, Method::POST, &legacy_url, Some(token), Some(json!({"expected_stage":"failed", "expected_status":"running", "reason":"Reconcile incomplete failure"}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(workflow_repo::get_workflow_run(&state.db, &legacy.id).await.unwrap().status, "failed");
+    assert!(workflow_repo::get_workflow_history(&state.db, &legacy.id).await.unwrap().is_empty());
+
+    let concurrent = workflow_repo::create_workflow_run(&state.db, "concurrent-recovery-run", work_item_id).await.unwrap();
+    let concurrent_url = format!("/api/mobile/workflows/{}/mark-failed", concurrent.id);
+    let expected = json!({"expected_stage":"draft", "expected_status":"running", "reason":"Concurrent fixture"});
+    let (one, two) = tokio::join!(
+        send_json(&router, Method::POST, &concurrent_url, Some(token), Some(expected.clone())),
+        send_json(&router, Method::POST, &concurrent_url, Some(token), Some(expected)),
+    );
+    let mut statuses = [one.0.as_u16(), two.0.as_u16()]; statuses.sort();
+    assert_eq!(statuses, [200, 409]);
+    assert_eq!(workflow_repo::get_workflow_history(&state.db, &concurrent.id).await.unwrap().len(), 1);
 }
 
 #[tokio::test]
@@ -437,6 +1199,9 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
         assert!(headers.get("authorization").is_none());
         assert_eq!(body["model"], "claude-test");
         assert_eq!(body["messages"][0]["role"], "user");
+        if body["messages"][0]["content"] == "hello patch" {
+            assert!(body["system"].to_string().contains("patch_proposal"));
+        }
         let stop_reason = if body["messages"][0]["content"] == "truncated" { "max_tokens" } else { "end_turn" };
         Json(json!({"content":[{"type":"text","text":"Claude fixture response"}],"stop_reason":stop_reason,"usage":{"input_tokens":4,"output_tokens":3}}))
     }
@@ -473,6 +1238,12 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
     }})).await.unwrap();
     assert_eq!(mcp["result"]["content"], "Claude fixture response");
     assert_eq!(mcp["result"]["token_count_input"], 4);
+    let copilot = dispatch_tool(&state, "aruvi_models", json!({"action":"run_general_copilot","arguments":{
+        "provider_id":id,"model_name":"claude-test","messages":[{"role":"user","content":"hello patch"}],"patch_mode":true
+    }})).await.unwrap();
+    assert_eq!(copilot["result"]["content"], "Claude fixture response");
+    let calls: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM model_calls WHERE source_kind = 'mcp_ide'").fetch_one(&state.db).await.unwrap();
+    assert!(calls > 0);
     let truncated = dispatch_tool(&state, "aruvi_models", json!({"action":"run_model_chat_completion","arguments":{
         "provider_id":id,"model":"claude-test","messages":[{"role":"user","content":"truncated"}]
     }})).await.unwrap_err();
@@ -486,7 +1257,7 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
     assert!(next["result"]["next_cursor"].is_null());
     let after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM model_definitions").fetch_one(&state.db).await.unwrap();
     assert_eq!(before, after);
-    let router = build_webhook_router(state);
+    let router = build_webhook_router(state.clone());
     let (status, _) = send_json(&router, Method::POST, "/api/mobile/providers/discover", None, Some(json!({"id":id}))).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
     let (status, body) = send_json(&router, Method::POST, "/api/mobile/providers/discover", Some("anthropic-test-token"), Some(json!({"id":id,"cursor":"claude-first"}))).await;
@@ -497,6 +1268,22 @@ async fn anthropic_protocol_routes_mcp_and_remote_chat() {
     }))).await;
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(parse_json(&body)["content"], "Claude fixture response");
+    let general = json!({"provider_id":id,"model_name":"claude-test","messages":[{"role":"user","content":"hello"}]});
+    for path in ["/api/mobile/ide/copilot", "/api/mobile/ide/copilot/stream"] {
+        let (status, _) = send_json(&router, Method::POST, path, None, Some(general.clone())).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+    let (status, body) = send_json(&router, Method::POST, "/api/mobile/ide/copilot", Some("anthropic-test-token"), Some(general)).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(parse_json(&body)["content"], "Claude fixture response");
+    let invalid = json!({"provider_id":id,"model_name":"claude-test","messages":[{"role":"user","content":"hello"}],"max_tokens":32769});
+    for path in ["/api/mobile/ide/copilot", "/api/mobile/ide/copilot/stream"] {
+        let (status, _) = send_json(&router, Method::POST, path, Some("anthropic-test-token"), Some(invalid.clone())).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+    assert!(dispatch_tool(&state, "aruvi_models", json!({"action":"run_general_copilot","arguments": invalid})).await.is_err());
+    let ide_calls: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM model_calls WHERE source_kind = 'mobile_ide'").fetch_one(&state.db).await.unwrap();
+    assert!(ide_calls > 0);
     let (status, body) = send_json(&router, Method::POST, "/api/mobile/chat/completions", Some("anthropic-test-token"), Some(json!({
         "provider_id":id,"model_name":"claude-test","messages":[{"role":"user","content":"truncated"}]
     }))).await;
@@ -596,4 +1383,135 @@ async fn remote_catalog_settings_are_authenticated_conflict_aware_and_seed_examp
     assert_eq!(product_repo::list_products(&state.db).await.unwrap().len(), count);
     let (_, body) = send_json(&router, Method::GET, uri, Some("catalog-test-token"), None).await;
     assert_eq!(parse_json(&body)["enabled"], false);
+}
+
+#[tokio::test]
+async fn mcp_portfolio_strategy_and_dependency_lifecycle() {
+    use crate::mcp::dispatch_tool;
+    let app: tauri::App<MockRuntime> = make_test_app("mcp_portfolio_strategy").await;
+    let state = app.state::<AppState>().inner().clone();
+    async fn call(state: &AppState, action: &str, arguments: Value) -> Value {
+        dispatch_tool(state, "aruvi_catalog", json!({"action": action, "arguments": arguments})).await.unwrap()["result"].clone()
+    }
+    let a = call(&state, "create_product", json!({"name":"Portfolio A"})).await;
+    let b = call(&state, "create_product", json!({"name":"Portfolio B"})).await;
+    let root = call(&state, "create_strategy_node", json!({"node_kind":"strategic_product_area","name":"Strategy"})).await;
+    let child = call(&state, "create_strategy_node", json!({"parent_node_id":root["id"],"node_kind":"domain","name":"Domain"})).await;
+    let changed = call(&state, "update_strategy_node", json!({"id":child["id"],"name":"Updated domain"})).await;
+    assert_eq!(changed["name"], "Updated domain");
+    let stale = dispatch_tool(&state, "aruvi_catalog", json!({"action":"update_strategy_node","arguments":{"id":child["id"],"expected":child,"name":"Stale overwrite"}})).await.unwrap_err();
+    assert!(stale.to_string().contains("refresh"));
+    assert_eq!(call(&state, "list_strategy_nodes", json!({})).await.as_array().unwrap().iter().find(|n| n["id"] == changed["id"]).unwrap()["name"], "Updated domain");
+    assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"update_strategy_node","arguments":{"id":root["id"],"node_kind":"sub_domain","parent_node_id":child["id"]}})).await.is_err());
+    assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"update_strategy_node","arguments":{"id":child["id"],"node_kind":"sub_domain","parent_node_id":child["id"]}})).await.is_err());
+    assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"create_strategy_node","arguments":{"node_kind":"domain","name":"Invalid root"}})).await.is_err());
+    call(&state, "link_product_to_strategy", json!({"product_id":a["id"],"strategy_node_id":root["id"],"is_primary":true})).await;
+    // A failed primary replacement must not clear the existing primary link.
+    assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"link_product_to_strategy","arguments":{"product_id":a["id"],"strategy_node_id":"missing","is_primary":true}})).await.is_err());
+    let links = call(&state, "list_product_strategy_links", json!({})).await;
+    assert!(links.as_array().unwrap().iter().any(|link| link["product_id"] == a["id"] && link["is_primary"] == true));
+    let stale_link = dispatch_tool(&state, "aruvi_catalog", json!({"action":"link_product_to_strategy","arguments":{"product_id":a["id"],"strategy_node_id":child["id"],"is_primary":true,"expected_links":[]}})).await.unwrap_err();
+    assert!(stale_link.to_string().contains("refresh"));
+    let stale_unlink = dispatch_tool(&state, "aruvi_catalog", json!({"action":"unlink_product_from_strategy","arguments":{"product_id":a["id"],"strategy_node_id":root["id"],"expected_links":[]}})).await.unwrap_err();
+    assert!(stale_unlink.to_string().contains("refresh"));
+    let after_stale = call(&state, "list_product_strategy_links", json!({})).await;
+    assert_eq!(links, after_stale);
+
+    let current_nodes = call(&state, "list_strategy_nodes", json!({})).await;
+    let subtree: Vec<Value> = current_nodes.as_array().unwrap().iter().filter(|node| node["id"] == root["id"] || node["id"] == child["id"]).cloned().collect();
+    let subtree_links: Vec<Value> = links.as_array().unwrap().iter().filter(|link| link["strategy_node_id"] == root["id"]).cloned().collect();
+    let added = call(&state, "create_strategy_node", json!({"parent_node_id":child["id"],"node_kind":"sub_domain","name":"New descendant"})).await;
+    let rejected = dispatch_tool(&state, "aruvi_catalog", json!({"action":"delete_strategy_node","arguments":{"id":root["id"],"expected_nodes":subtree,"expected_links":subtree_links}})).await.unwrap_err();
+    assert!(rejected.to_string().contains("refresh"));
+    assert!(call(&state, "list_strategy_nodes", json!({})).await.as_array().unwrap().iter().any(|node| node["id"] == added["id"]));
+    call(&state, "delete_strategy_node", json!({"id":added["id"]})).await;
+    call(&state, "link_product_to_strategy", json!({"product_id":b["id"],"strategy_node_id":child["id"]})).await;
+    let rejected = dispatch_tool(&state, "aruvi_catalog", json!({"action":"delete_strategy_node","arguments":{"id":root["id"],"expected_nodes":subtree,"expected_links":subtree_links}})).await.unwrap_err();
+    assert!(rejected.to_string().contains("refresh"));
+    call(&state, "unlink_product_from_strategy", json!({"product_id":b["id"],"strategy_node_id":child["id"]})).await;
+    let area_a = call(&state, "create_product_area", json!({"product_id":a["id"],"name":"Area A"})).await;
+    let area_b = call(&state, "create_product_area", json!({"product_id":b["id"],"name":"Area B"})).await;
+    let cap_a = call(&state, "create_capability", json!({"product_area_id":area_a["id"],"name":"Capability A"})).await;
+    let cap_b = call(&state, "create_capability", json!({"product_area_id":area_b["id"],"name":"Capability B"})).await;
+    for (source, target) in [(cap_b["id"].clone(), cap_b["id"].clone()), (cap_a["id"].clone(), cap_a["id"].clone())] {
+        assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"create_product_dependency","arguments":{"product_id":a["id"],"depends_on_product_id":b["id"],"capability_id":source,"depends_on_capability_id":target}})).await.is_err());
+    }
+    let dependency = call(&state, "create_product_dependency", json!({"product_id":a["id"],"depends_on_product_id":b["id"],"capability_id":cap_a["id"],"depends_on_capability_id":cap_b["id"],"dependency_kind":"data"})).await;
+    assert_eq!(dependency["dependency_kind"], "data");
+    assert!(dispatch_tool(&state, "aruvi_catalog", json!({"action":"create_product_dependency","arguments":{"product_id":a["id"],"depends_on_product_id":a["id"]}})).await.is_err());
+    let dependencies = call(&state, "list_product_dependencies", json!({})).await;
+    assert!(dependencies.as_array().unwrap().iter().any(|item| item["id"] == dependency["id"]));
+    call(&state, "delete_product_dependency", json!({"id":dependency["id"]})).await;
+    call(&state, "unlink_product_from_strategy", json!({"product_id":a["id"],"strategy_node_id":root["id"]})).await;
+    call(&state, "delete_strategy_node", json!({"id":child["id"]})).await;
+    call(&state, "delete_strategy_node", json!({"id":root["id"]})).await;
+    assert!(!call(&state, "list_strategy_nodes", json!({})).await.as_array().unwrap().iter().any(|node| node["id"] == root["id"]));
+    settings_repo::set_setting(&state.db, "mobile.api_token", "portfolio-api-token").await.unwrap();
+    let router = build_webhook_router(state);
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", None, Some(json!({"action":"list_strategy_nodes", "arguments":{}}))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", Some("portfolio-api-token"), Some(json!({"action":"update_strategy_node", "arguments":{"id":"missing", "name":"unsafe"}}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", Some("portfolio-api-token"), Some(json!({"action":"link_product_to_strategy", "arguments":{"product_id":"missing", "strategy_node_id":"missing"}}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", Some("portfolio-api-token"), Some(json!({"action":"delete_strategy_node", "arguments":{"id":"missing"}}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = send_json(&router, Method::POST, "/api/mobile/portfolio", Some("portfolio-api-token"), Some(json!({"action":"archive_product", "arguments":{"id":a["id"]}}))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, body) = send_json(&router, Method::POST, "/api/mobile/portfolio", Some("portfolio-api-token"), Some(json!({"action":"list_strategy_nodes", "arguments":{}}))).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(parse_json(&body).is_array());
+}
+
+#[tokio::test]
+async fn capability_conversion_rejects_invalid_kind_and_preserves_children() {
+    use crate::mcp::dispatch_tool;
+    let app: tauri::App<MockRuntime> = make_test_app("capability_conversion_atomic").await;
+    let state = app.state::<AppState>().inner().clone();
+    async fn call(state: &AppState, action: &str, arguments: Value) -> Value {
+        dispatch_tool(state, "aruvi_catalog", json!({"action":action,"arguments":arguments})).await.unwrap()["result"].clone()
+    }
+    let product = call(&state, "create_product", json!({"name":"Conversion fixture"})).await;
+    let area = call(&state, "create_product_area", json!({"product_id":product["id"],"name":"Area"})).await;
+    let parent = call(&state, "create_capability", json!({"product_area_id":area["id"],"name":"Parent","node_kind":"capability"})).await;
+    let child = call(&state, "create_capability", json!({"product_area_id":area["id"],"parent_capability_id":parent["id"],"name":"Child","node_kind":"feature"})).await;
+    let invalid = dispatch_tool(&state, "aruvi_catalog", json!({"action":"convert_capability_kind","arguments":{"id":parent["id"],"node_kind":"feature","child_strategy":"reparent_to_parent"}})).await;
+    assert!(invalid.is_err());
+    sqlx::query("CREATE TRIGGER fail_conversion BEFORE UPDATE OF node_kind ON capabilities BEGIN SELECT RAISE(ABORT, 'fixture conversion failure'); END")
+        .execute(&state.db).await.unwrap();
+    let failed = dispatch_tool(&state, "aruvi_catalog", json!({"action":"convert_capability_kind","arguments":{"id":parent["id"],"node_kind":"capability"}})).await;
+    assert!(failed.is_err());
+    let persisted = sqlx::query_as::<_, (Option<String>, i64)>("SELECT parent_capability_id,level FROM capabilities WHERE id=?")
+        .bind(child["id"].as_str().unwrap()).fetch_one(&state.db).await.unwrap();
+    assert_eq!(persisted.0.as_deref(), parent["id"].as_str());
+    assert_eq!(persisted.1, 1);
+    sqlx::query("DROP TRIGGER fail_conversion").execute(&state.db).await.unwrap();
+    let converted = call(&state, "convert_capability_kind", json!({"id":parent["id"],"node_kind":"capability"})).await;
+    assert_eq!(converted["capability"]["node_kind"], "capability");
+    let moved = sqlx::query_as::<_, (Option<String>, i64)>("SELECT parent_capability_id,level FROM capabilities WHERE id=?")
+        .bind(child["id"].as_str().unwrap()).fetch_one(&state.db).await.unwrap();
+    assert_eq!(moved.0.as_deref(), parent["id"].as_str());
+    assert_eq!(moved.1, 1);
+}
+
+#[tokio::test]
+async fn concurrent_partial_product_updates_preserve_other_fields() {
+    use crate::mcp::dispatch_tool;
+    let app: tauri::App<MockRuntime> = make_test_app("product_partial_concurrency").await;
+    let state = app.state::<AppState>().inner().clone();
+    let product = dispatch_tool(&state, "aruvi_catalog", json!({"action":"create_product","arguments":{"name":"Concurrent product"}})).await.unwrap();
+    let id = product["result"]["id"].as_str().unwrap().to_string();
+    // Hold the writer lock so both tasks are queued concurrently; in WAL mode
+    // old read-then-write updates could both read the same pre-update row.
+    let lock = state.db.begin_with("BEGIN IMMEDIATE").await.unwrap();
+    let first_state = state.clone(); let first_id = id.clone();
+    let first = tokio::spawn(async move { dispatch_tool(&first_state,"aruvi_catalog",json!({"action":"update_product","arguments":{"id":first_id,"vision":"New vision"}})).await });
+    let second_state = state.clone(); let second_id = id.clone();
+    let second = tokio::spawn(async move { dispatch_tool(&second_state,"aruvi_catalog",json!({"action":"update_product","arguments":{"id":second_id,"description":"New description"}})).await });
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    lock.commit().await.unwrap();
+    first.await.unwrap().unwrap(); second.await.unwrap().unwrap();
+    let final_product = dispatch_tool(&state,"aruvi_catalog",json!({"action":"get_product","arguments":{"id":id}})).await.unwrap();
+    assert_eq!(final_product["result"]["vision"], "New vision");
+    assert_eq!(final_product["result"]["description"], "New description");
 }

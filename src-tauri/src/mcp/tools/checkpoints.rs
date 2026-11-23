@@ -1,6 +1,6 @@
 use crate::error::AppError;
 use crate::persistence::{
-    approval_repo, artifact_repo, finding_repo, observability_repo, settings_repo, work_item_repo,
+    approval_repo, artifact_repo, finding_repo, observability_repo, settings_repo,
 };
 use crate::state::AppState;
 use serde_json::{json, Value};
@@ -17,32 +17,20 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        action @ ("approve_work_items" | "reject_work_items") => {
+            let approved = action == "approve_work_items";
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            let items: Vec<crate::services::approval_service::BatchDecisionItem> = args.required_deserialize(&["items"], "items")?;
+            let notes = args.optional_string(&["notes"])?.unwrap_or_default();
+            let auto_start = if approved { settings_repo::get_bool_setting(&state.db, AUTO_START_AFTER_WORK_ITEM_APPROVAL_KEY, true).await? } else { false };
+            let approvals = crate::services::approval_service::record_batch_task_decisions(&state.db, &product_id, approved, &notes, &items).await?;
+            if auto_start { crate::services::approval_service::schedule_batch_workflows(state, items.into_iter().map(|item| item.id).collect()); }
+            action_result(action, json!({"approvals":approvals,"auto_start_requested":auto_start}))
+        }
         "approve_work_item" => {
             let work_item_id =
                 args.required_string(&["work_item_id", "workItemId"], "work_item_id")?;
-            let approval = approval_repo::create_approval(
-                &state.db,
-                &uuid::Uuid::new_v4().to_string(),
-                &work_item_id,
-                None,
-                "task_approval",
-                "approved",
-                &args.optional_string(&["notes"])?.unwrap_or_default(),
-            )
-            .await?;
-            work_item_repo::update_work_item(
-                &state.db,
-                work_item_repo::UpdateWorkItemPatch {
-                    id: &work_item_id,
-                    status: Some("approved"),
-                    title: None,
-                    description: None,
-                    problem_statement: None,
-                    acceptance_criteria: None,
-                    constraints: None,
-                },
-            )
-            .await?;
+            let approval = crate::services::approval_service::record_task_decision(&state.db, &work_item_id, true, &args.optional_string(&["notes"])?.unwrap_or_default(), None).await?;
 
             let auto_start = settings_repo::get_bool_setting(
                 &state.db,
@@ -65,29 +53,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         "reject_work_item" => {
             let work_item_id =
                 args.required_string(&["work_item_id", "workItemId"], "work_item_id")?;
-            let approval = approval_repo::create_approval(
-                &state.db,
-                &uuid::Uuid::new_v4().to_string(),
-                &work_item_id,
-                None,
-                "task_approval",
-                "rejected",
-                &args.required_string(&["notes"], "notes")?,
-            )
-            .await?;
-            work_item_repo::update_work_item(
-                &state.db,
-                work_item_repo::UpdateWorkItemPatch {
-                    id: &work_item_id,
-                    status: Some("draft"),
-                    title: None,
-                    description: None,
-                    problem_statement: None,
-                    acceptance_criteria: None,
-                    constraints: None,
-                },
-            )
-            .await?;
+            let approval = crate::services::approval_service::record_task_decision(&state.db, &work_item_id, false, &args.required_string(&["notes"], "notes")?, None).await?;
             action_result("reject_work_item", approval)
         }
         "approve_work_item_plan" => action_result(
@@ -149,7 +115,11 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let artifact_id =
                 args.required_string(&["artifact_id", "artifactId"], "artifact_id")?;
             let artifact = artifact_repo::get_artifact(&state.db, &artifact_id).await?;
-            let content = tokio::fs::read_to_string(&artifact.storage_path).await?;
+            let content = crate::services::artifact_service::read_text(
+                &state.artifact_base_path,
+                std::path::Path::new(&artifact.storage_path),
+                crate::services::artifact_service::TEXT_LIMIT,
+            ).await?;
             action_result(
                 "read_artifact_content",
                 json!({
@@ -157,6 +127,17 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                     "content": content
                 }),
             )
+        }
+        "read_artifact_page" => {
+            let artifact_id = args.required_string(&["artifact_id", "artifactId"], "artifact_id")?;
+            let offset = args.optional_i64(&["offset"])?.unwrap_or(0);
+            let offset = u64::try_from(offset).map_err(|_| AppError::Validation("Artifact offset must be non-negative".into()))?;
+            let version = args.optional_string(&["version"])?;
+            let artifact = artifact_repo::get_artifact(&state.db, &artifact_id).await?;
+            let page = crate::services::artifact_service::read_page(
+                &state.artifact_base_path, std::path::Path::new(&artifact.storage_path), offset, version.as_deref(),
+            ).await?;
+            action_result("read_artifact_page", page)
         }
         "list_work_item_findings" => action_result(
             "list_work_item_findings",

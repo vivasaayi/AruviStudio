@@ -226,7 +226,7 @@ export function PlannerPageBody({ controller }: PlannerPageBodyProps) {
               onSubmitPendingVoiceTranscript={() => void submitPendingVoiceTranscript()}
               onRetryVoiceCapture={() => void retryVoiceCapture()}
               onClearPendingVoiceReview={clearPendingVoiceReview}
-              onExportDesignReviewPacket={() => void exportDesignReviewPacket()}
+              onExportDesignReviewPacket={(message) => void exportDesignReviewPacket(message)}
               onConfirmPendingPlan={confirmPendingPlan}
               onDismissPendingPlan={dismissPendingPlan}
               onSelectDraftNode={setSelectedDraftNodeId}

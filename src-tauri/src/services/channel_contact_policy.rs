@@ -72,17 +72,74 @@ fn parse_hhmm(value: Option<&str>) -> Option<NaiveTime> {
 }
 
 fn is_in_quiet_hours(start: Option<NaiveTime>, end: Option<NaiveTime>) -> bool {
+    is_in_quiet_hours_at(start, end, Local::now().time())
+}
+
+fn is_in_quiet_hours_at(start: Option<NaiveTime>, end: Option<NaiveTime>, now: NaiveTime) -> bool {
     let (Some(start), Some(end)) = (start, end) else {
         return false;
     };
     if start == end {
         return false;
     }
-    let now = Local::now().time();
     if start < end {
         now >= start && now < end
     } else {
         now >= start || now < end
+    }
+}
+
+#[cfg(test)]
+mod quiet_hours_tests {
+    use super::*;
+
+    fn time(value: &str) -> NaiveTime {
+        parse_hhmm(Some(value)).unwrap()
+    }
+
+    #[test]
+    fn quiet_hours_include_start_exclude_end_and_cross_midnight() {
+        let within = |start, end, now| is_in_quiet_hours_at(Some(time(start)), Some(time(end)), time(now));
+        assert!(!within("09:00", "17:00", "08:59"));
+        assert!(within("09:00", "17:00", "09:00"));
+        assert!(within("09:00", "17:00", "16:59"));
+        assert!(!within("09:00", "17:00", "17:00"));
+        assert!(within("22:00", "06:00", "23:59"));
+        assert!(within("22:00", "06:00", "00:00"));
+        assert!(within("22:00", "06:00", "05:59"));
+        assert!(!within("22:00", "06:00", "06:00"));
+        assert!(!within("12:00", "12:00", "12:00"));
+        assert!(!is_in_quiet_hours_at(None, Some(time("06:00")), time("01:00")));
+        assert!(parse_hhmm(Some("24:00")).is_none());
+        assert!(parse_hhmm(Some("23:60")).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn quiet_hours_dst_child() {
+        use chrono::{DateTime, Utc};
+        if std::env::var_os("ARUVI_QUIET_HOURS_DST_CHILD").is_none() { return; }
+        let local_time = |epoch| DateTime::<Utc>::from_timestamp(epoch, 0).unwrap().with_timezone(&Local).time();
+        // Both occurrences of 01:30 on the fall-back day are inside the window.
+        for epoch in [1_730_611_800, 1_730_615_400] {
+            assert_eq!(local_time(epoch), time("01:30"));
+            assert!(is_in_quiet_hours_at(Some(time("01:00")), Some(time("02:00")), local_time(epoch)));
+        }
+        // The spring-forward jump moves straight from 01:30 to 03:30.
+        assert_eq!(local_time(1_710_052_200), time("01:30"));
+        assert_eq!(local_time(1_710_055_800), time("03:30"));
+        assert!(!is_in_quiet_hours_at(Some(time("02:00")), Some(time("03:00")), local_time(1_710_055_800)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn quiet_hours_use_local_dst_in_a_separate_process() {
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "services::channel_contact_policy::quiet_hours_tests::quiet_hours_dst_child"])
+            .env("ARUVI_QUIET_HOURS_DST_CHILD", "1")
+            .env("TZ", "EST5EDT,M3.2.0,M11.1.0")
+            .status().unwrap();
+        assert!(status.success());
     }
 }
 

@@ -85,6 +85,175 @@ async fn create_test_agent(pool: &SqlitePool, id: &str, name: &str, role: &str) 
 }
 
 #[tokio::test]
+async fn assigned_start_reserves_capacity_atomically_without_phantom_runs() {
+    let pool = create_test_pool("assigned_capacity").await;
+    create_test_work_item(&pool, "capacity-product-a", "capacity-item-a").await;
+    create_test_work_item(&pool, "capacity-product-b", "capacity-item-b").await;
+    sqlx::query("INSERT INTO agent_teams (id,name,max_concurrent_workflows) VALUES ('capacity-team','Capacity',1)")
+        .execute(&pool).await.unwrap();
+
+    let (a, b) = tokio::join!(
+        create_assigned_workflow_run(&pool, "capacity-run-a", "capacity-item-a", Some("capacity-team"), None),
+        create_assigned_workflow_run(&pool, "capacity-run-b", "capacity-item-b", Some("capacity-team"), None)
+    );
+    assert_ne!(a.is_ok(), b.is_ok(), "exactly one start may reserve the slot");
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM workflow_runs")
+        .fetch_one(&pool).await.unwrap();
+    assert_eq!(count, 1, "a rejected start must not leave a run behind");
+    let (winner, other_item, other_run) = if a.is_ok() {
+        ("capacity-run-a", "capacity-item-b", "capacity-run-b")
+    } else {
+        ("capacity-run-b", "capacity-item-a", "capacity-run-a")
+    };
+    sqlx::query("UPDATE workflow_runs SET status='failed', current_stage='failed' WHERE id=?")
+        .bind(winner).execute(&pool).await.unwrap();
+    let next = create_assigned_workflow_run(&pool, other_run, other_item, Some("capacity-team"), None)
+        .await.unwrap();
+    assert_eq!(next.assigned_team_id.as_deref(), Some("capacity-team"));
+    assert!(create_assigned_workflow_run(&pool, "duplicate", other_item, None, None).await.is_err());
+}
+
+#[tokio::test]
+async fn assigning_active_runs_reserves_team_capacity_atomically() {
+    let pool = create_test_pool("reassignment_capacity").await;
+    create_test_work_item(&pool, "reassign-product-a", "reassign-item-a").await;
+    create_test_work_item(&pool, "reassign-product-b", "reassign-item-b").await;
+    sqlx::query("INSERT INTO agent_teams (id,name,max_concurrent_workflows) VALUES ('reassign-team','Capacity',1)")
+        .execute(&pool).await.unwrap();
+    create_workflow_run(&pool, "reassign-run-a", "reassign-item-a").await.unwrap();
+    create_workflow_run(&pool, "reassign-run-b", "reassign-item-b").await.unwrap();
+    let (a, b) = tokio::join!(
+        set_workflow_assignment(&pool, "reassign-run-a", Some("reassign-team"), None),
+        set_workflow_assignment(&pool, "reassign-run-b", Some("reassign-team"), None)
+    );
+    assert_ne!(a.is_ok(), b.is_ok());
+    let (winner, loser) = if a.is_ok() { ("reassign-run-a", "reassign-run-b") } else { ("reassign-run-b", "reassign-run-a") };
+    assert!(get_workflow_run(&pool, loser).await.unwrap().assigned_team_id.is_none());
+    set_workflow_assignment(&pool, winner, Some("reassign-team"), None).await.unwrap();
+    set_workflow_assignment(&pool, winner, None, None).await.unwrap();
+    set_workflow_assignment(&pool, loser, Some("reassign-team"), None).await.unwrap();
+    assert!(set_workflow_assignment(&pool, winner, Some("reassign-team"), None).await.is_err());
+    assert!(set_workflow_assignment(&pool, "missing-run", None, None).await.is_err());
+}
+
+#[tokio::test]
+async fn workflow_transition_is_atomic_and_rejects_stale_writers() {
+    let pool = create_test_pool("atomic_transition").await;
+    create_test_work_item(&pool, "transition-product", "transition-item").await;
+    create_workflow_run(&pool, "transition-run", "transition-item").await.unwrap();
+    sqlx::query("CREATE TRIGGER fail_transition_history BEFORE INSERT ON workflow_stage_history BEGIN SELECT RAISE(ABORT, 'injected history failure'); END")
+        .execute(&pool).await.unwrap();
+    assert!(commit_workflow_transition(&pool, "transition-run", "draft", "planning", "running", None, false, "automatic", "fixture").await.is_err());
+    let unchanged = get_workflow_run(&pool, "transition-run").await.unwrap();
+    assert_eq!((unchanged.current_stage.as_str(), unchanged.status.as_str()), ("draft", "running"));
+    assert!(get_workflow_history(&pool, "transition-run").await.unwrap().is_empty());
+    sqlx::query("DROP TRIGGER fail_transition_history").execute(&pool).await.unwrap();
+    let (first, second) = tokio::join!(
+        commit_workflow_transition(&pool, "transition-run", "draft", "planning", "running", None, false, "automatic", "first"),
+        commit_workflow_transition(&pool, "transition-run", "draft", "cancelled", "cancelled", Some("cancelled"), true, "user_rejection", "second")
+    );
+    assert_ne!(first.is_ok(), second.is_ok());
+    let run = get_workflow_run(&pool, "transition-run").await.unwrap();
+    let history = get_workflow_history(&pool, "transition-run").await.unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].from_stage, "draft");
+    assert_eq!(history[0].to_stage, run.current_stage);
+    if run.current_stage == "cancelled" {
+        assert_eq!(run.status, "cancelled");
+        assert!(run.ended_at.is_some());
+    } else {
+        assert_eq!(run.status, "running");
+        assert!(run.ended_at.is_none());
+    }
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn workflow_transition_process_child() {
+    let Ok(directory) = std::env::var("ARUVI_TEST_TRANSITION_DIR") else { return; };
+    let name = std::env::var("ARUVI_TEST_TRANSITION_WRITER").unwrap();
+    let db_url = std::env::var("ARUVI_TEST_TRANSITION_DB").unwrap();
+    let path = std::path::PathBuf::from(directory);
+    let pool = db_service::create_pool(&db_url).await.unwrap();
+    std::fs::write(path.join(format!("{name}.ready")), "").unwrap();
+    let started = std::time::Instant::now();
+    while !path.join("start").exists() {
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    let result = commit_workflow_transition(&pool, "shared-run", "draft", "planning", "running", None, false, "automatic", &name).await;
+    let outcome = match result { Ok(()) => "won", Err(AppError::Validation(_)) => "conflict", Err(error) => panic!("unexpected transition error: {error}") };
+    std::fs::write(path.join(format!("{name}.result")), outcome).unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn workflow_transition_coordinates_across_processes() {
+    use std::process::{Command, Stdio};
+    let directory = tempfile::tempdir().unwrap();
+    let db_url = format!("sqlite://{}", directory.path().join("shared.db").display());
+    let pool = db_service::create_pool(&db_url).await.unwrap();
+    create_test_work_item(&pool, "shared-product", "shared-item").await;
+    create_workflow_run(&pool, "shared-run", "shared-item").await.unwrap();
+    let spawn = |name: &str| Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "persistence::workflow_repo::tests::workflow_transition_process_child"])
+        .env("ARUVI_TEST_TRANSITION_DIR", directory.path()).env("ARUVI_TEST_TRANSITION_DB", &db_url)
+        .env("ARUVI_TEST_TRANSITION_WRITER", name).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let mut first = spawn("first");
+    let mut second = spawn("second");
+    let started = std::time::Instant::now();
+    while !(directory.path().join("first.ready").exists() && directory.path().join("second.ready").exists()) {
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    std::fs::write(directory.path().join("start"), "").unwrap();
+    assert!(first.wait().unwrap().success());
+    assert!(second.wait().unwrap().success());
+    let outcomes = [std::fs::read_to_string(directory.path().join("first.result")).unwrap(),
+                    std::fs::read_to_string(directory.path().join("second.result")).unwrap()];
+    assert_eq!(outcomes.iter().filter(|outcome| *outcome == "won").count(), 1);
+    assert_eq!(outcomes.iter().filter(|outcome| *outcome == "conflict").count(), 1);
+    let run = get_workflow_run(&pool, "shared-run").await.unwrap();
+    let history = get_workflow_history(&pool, "shared-run").await.unwrap();
+    assert_eq!(run.current_stage, "planning");
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].to_stage, "planning");
+}
+
+#[tokio::test]
+async fn workflow_failure_records_state_and_history_atomically() {
+    use crate::domain::workflow::WorkflowStage;
+    use crate::services::workflow_failure::mark_workflow_failed;
+    let pool = create_test_pool("atomic_failure").await;
+    create_test_work_item(&pool, "failure-product", "failure-item").await;
+    create_workflow_run(&pool, "failure-run", "failure-item").await.unwrap();
+    sqlx::query("CREATE TRIGGER fail_failure_history BEFORE INSERT ON workflow_stage_history BEGIN SELECT RAISE(ABORT, 'injected history failure'); END")
+        .execute(&pool).await.unwrap();
+    let cause = AppError::Validation("fixture failure".into());
+    assert!(mark_workflow_failed(&pool, "failure-run", &WorkflowStage::Draft, &cause).await.is_err());
+    let unchanged = get_workflow_run(&pool, "failure-run").await.unwrap();
+    assert_eq!((unchanged.current_stage.as_str(), unchanged.status.as_str()), ("draft", "running"));
+    assert!(unchanged.error_message.is_none() && unchanged.ended_at.is_none());
+    sqlx::query("DROP TRIGGER fail_failure_history").execute(&pool).await.unwrap();
+    mark_workflow_failed(&pool, "failure-run", &WorkflowStage::Draft, &cause).await.unwrap();
+    mark_workflow_failed(&pool, "failure-run", &WorkflowStage::Draft, &cause).await.unwrap();
+    let failed = get_workflow_run(&pool, "failure-run").await.unwrap();
+    assert_eq!((failed.current_stage.as_str(), failed.status.as_str()), ("failed", "failed"));
+    assert!(failed.error_message.unwrap().contains("fixture failure") && failed.ended_at.is_some());
+    assert_eq!(get_workflow_history(&pool, "failure-run").await.unwrap().len(), 1);
+    create_workflow_run(&pool, "terminal-run", "failure-item").await.unwrap();
+    update_workflow_stage(&pool, "terminal-run", "done").await.unwrap();
+    assert!(mark_workflow_failed(&pool, "terminal-run", &WorkflowStage::Draft, &cause).await.is_err());
+    assert_eq!(get_workflow_run(&pool, "terminal-run").await.unwrap().current_stage, "done");
+    create_workflow_run(&pool, "advanced-run", "failure-item").await.unwrap();
+    update_workflow_stage(&pool, "advanced-run", "git_push").await.unwrap();
+    assert!(mark_workflow_failed(&pool, "advanced-run", &WorkflowStage::PushPreparation, &cause).await.is_err());
+    let advanced = get_workflow_run(&pool, "advanced-run").await.unwrap();
+    assert_eq!((advanced.current_stage.as_str(), advanced.status.as_str()), ("git_push", "running"));
+    assert!(get_workflow_history(&pool, "advanced-run").await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn create_and_update_workflow_run_persists_lifecycle_assignment_and_pending_stage() {
     let pool = create_test_pool("workflow_lifecycle").await;
     create_test_work_item(&pool, "product-workflow-lifecycle", "work-item-lifecycle").await;

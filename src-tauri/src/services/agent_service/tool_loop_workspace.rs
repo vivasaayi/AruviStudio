@@ -41,7 +41,7 @@ impl AgentService {
                     .and_then(Value::as_u64)
                     .unwrap_or(3)
                     .clamp(1, 6) as usize;
-                self.list_tree_from_workspace(workspace, base_path, max_depth, boundaries)
+                self.list_tree_from_workspace(workspace, base_path, max_depth, boundaries, allowed_tools.contains("repo.write_file"))
             }
             "repo.search" => {
                 let query = arguments
@@ -112,6 +112,7 @@ impl AgentService {
         base_path: &str,
         max_depth: usize,
         boundaries: &AgentExecutionBoundaries,
+        can_write: bool,
     ) -> Result<Value, AppError> {
         let normalized = if base_path.is_empty() {
             None
@@ -136,15 +137,20 @@ impl AgentService {
         } else {
             workspace.repo_path.clone()
         };
-        if !root.exists() {
-            return Err(AppError::Validation(
-                "repo.list_tree directory does not exist; repo.write_file creates parent directories for new files".to_string(),
-            ));
-        }
-        if !root.is_dir() {
-            return Err(AppError::Validation(
-                "repo.list_tree target is not a directory".to_string(),
-            ));
+        match std::fs::metadata(&root) {
+            Ok(metadata) if metadata.is_dir() => {},
+            Ok(_) => return Err(AppError::Validation("repo.list_tree target is not a directory".into())),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                if let Some(path) = normalized {
+                    let mut result = serde_json::json!({"path":path, "exists":false, "entries":[]});
+                    if can_write {
+                        result["hint"] = "The directory is absent. If a new file is required, repo.write_file creates parent directories.".into();
+                    }
+                    return Ok(result);
+                }
+                return Err(AppError::Validation("The coding workspace is unavailable".into()));
+            },
+            Err(error) => return Err(error.into()),
         }
 
         let mut entries: Vec<Value> = Vec::new();
@@ -181,7 +187,7 @@ impl AgentService {
                 "kind": if entry.file_type().is_dir() { "directory" } else { "file" },
             }));
         }
-        Ok(serde_json::json!({ "entries": entries }))
+        Ok(serde_json::json!({ "path": normalized.unwrap_or_default(), "exists":true, "entries": entries }))
     }
 
     fn search_workspace(
@@ -246,5 +252,41 @@ impl AgentService {
             }
         }
         Ok(serde_json::json!({ "query": query, "results": results }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::services::model_service::ModelService;
+    use std::sync::Arc;
+
+    #[tokio::test]
+    async fn tree_reports_missing_directory_without_creating_or_widening_access() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        std::fs::write(repo.join("file.txt"), "fixture").unwrap();
+        let workspace = WorkItemWorkspace { work_item_id:"test".into(), base_path:temp.path().to_owned(), repo_path:repo.clone() };
+        let db = Arc::new(sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap());
+        let service = AgentService::new(Arc::clone(&db), Arc::new(ModelService::new(Arc::clone(&db))), temp.path().join("artifacts"), temp.path().join("workspaces"));
+        let boundaries = AgentExecutionBoundaries::default();
+        let absent = service.list_tree_from_workspace(&workspace, "src", 3, &boundaries, true).unwrap();
+        assert_eq!(absent["exists"], false);
+        assert_eq!(absent["path"], "src");
+        assert_eq!(absent["entries"], serde_json::json!([]));
+        assert!(absent["hint"].as_str().unwrap().contains("repo.write_file"));
+        assert!(!repo.join("src").exists());
+        let read_only = service.list_tree_from_workspace(&workspace, "src", 3, &boundaries, false).unwrap();
+        assert!(read_only.get("hint").is_none());
+        assert!(service.list_tree_from_workspace(&workspace, "../outside", 3, &boundaries, true).is_err());
+        assert!(service.list_tree_from_workspace(&workspace, "file.txt", 3, &boundaries, true).is_err());
+        let blocked = AgentExecutionBoundaries { blocked_paths:Some(vec!["blocked".into()]), ..Default::default() };
+        assert!(service.list_tree_from_workspace(&workspace, "blocked/subdir", 3, &blocked, true).is_err());
+        let present = service.list_tree_from_workspace(&workspace, "", 3, &boundaries, true).unwrap();
+        assert_eq!(present["exists"], true);
+        assert_eq!(present["entries"][0]["path"], "file.txt");
+        std::fs::remove_dir_all(&repo).unwrap();
+        assert!(service.list_tree_from_workspace(&workspace, "", 3, &boundaries, true).is_err());
     }
 }

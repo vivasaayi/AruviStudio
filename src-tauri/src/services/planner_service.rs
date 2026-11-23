@@ -18,7 +18,7 @@ use crate::services::planner_model::resolve_planner_model_binding;
 pub(crate) use crate::services::planner_session::persist_draft_state;
 use crate::services::planner_session::{get_or_load_session, lock_planner_session};
 pub use crate::services::planner_session::{PlannerService, PlannerSessionInfo};
-pub use crate::services::planner_text_turn::{confirm_planner_plan, submit_planner_turn};
+pub use crate::services::planner_text_turn::submit_planner_turn;
 pub use crate::services::planner_types::{
     PlannerDraftNode, PlannerDraftPlan, PlannerPlan, PlannerTraceEvent, PlannerTreeNode,
     PlannerTurnResponse,

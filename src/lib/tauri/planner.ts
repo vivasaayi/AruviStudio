@@ -10,13 +10,16 @@ import type {
 export const buildPlannerReviewPacket = (sessionId: string, expectedNodes: unknown[], selectedNodeId: string | null) =>
   invoke<{ filename: string; html: string }>("build_planner_review_packet_command", { sessionId, session_id: sessionId, expectedNodes, expected_nodes: expectedNodes, selectedNodeId, selected_node_id: selectedNodeId });
 
+export const renderPlannerPacketSnapshot = (snapshot: unknown) =>
+  invoke<{ filename: string; html: string }>("render_planner_packet_snapshot_command", { snapshot });
+
 export const validatePlannerTree = <T>(nodes: unknown[]) =>
   invoke<T>("validate_planner_tree_command", { nodes });
 
 export const plannerSuggestedPrompts = (node: { label: string; node_type?: string | null; meta?: string | null } | null) =>
   invoke<string[]>("planner_suggested_prompts_command", { node });
 
-export const plannerRelevantActions = <T>(actions: T[], node: { label: string; node_type?: string | null; meta?: string | null } | null) =>
+export const plannerRelevantActions = <T>(actions: T[], node: { label: string; node_type?: string | null; meta?: string | null; ancestors?: { label: string; node_type?: string | null }[] } | null) =>
   invoke<T[]>("planner_relevant_actions_command", { actions, node });
 
 // Planner commands
@@ -36,6 +39,14 @@ export const updatePlannerSession = (data: { sessionId: string; providerId?: str
     provider_id: data.providerId ?? null,
     modelName: data.modelName ?? null,
     model_name: data.modelName ?? null,
+  });
+
+export const stagePlannerCatalogNode = (data: { sessionId: string; productId: string; nodeType: "product" | "product_area" | "capability" | "work_item"; nodeId: string }) =>
+  invoke<PlannerTurnResponse>("stage_planner_catalog_node_command", {
+    sessionId: data.sessionId, session_id: data.sessionId,
+    productId: data.productId, product_id: data.productId,
+    nodeType: data.nodeType, node_type: data.nodeType,
+    nodeId: data.nodeId, node_id: data.nodeId,
   });
 
 export const clearPlannerPending = (sessionId: string) =>
@@ -69,10 +80,12 @@ export const submitPlannerVoiceTurn = (data: { sessionId: string; transcript: st
     product_id: data.productId ?? null,
   });
 
-export const confirmPlannerPlan = (sessionId: string) =>
+export const confirmPlannerPlan = (sessionId: string, productId: string | null = null) =>
   invoke<PlannerTurnResponse>("confirm_planner_plan_command", {
     sessionId,
     session_id: sessionId,
+    productId,
+    product_id: productId,
   });
 
 export const renamePlannerDraftNode = (data: {
@@ -140,6 +153,9 @@ export const transcribeAudio = (data: {
   audioBytesBase64: string;
   mimeType: string;
   locale?: string;
+  fallbackLocale?: string;
+  fallbackProviderId?: string;
+  fallbackModelName?: string;
 }) =>
   invoke<SpeechToTextResponse>("transcribe_audio_command", {
     providerId: data.providerId ?? null,
@@ -151,6 +167,18 @@ export const transcribeAudio = (data: {
     mimeType: data.mimeType,
     mime_type: data.mimeType,
     locale: data.locale ?? null,
+    fallbackLocale: data.fallbackLocale ?? null,
+    fallback_locale: data.fallbackLocale ?? null,
+    fallbackProviderId: data.fallbackProviderId ?? null,
+    fallback_provider_id: data.fallbackProviderId ?? null,
+    fallbackModelName: data.fallbackModelName ?? null,
+    fallback_model_name: data.fallbackModelName ?? null,
+  });
+
+export const getDesktopTranscriptionTarget = (fallbackLocale?: string) =>
+  invoke<{ provider_id: string; model_name: string }>("get_desktop_transcription_target", {
+    fallbackLocale: fallbackLocale ?? null,
+    fallback_locale: fallbackLocale ?? null,
   });
 
 export const speakTextNatively = (data: {

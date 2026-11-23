@@ -142,6 +142,12 @@ export const readRepositoryFile = (data: { repositoryId: string; relativePath: s
     relativePath: data.relativePath,
     relative_path: data.relativePath,
   });
+export const readRepositoryFileSnapshot = (data: { repositoryId: string; relativePath: string; expectedRoot?: string }) =>
+  invoke<{ content: string; workspace_root: string }>("read_repository_file_snapshot", { ...data, expectedRoot: data.expectedRoot ?? null });
+export const getRepositoryRootSnapshot = (repositoryId: string) =>
+  invoke<string>("get_repository_root_snapshot", { repositoryId });
+export const writeRepositoryFileGuarded = (data: { repositoryId: string; relativePath: string; expectedRoot: string; expectedContent: string; content: string }) =>
+  invoke<void>("write_repository_file_guarded", data);
 export const writeRepositoryFile = (data: { repositoryId: string; relativePath: string; content: string }) =>
   invoke<void>("write_repository_file", {
     repositoryId: data.repositoryId,
@@ -174,8 +180,10 @@ export const applyRepositoryPatch = (data: {
   });
 export const previewRepositoryPatch = (data: { repositoryId: string; relativePath: string; patch: string; baseSha256?: string }) =>
   invoke<{ exists: boolean; base_sha256: string; result_sha256: string; result_content: string }>("preview_repository_patch", { ...data, baseSha256: data.baseSha256 ?? null });
-export const applyReviewedRepositoryPatch = (data: { repositoryId: string; relativePath: string; patch: string; baseSha256: string; expectedExists: boolean }) =>
-  invoke<string>("apply_reviewed_repository_patch", data);
+export const previewRepositoryPatchSnapshot = (data: { repositoryId: string; relativePath: string; patch: string; baseSha256?: string; expectedRoot?: string }) =>
+  invoke<{ exists: boolean; base_sha256: string; result_sha256: string; result_content: string; workspace_root: string }>("preview_repository_patch_snapshot", { ...data, baseSha256: data.baseSha256 ?? null, expectedRoot: data.expectedRoot ?? null });
+export const applyReviewedRepositoryPatch = (data: { repositoryId: string; relativePath: string; patch: string; baseSha256: string; expectedExists: boolean; expectedRoot?: string }) =>
+  invoke<string>("apply_reviewed_repository_patch", { ...data, expectedRoot: data.expectedRoot ?? null });
 
-export const matchingRepositoryFiles = (data: { repositoryId: string; relativePath: string; openPaths: string[]; openRepositoryId?: string }) =>
-  invoke<string[]>("matching_repository_files", { ...data, openRepositoryId: data.openRepositoryId ?? null });
+export const matchingRepositoryFiles = (data: { repositoryId: string; relativePath: string; openPaths: string[]; openRepositoryId?: string; expectedRoot?: string; openExpectedRoot?: string }) =>
+  invoke<string[]>("matching_repository_files", { ...data, openRepositoryId: data.openRepositoryId ?? null, expectedRoot: data.expectedRoot ?? null, openExpectedRoot: data.openExpectedRoot ?? null });

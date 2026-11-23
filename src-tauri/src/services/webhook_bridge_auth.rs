@@ -103,7 +103,11 @@ fn is_allowed_origin_host(candidate: &str, bind_host: &str, detected_lan_ip: Opt
     }
 }
 
-fn origin_matches_request(origin: &str, host: &str, bind_host: &str, lan_ip: Option<&str>) -> bool {
+pub(crate) fn external_mcp_origin_configured() -> bool {
+    std::env::var("ARUVI_MCP_ALLOWED_ORIGINS").ok().is_some_and(|value| !value.trim().is_empty())
+}
+
+fn origin_matches_request(origin: &str, host: &str, bind_host: &str, lan_ip: Option<&str>, allowed_origins: &str) -> bool {
     let Ok(origin_url) = Url::parse(origin) else { return false; };
     if !matches!(origin_url.scheme(), "http" | "https")
         || origin_url.origin().ascii_serialization() != origin
@@ -115,7 +119,8 @@ fn origin_matches_request(origin: &str, host: &str, bind_host: &str, lan_ip: Opt
     let Ok(request_url) = Url::parse(&format!("{}://{}", origin_url.scheme(), host)) else { return false; };
     let Some(origin_host) = origin_url.host_str() else { return false; };
     origin_url.origin() == request_url.origin()
-        && is_allowed_origin_host(origin_host, bind_host, lan_ip)
+        && (is_allowed_origin_host(origin_host, bind_host, lan_ip)
+            || allowed_origins.split(',').any(|allowed| !allowed.trim().is_empty() && allowed.trim() == origin))
 }
 
 pub(crate) async fn ensure_mcp_origin_allowed(
@@ -143,7 +148,8 @@ pub(crate) async fn ensure_mcp_origin_allowed(
     if hosts.next().is_some() {
         return Err(forbidden("MCP origin validation failed."));
     }
-    if !origin_matches_request(origin, host, &bind_config.host, detected_lan_ip.as_deref()) {
+    let allowed_origins = std::env::var("ARUVI_MCP_ALLOWED_ORIGINS").unwrap_or_default();
+    if !origin_matches_request(origin, host, &bind_config.host, detected_lan_ip.as_deref(), &allowed_origins) {
         return Err(forbidden("MCP origin validation failed."));
     }
 
@@ -156,13 +162,29 @@ mod origin_tests {
 
     #[test]
     fn validates_published_origin_and_rejects_cross_origin_requests() {
-        assert!(origin_matches_request("http://127.0.0.1:55002", "127.0.0.1:55002", "0.0.0.0", None));
-        assert!(origin_matches_request("http://[::1]:55002", "[::1]:55002", "0.0.0.0", None));
-        assert!(!origin_matches_request("http://127.0.0.1:55003", "127.0.0.1:55002", "0.0.0.0", None));
-        assert!(!origin_matches_request("http://evil.example:55002", "evil.example:55002", "0.0.0.0", None));
-        assert!(!origin_matches_request("http://127.0.0.1:55002/path", "127.0.0.1:55002", "0.0.0.0", None));
-        assert!(!origin_matches_request("http://127.0.0.1:55002", "", "0.0.0.0", None));
-        assert!(!origin_matches_request("http://127.0.0.1:55002", "evil.example@127.0.0.1:55002", "0.0.0.0", None));
+        let check = |origin, host| origin_matches_request(origin, host, "0.0.0.0", None, "");
+        assert!(check("http://127.0.0.1:55002", "127.0.0.1:55002"));
+        assert!(check("http://[::1]:55002", "[::1]:55002"));
+        assert!(!check("http://127.0.0.1:55003", "127.0.0.1:55002"));
+        assert!(!check("http://evil.example:55002", "evil.example:55002"));
+        assert!(!check("http://127.0.0.1:55002/path", "127.0.0.1:55002"));
+        assert!(!check("http://127.0.0.1:55002", ""));
+        assert!(!check("http://127.0.0.1:55002", "evil.example@127.0.0.1:55002"));
+        let nested_blob = format!("{}https://example.com/", "blob:".repeat(10_000));
+        assert!(!check(&nested_blob, "example.com"));
+    }
+
+    #[test]
+    fn external_origins_require_exact_origin_and_preserved_host() {
+        let allowed = "https://studio.example, https://staging.example:8443";
+        let check = |origin, host| origin_matches_request(origin, host, "127.0.0.1", None, allowed);
+        assert!(check("https://studio.example", "studio.example"));
+        assert!(check("https://staging.example:8443", "staging.example:8443"));
+        assert!(!check("http://studio.example", "studio.example"));
+        assert!(!check("https://studio.example", "localhost:8787"));
+        assert!(!check("https://other.example", "other.example"));
+        assert!(!check("https://studio.example:444", "studio.example:444"));
+        assert!(!check("https://studio.example/path", "studio.example"));
     }
 }
 
@@ -184,7 +206,7 @@ pub(crate) async fn ensure_mcp_api_authorized(
         };
     }
 
-    if classify_bind_scope(&bind_config.host) == "localhost-only" {
+    if classify_bind_scope(&bind_config.host) == "localhost-only" && !external_mcp_origin_configured() {
         Ok(())
     } else {
         Err(unavailable(

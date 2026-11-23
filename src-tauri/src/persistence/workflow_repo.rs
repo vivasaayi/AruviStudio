@@ -7,9 +7,33 @@ pub async fn create_workflow_run(
     id: &str,
     work_item_id: &str,
 ) -> Result<WorkflowRun, AppError> {
-    sqlx::query_as::<_, WorkflowRun>("INSERT INTO workflow_runs (id,work_item_id,workflow_version,status,current_stage,retry_count,max_retries,started_at,updated_at) VALUES (?,?,?,'running','draft',?,?,datetime('now'),datetime('now')) RETURNING id,work_item_id,workflow_version,status,current_stage,assigned_team_id,coordinator_agent_id,pending_stage_name,retry_count,max_retries,error_message,started_at,ended_at,updated_at")
-        .bind(id).bind(work_item_id).bind("v1").bind(0).bind(3)
-        .fetch_one(pool).await.map_err(|e| e.into())
+    sqlx::query_as::<_, WorkflowRun>("INSERT INTO workflow_runs (id,work_item_id,workflow_version,status,current_stage,retry_count,max_retries,started_at,updated_at) SELECT ?,?,?,'running','draft',?,?,datetime('now'),datetime('now') WHERE NOT EXISTS (SELECT 1 FROM external_cli_runs WHERE work_item_id=? AND status='running') RETURNING id,work_item_id,workflow_version,status,current_stage,assigned_team_id,coordinator_agent_id,pending_stage_name,retry_count,max_retries,error_message,started_at,ended_at,updated_at")
+        .bind(id).bind(work_item_id).bind("v1").bind(0).bind(3).bind(work_item_id)
+        .fetch_optional(pool).await?
+        .ok_or_else(|| AppError::Validation("An external CLI run is active for this work item".into()))
+}
+
+/// Reserve a work item and team slot in the same SQLite write as run creation.
+pub async fn create_assigned_workflow_run(
+    pool: &SqlitePool,
+    id: &str,
+    work_item_id: &str,
+    team_id: Option<&str>,
+    coordinator_id: Option<&str>,
+) -> Result<WorkflowRun, AppError> {
+    sqlx::query_as::<_, WorkflowRun>(
+        "INSERT INTO workflow_runs (id,work_item_id,workflow_version,status,current_stage,retry_count,max_retries,assigned_team_id,coordinator_agent_id,started_at,updated_at)
+         SELECT ?,?,'v1','running','draft',0,3,?,?,datetime('now'),datetime('now')
+         WHERE NOT EXISTS (SELECT 1 FROM external_cli_runs WHERE work_item_id=? AND status='running')
+           AND NOT EXISTS (SELECT 1 FROM workflow_runs WHERE work_item_id=? AND status='running' AND current_stage NOT IN ('done','failed','cancelled'))
+           AND (? IS NULL OR EXISTS (SELECT 1 FROM agent_teams t WHERE t.id=? AND t.enabled=1 AND
+               (SELECT COUNT(*) FROM workflow_runs r WHERE r.assigned_team_id=t.id AND r.status='running' AND r.current_stage NOT IN ('done','failed','cancelled')) < t.max_concurrent_workflows))
+         RETURNING id,work_item_id,workflow_version,status,current_stage,assigned_team_id,coordinator_agent_id,pending_stage_name,retry_count,max_retries,error_message,started_at,ended_at,updated_at"
+    )
+    .bind(id).bind(work_item_id).bind(team_id).bind(coordinator_id)
+    .bind(work_item_id).bind(work_item_id).bind(team_id).bind(team_id)
+    .fetch_optional(pool).await?
+    .ok_or_else(|| AppError::Validation("Workflow could not start: the work item is active or the assigned team is unavailable or at capacity; refresh and try again".into()))
 }
 
 pub async fn get_workflow_run(pool: &SqlitePool, id: &str) -> Result<WorkflowRun, AppError> {
@@ -99,6 +123,32 @@ pub async fn update_workflow_stage(
     Ok(())
 }
 
+/// Commit the stage, lifecycle and history together, only from the observed stage.
+pub async fn commit_workflow_transition(
+    pool: &SqlitePool,
+    id: &str,
+    from: &str,
+    to: &str,
+    status: &str,
+    error_message: Option<&str>,
+    mark_ended: bool,
+    trigger: &str,
+    notes: &str,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin().await?;
+    let result = sqlx::query("UPDATE workflow_runs SET current_stage=?,status=?,error_message=?,ended_at=CASE WHEN ? THEN datetime('now') ELSE ended_at END,updated_at=datetime('now') WHERE id=? AND current_stage=? AND status='running'")
+        .bind(to).bind(status).bind(error_message).bind(mark_ended).bind(id).bind(from)
+        .execute(&mut *tx).await?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::Validation("Workflow changed or is no longer running; refresh before continuing".into()));
+    }
+    sqlx::query("INSERT INTO workflow_stage_history (id,workflow_run_id,from_stage,to_stage,trigger,notes,transitioned_at) VALUES (?,?,?,?,?,?,datetime('now'))")
+        .bind(uuid::Uuid::new_v4().to_string()).bind(id).bind(from).bind(to).bind(trigger).bind(notes)
+        .execute(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
 pub async fn update_workflow_lifecycle(
     pool: &SqlitePool,
     id: &str,
@@ -130,12 +180,18 @@ pub async fn set_workflow_assignment(
     assigned_team_id: Option<&str>,
     coordinator_agent_id: Option<&str>,
 ) -> Result<(), AppError> {
-    sqlx::query("UPDATE workflow_runs SET assigned_team_id=?, coordinator_agent_id=?, updated_at=datetime('now') WHERE id=?")
+    let result = sqlx::query("UPDATE workflow_runs SET assigned_team_id=?, coordinator_agent_id=?, updated_at=datetime('now') WHERE id=? AND (status<>'running' OR current_stage IN ('done','failed','cancelled') OR ? IS NULL OR assigned_team_id=? OR EXISTS (SELECT 1 FROM agent_teams t WHERE t.id=? AND t.enabled=1 AND (SELECT COUNT(*) FROM workflow_runs r WHERE r.assigned_team_id=t.id AND r.status='running' AND r.current_stage NOT IN ('done','failed','cancelled')) < t.max_concurrent_workflows))")
         .bind(assigned_team_id)
         .bind(coordinator_agent_id)
         .bind(id)
+        .bind(assigned_team_id)
+        .bind(assigned_team_id)
+        .bind(assigned_team_id)
         .execute(pool)
         .await?;
+    if result.rows_affected() != 1 {
+        return Err(AppError::Validation("Workflow assignment failed: run not found or the team is unavailable or at capacity".into()));
+    }
     Ok(())
 }
 

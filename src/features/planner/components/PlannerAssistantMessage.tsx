@@ -12,7 +12,7 @@ import { styles } from "../lib/plannerPageStyles";
 type PlannerAssistantMessageProps = {
   message: PlannerMessage;
   isExportingDesignPacket: boolean;
-  onExportDesignReviewPacket: () => void;
+  onExportDesignReviewPacket: (message: PlannerMessage) => void;
   onConfirmPendingPlan: () => void;
   onDismissPendingPlan: () => void;
   isPlannerBusy: boolean;
@@ -79,16 +79,17 @@ export function PlannerAssistantMessage({
             </div>
           ) : null}
           <div style={styles.inlineButtonRow}>
-            <button style={styles.btnGhost} onClick={onExportDesignReviewPacket} disabled={isExportingDesignPacket}>
+            <button style={styles.btnGhost} onClick={() => onExportDesignReviewPacket(message)} disabled={isExportingDesignPacket}>
               {isExportingDesignPacket ? "Generating Packet..." : "Generate Review Packet"}
             </button>
             <button style={styles.btn} onClick={onConfirmPendingPlan} disabled={isPlannerBusy || (!pendingPlan && draftTreeNodes.length === 0)}>
-              {draftTreeNodes.length > 0 ? "Apply Design" : "Confirm Proposal"}
+              {draftTreeNodes.length > 0 ? "Apply Current Design" : "Confirm Current Proposal"}
             </button>
             <button style={styles.btnGhost} onClick={onDismissPendingPlan} disabled={!pendingPlan && draftTreeNodes.length === 0}>
-              {draftTreeNodes.length > 0 ? "Clear Design" : "Dismiss"}
+              {draftTreeNodes.length > 0 ? "Clear Current Design" : "Dismiss Current Proposal"}
             </button>
           </div>
+          <div style={styles.helper}>Apply and clear act on the current Planner state, which may differ from this proposal.</div>
           {designPacketPath ? (
             <div style={{ ...styles.helper, marginTop: 8 }}>
               Packet exported: {designPacketPath}

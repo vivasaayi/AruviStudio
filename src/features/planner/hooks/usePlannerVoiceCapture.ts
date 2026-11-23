@@ -13,7 +13,6 @@ type PlannerVoiceCaptureInput = {
   voiceEnabled: boolean;
   reviewVoiceBeforeSend: boolean;
   getSpeechModelSelection: () => PlannerSpeechModelSelection | null;
-  speechLocaleSetting: string;
   isPlannerBusy: () => boolean;
   onSubmitVoiceTranscript: (transcript: string) => Promise<void>;
 };
@@ -22,7 +21,6 @@ export function usePlannerVoiceCapture({
   voiceEnabled,
   reviewVoiceBeforeSend,
   getSpeechModelSelection,
-  speechLocaleSetting,
   isPlannerBusy,
   onSubmitVoiceTranscript,
 }: PlannerVoiceCaptureInput) {
@@ -37,24 +35,20 @@ export function usePlannerVoiceCapture({
   const [speechError, setSpeechError] = useState<string | null>(null);
   const audioCaptureRef = useRef<ActiveAudioCapture | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
+  const pendingCaptureRef = useRef<AbortController | null>(null);
+  const captureGenerationRef = useRef(0);
 
   const transcribeAudioMutation = useMutation<string, Error, { audioBytesBase64: string; mimeType: string }>({
     mutationFn: async ({ audioBytesBase64, mimeType }) => {
       const speechModelSelection = getSpeechModelSelection();
-      if (!speechModelSelection) {
-        throw new Error("Configure a speech transcription provider or model before using voice input.");
-      }
       const response = await transcribeAudio({
-        providerId: speechModelSelection.providerId,
-        modelName: speechModelSelection.modelName,
+        fallbackProviderId: speechModelSelection?.useServerDefaults ? undefined : speechModelSelection?.providerId,
+        fallbackModelName: speechModelSelection?.useServerDefaults ? undefined : speechModelSelection?.modelName,
         audioBytesBase64,
         mimeType,
-        locale: speechLocaleSetting || "en-US",
+        fallbackLocale: "en-US",
       });
       return response.transcript;
-    },
-    onError: (error) => {
-      setSpeechError(error instanceof Error ? error.message : String(error));
     },
   });
 
@@ -66,8 +60,21 @@ export function usePlannerVoiceCapture({
   };
 
   const stopVoiceCapture = async (shouldTranscribe: boolean) => {
+    if (!shouldTranscribe) {
+      captureGenerationRef.current += 1;
+      setIsTranscribing(false);
+    }
+    const generation = captureGenerationRef.current;
+    const pending = pendingCaptureRef.current;
+    pendingCaptureRef.current = null;
+    pending?.abort();
     const capture = audioCaptureRef.current;
     if (!capture) {
+      if (pending) {
+        setIsListening(false);
+        setVoiceActivity(null);
+        setVoiceCaptureStartedAt(null);
+      }
       return;
     }
 
@@ -78,6 +85,7 @@ export function usePlannerVoiceCapture({
 
     try {
       const blob = await capture.stop();
+      if (generation !== captureGenerationRef.current) return;
       if (!shouldTranscribe || blob.size === 0) {
         setVoiceActivity(null);
         return;
@@ -86,10 +94,12 @@ export function usePlannerVoiceCapture({
       setVoiceActivity("Transcribing audio...");
       setIsTranscribing(true);
       const audioBytesBase64 = await blobToBase64(blob);
+      if (generation !== captureGenerationRef.current) return;
       const transcript = await transcribeAudioMutation.mutateAsync({
         audioBytesBase64,
         mimeType: blob.type || "audio/wav",
       });
+      if (generation !== captureGenerationRef.current) return;
       const trimmedTranscript = transcript.trim();
       setIsTranscribing(false);
       if (!trimmedTranscript) {
@@ -106,6 +116,7 @@ export function usePlannerVoiceCapture({
       setVoiceActivity("Speech recognized. Sending it to the planner...");
       await onSubmitVoiceTranscript(trimmedTranscript);
     } catch (error) {
+      if (generation !== captureGenerationRef.current) return;
       if (shouldTranscribe) {
         setSpeechError(error instanceof Error ? error.message : String(error));
       }
@@ -115,7 +126,7 @@ export function usePlannerVoiceCapture({
       setPendingVoiceTranscript(null);
       setEditableVoiceTranscript("");
     } finally {
-      setIsTranscribing(false);
+      if (generation === captureGenerationRef.current) setIsTranscribing(false);
     }
   };
 
@@ -165,6 +176,12 @@ export function usePlannerVoiceCapture({
       await stopVoiceCapture(true);
       return;
     }
+    if (pendingCaptureRef.current) {
+      await stopVoiceCapture(false);
+      setVoiceActivity(null);
+      setVoiceCaptureStartedAt(null);
+      return;
+    }
 
     if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
       setSpeechError("Microphone access is not available in this runtime.");
@@ -175,17 +192,26 @@ export function usePlannerVoiceCapture({
       return;
     }
 
+    const controller = new AbortController();
+    captureGenerationRef.current += 1;
+    pendingCaptureRef.current = controller;
     try {
       setSpeechError(null);
-      setVoiceActivity("Listening (up to 30 seconds)...");
+      setVoiceActivity("Waiting for microphone access...");
       setVoiceElapsedMs(0);
-      setVoiceCaptureStartedAt(Date.now());
+      setVoiceCaptureStartedAt(null);
+      setIsListening(true);
       setPendingVoiceTranscript(null);
       setEditableVoiceTranscript("");
-      const capture = await startWavCapture();
+      const capture = await startWavCapture(controller.signal);
+      if (controller.signal.aborted || pendingCaptureRef.current !== controller) {
+        await capture.stop().catch(() => undefined);
+        return;
+      }
       audioCaptureRef.current = capture;
       mediaStreamRef.current = capture.stream;
-      setIsListening(true);
+      setVoiceActivity("Listening (up to 30 seconds)...");
+      setVoiceCaptureStartedAt(Date.now());
       // Automatic completion uses the same path as a manual stop. Clearing the
       // ref before manual stop or unmount prevents duplicate transcription.
       void capture.completed.then(
@@ -193,6 +219,7 @@ export function usePlannerVoiceCapture({
         () => { if (audioCaptureRef.current === capture) void stopVoiceCaptureRef.current(true); },
       );
     } catch (error) {
+      if (controller.signal.aborted) return;
       setSpeechError(error instanceof Error ? error.message : String(error));
       setIsListening(false);
       setVoiceActivity(null);
@@ -200,6 +227,8 @@ export function usePlannerVoiceCapture({
       mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
       mediaStreamRef.current = null;
       audioCaptureRef.current = null;
+    } finally {
+      if (pendingCaptureRef.current === controller) pendingCaptureRef.current = null;
     }
   };
 

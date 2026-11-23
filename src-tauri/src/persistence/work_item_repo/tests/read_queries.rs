@@ -98,6 +98,24 @@ async fn product_export_includes_all_pages_and_children_without_other_products()
 }
 
 #[tokio::test]
+async fn product_book_budget_checks_scoped_bytes_and_row_count_before_loading() {
+    use crate::persistence::product_book_repo::check_snapshot_budget_for_test;
+    let pool = create_test_pool("book_budget").await;
+    create_test_product(&pool, "small-book").await;
+    create_test_product(&pool, "other-book").await;
+    sqlx::query("UPDATE products SET description = ? WHERE id = 'other-book'")
+        .bind("é".repeat(20_000)).execute(&pool).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    check_snapshot_budget_for_test(&mut tx, "small-book", 10_000, 10).await.unwrap();
+    assert!(check_snapshot_budget_for_test(&mut tx, "other-book", 10_000, 10).await.is_err());
+    assert!(check_snapshot_budget_for_test(&mut tx, "small-book", 10_000, 0).await.is_err());
+    tx.commit().await.unwrap();
+    create_work_item(&pool, test_work_item_input("extra-book-item", "small-book", "Story")).await.unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    assert!(check_snapshot_budget_for_test(&mut tx, "small-book", 10_000, 1).await.is_err());
+}
+
+#[tokio::test]
 async fn product_book_snapshot_is_consistent_and_product_scoped() {
     use crate::persistence::{product_book_repo, product_tree_repo};
     let pool = create_test_pool("book_snapshot").await;

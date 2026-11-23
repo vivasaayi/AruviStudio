@@ -337,6 +337,12 @@ fn desktop_ipc_reviews_and_guards_cross_repository_file_aliases() {
     let second_id = register("second", &second);
     let matched = invoke("matching_repository_files", serde_json::json!({"repositoryId":first_id, "relativePath":"Example.txt", "openRepositoryId":second_id, "openPaths":["Alias.txt"]})).unwrap().deserialize::<Vec<String>>().unwrap();
     assert_eq!(matched, vec!["Alias.txt"]);
+    let first_root = std::fs::canonicalize(&first).unwrap();
+    let second_root = std::fs::canonicalize(&second).unwrap();
+    let guarded = invoke("matching_repository_files", serde_json::json!({"repositoryId":first_id, "relativePath":"Example.txt", "openRepositoryId":second_id, "openPaths":["Alias.txt"], "expectedRoot":first_root.to_str().unwrap(), "openExpectedRoot":second_root.to_str().unwrap()})).unwrap().deserialize::<Vec<String>>().unwrap();
+    assert_eq!(guarded, vec!["Alias.txt"]);
+    let stale = invoke("matching_repository_files", serde_json::json!({"repositoryId":first_id, "relativePath":"Example.txt", "openRepositoryId":second_id, "openPaths":["Alias.txt"], "expectedRoot":first_root.to_str().unwrap(), "openExpectedRoot":"/stale"})).unwrap_err();
+    assert!(format!("{stale:?}").contains("open file's workspace path changed"));
     if first.join("example.txt").exists() {
         let case_match = invoke("matching_repository_files", serde_json::json!({"repositoryId":first_id, "relativePath":"example.txt", "openRepositoryId":first_id, "openPaths":["Example.txt"]})).unwrap().deserialize::<Vec<String>>().unwrap();
         assert_eq!(case_match, vec!["Example.txt"]);
@@ -350,4 +356,116 @@ fn desktop_ipc_reviews_and_guards_cross_repository_file_aliases() {
     std::fs::write(first.join("Example.txt"), "old\n").unwrap();
     apply(preview["base_sha256"].as_str().unwrap()).unwrap();
     assert_eq!(std::fs::read_to_string(&second.join("Alias.txt")).unwrap(), "new\n");
+}
+
+#[tokio::test]
+async fn desktop_snapshot_save_rejects_changed_content_and_workspace_root() {
+    let app: tauri::App<MockRuntime> = make_test_app("desktop_guarded_file_save").await;
+    let state = app.state::<AppState>();
+    let temp = tempfile::tempdir().unwrap();
+    let first = temp.path().join("first");
+    let second = temp.path().join("second");
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    std::fs::write(first.join("file.txt"), "original").unwrap();
+    std::fs::write(second.join("file.txt"), "other root").unwrap();
+    let root = first.to_string_lossy().into_owned();
+    let new_root = second.to_string_lossy().into_owned();
+    repository_repo::create_repository(&state.db, "guarded", "Guarded", &root, "", "main").await.unwrap();
+    let snapshot = read_repository_file_snapshot(state.clone(), "guarded".into(), "file.txt".into(), None).await.unwrap();
+    assert_eq!(snapshot.workspace_root, root);
+    assert_eq!(snapshot.content, "original");
+    write_repository_file_guarded(state.clone(), "guarded".into(), "file.txt".into(), root.clone(), snapshot.content.clone(), "saved".into()).await.unwrap();
+    assert_eq!(std::fs::read_to_string(first.join("file.txt")).unwrap(), "saved");
+    let error = write_repository_file_guarded(state.clone(), "guarded".into(), "file.txt".into(), root.clone(), snapshot.content, "stale".into()).await.unwrap_err();
+    assert!(error.to_string().contains("File changed since it was opened"));
+    assert_eq!(std::fs::read_to_string(first.join("file.txt")).unwrap(), "saved");
+    sqlx::query("UPDATE repositories SET local_path=? WHERE id=?").bind(&new_root).bind("guarded").execute(&state.db).await.unwrap();
+    let error = read_repository_file_snapshot(state.clone(), "guarded".into(), "file.txt".into(), Some(root.clone())).await.err().unwrap();
+    assert!(error.to_string().contains("Workspace path changed"));
+    let error = write_repository_file_guarded(state.clone(), "guarded".into(), "file.txt".into(), root, "saved".into(), "redirected".into()).await.unwrap_err();
+    assert!(error.to_string().contains("Workspace path changed"));
+    assert_eq!(std::fs::read_to_string(second.join("file.txt")).unwrap(), "other root");
+    // Existing callers retain the original command and payload.
+    write_repository_file(state, "guarded".into(), "file.txt".into(), "legacy".into()).await.unwrap();
+    assert_eq!(std::fs::read_to_string(second.join("file.txt")).unwrap(), "legacy");
+}
+
+#[test]
+fn desktop_guarded_file_commands_accept_camel_case_ipc_and_preserve_legacy_command() {
+    use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().join("repo");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(root.join("file.txt"), "initial").unwrap();
+    let root = root.to_string_lossy().into_owned();
+    let runtime = tokio::runtime::Runtime::new().unwrap();
+    let state = runtime.block_on(async {
+        let db = crate::persistence::db::create_pool(&format!("sqlite:{}", directory.path().join("ipc.db").display())).await.unwrap();
+        let state = AppState::new(db, directory.path().to_path_buf()).await.unwrap();
+        repository_repo::create_repository(&state.db, "ipc-repo", "IPC", &root, "", "main").await.unwrap();
+        state
+    });
+    let app = mock_builder().manage(state).invoke_handler(tauri::generate_handler![super::get_repository_root_snapshot, super::read_repository_file_snapshot, super::write_repository_file_guarded, super::write_repository_file, super::preview_repository_patch_snapshot, super::apply_reviewed_repository_patch]).build(mock_context(noop_assets())).unwrap();
+    let window = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+    let invoke = |command: &str, body: serde_json::Value| tauri::test::get_ipc_response(&window, tauri::webview::InvokeRequest {
+        cmd: command.into(), callback: tauri::ipc::CallbackFn(0), error: tauri::ipc::CallbackFn(1),
+        url: "http://tauri.localhost".parse().unwrap(), body: tauri::ipc::InvokeBody::Json(body), headers: Default::default(), invoke_key: INVOKE_KEY.to_string(),
+    });
+    let snapshot = invoke("read_repository_file_snapshot", serde_json::json!({"repositoryId":"ipc-repo", "relativePath":"file.txt"})).unwrap().deserialize::<serde_json::Value>().unwrap();
+    assert_eq!(snapshot, serde_json::json!({"content":"initial", "workspace_root":root}));
+    let captured_root = invoke("get_repository_root_snapshot", serde_json::json!({"repositoryId":"ipc-repo"})).unwrap().deserialize::<String>().unwrap();
+    assert_eq!(captured_root, root);
+    invoke("write_repository_file_guarded", serde_json::json!({"repositoryId":"ipc-repo", "relativePath":"file.txt", "expectedRoot":root, "expectedContent":"initial", "content":"updated"})).unwrap();
+    let conflict = invoke("write_repository_file_guarded", serde_json::json!({"repositoryId":"ipc-repo", "relativePath":"file.txt", "expectedRoot":root, "expectedContent":"initial", "content":"stale"})).unwrap_err();
+    assert!(format!("{conflict:?}").contains("File changed since it was opened"));
+    invoke("write_repository_file", serde_json::json!({"repositoryId":"ipc-repo", "relativePath":"file.txt", "content":"legacy\n"})).unwrap();
+    assert_eq!(std::fs::read_to_string(directory.path().join("repo/file.txt")).unwrap(), "legacy\n");
+    let patch = "@@ -1 +1 @@\n-legacy\n+patched\n";
+    let preview = invoke("preview_repository_patch_snapshot", serde_json::json!({"repositoryId":"ipc-repo", "relativePath":"file.txt", "patch":patch})).unwrap().deserialize::<serde_json::Value>().unwrap();
+    assert_eq!(preview["workspace_root"], root);
+    let sha = preview["base_sha256"].as_str().unwrap();
+    let conflict = invoke("apply_reviewed_repository_patch", serde_json::json!({"repositoryId":"ipc-repo", "relativePath":"file.txt", "patch":patch, "baseSha256":sha, "expectedExists":true, "expectedRoot":"/stale"})).unwrap_err();
+    assert!(format!("{conflict:?}").contains("Workspace path changed"));
+    invoke("apply_reviewed_repository_patch", serde_json::json!({"repositoryId":"ipc-repo", "relativePath":"file.txt", "patch":patch, "baseSha256":sha, "expectedExists":true})).unwrap();
+    assert_eq!(std::fs::read_to_string(directory.path().join("repo/file.txt")).unwrap(), "patched\n");
+}
+
+#[tokio::test]
+async fn desktop_patch_snapshot_rejects_changed_workspace_even_when_files_match() {
+    let app: tauri::App<MockRuntime> = make_test_app("desktop_guarded_patch").await;
+    let state = app.state::<AppState>();
+    let temp = tempfile::tempdir().unwrap();
+    let first = temp.path().join("first"); let second = temp.path().join("second");
+    std::fs::create_dir_all(&first).unwrap(); std::fs::create_dir_all(&second).unwrap();
+    std::fs::write(first.join("file.txt"), "original\n").unwrap(); std::fs::write(second.join("file.txt"), "original\n").unwrap();
+    let root = first.to_string_lossy().into_owned(); let new_root = second.to_string_lossy().into_owned();
+    repository_repo::create_repository(&state.db, "patch-root", "Patch", &root, "", "main").await.unwrap();
+    let patch = "@@ -1 +1 @@\n-original\n+changed\n".to_string();
+    let preview = preview_repository_patch_snapshot(state.clone(), "patch-root".into(), "file.txt".into(), patch.clone(), None, None).await.unwrap();
+    assert_eq!(preview.workspace_root, root);
+    sqlx::query("UPDATE repositories SET local_path=? WHERE id=?").bind(&new_root).bind("patch-root").execute(&state.db).await.unwrap();
+    let error = apply_reviewed_repository_patch(state.clone(), "patch-root".into(), "file.txt".into(), patch.clone(), preview.preview.base_sha256.clone(), true, Some(root.clone())).await.unwrap_err();
+    assert!(error.to_string().contains("Workspace path changed"));
+    assert_eq!(std::fs::read_to_string(second.join("file.txt")).unwrap(), "original\n");
+    let error = matching_repository_files(state.clone(), "patch-root".into(), "file.txt".into(), vec!["file.txt".into()], None, Some(new_root.clone()), Some(root)).await.unwrap_err();
+    assert!(error.to_string().contains("open file's workspace path changed"));
+    // An older caller omitting the optional guard remains compatible.
+    apply_reviewed_repository_patch(state, "patch-root".into(), "file.txt".into(), patch, preview.preview.base_sha256, true, None).await.unwrap();
+    assert_eq!(std::fs::read_to_string(second.join("file.txt")).unwrap(), "changed\n");
+}
+
+#[tokio::test]
+async fn desktop_root_guard_serializes_workspace_updates() {
+    let app: tauri::App<MockRuntime> = make_test_app("desktop_root_guard_serializes").await;
+    let state = app.state::<AppState>();
+    repository_repo::create_repository(&state.db, "locked-root", "Locked", "/old", "", "main").await.unwrap();
+    let (transaction, root) = lock_repository_root(&state, "locked-root", Some("/old")).await.unwrap();
+    assert_eq!(root, "/old");
+    let pool = state.db.clone();
+    let mut update = tokio::spawn(async move { sqlx::query("UPDATE repositories SET local_path='/new' WHERE id='locked-root'").execute(&pool).await });
+    assert!(tokio::time::timeout(std::time::Duration::from_millis(150), &mut update).await.is_err(), "workspace update should wait for the guarded operation");
+    transaction.commit().await.unwrap();
+    update.await.unwrap().unwrap();
+    assert_eq!(repository_repo::get_repository(&state.db, "locked-root").await.unwrap().local_path, "/new");
 }

@@ -4,6 +4,27 @@ use crate::{CompletionRequest, CompletionResponse, SpeechRequest, TranscriptionR
 use async_trait::async_trait;
 use reqwest::Client;
 
+/// True only for OpenAI's HTTPS API origin, without embedded URL credentials.
+pub fn is_official_openai_base_url(base_url: &str) -> bool {
+    url::Url::parse(base_url).is_ok_and(|url| url.scheme() == "https"
+        && url.host_str() == Some("api.openai.com") && url.port_or_known_default() == Some(443)
+        && url.username().is_empty() && url.password().is_none() && url.query().is_none() && url.fragment().is_none())
+}
+
+// OpenAI's gpt-transcribe accepts language codes rather than most browser
+// locales. Keep supported Chinese regional hints; otherwise use the language
+// part of a simple locale, without changing hints for compatible proxies.
+fn openai_transcription_language_hint(value: &str) -> Result<String, ClientError> {
+    let value = value.trim().to_ascii_lowercase().replace('_', "-");
+    let parts: Vec<_> = value.split('-').collect();
+    let primary = parts[0];
+    if !(2..=3).contains(&primary.len()) || !primary.bytes().all(|b| b.is_ascii_alphabetic())
+        || parts.iter().skip(1).any(|part| !(1..=8).contains(&part.len()) || !part.bytes().all(|b| b.is_ascii_alphanumeric())) {
+        return Err(ClientError::InvalidInput("Invalid OpenAI transcription language or locale".into()));
+    }
+    if matches!(value.as_str(), "zh-cn" | "zh-tw" | "zh-hk") { Ok(value) } else { Ok(primary.to_string()) }
+}
+
 // Some streaming encoders use a sentinel for an unknown RIFF/data length.
 // Validate the container structure without restricting WAV codecs.
 pub(crate) fn has_wav_audio(bytes: &[u8]) -> bool {
@@ -112,11 +133,15 @@ impl OpenAiCompatibleClient {
         let array = match self.transcription_language_mode {
             TranscriptionLanguageMode::Array => true,
             TranscriptionLanguageMode::Singular => false,
-            TranscriptionLanguageMode::Auto => model == "gpt-transcribe" &&
-                reqwest::Url::parse(&self.base_url).is_ok_and(|url|
-                    url.scheme() == "https" && url.host_str() == Some("api.openai.com") && url.port_or_known_default() == Some(443)),
+            TranscriptionLanguageMode::Auto => model == "gpt-transcribe" && is_official_openai_base_url(&self.base_url),
         };
         if array { "languages[]" } else { "language" }
+    }
+
+    fn transcription_language_value(&self, model: &str, language: String) -> Result<String, ClientError> {
+        if self.transcription_language_mode == TranscriptionLanguageMode::Auto && self.transcription_language_field(model) == "languages[]" {
+            openai_transcription_language_hint(&language)
+        } else { Ok(language) }
     }
 
     fn completion_body(&self, request: &CompletionRequest) -> serde_json::Value {
@@ -137,7 +162,7 @@ impl OpenAiCompatibleClient {
     }
 
     fn endpoint_url(&self, path: &str) -> Result<String, ClientError> {
-        let url = reqwest::Url::parse(&self.base_url).map_err(|_| ClientError::InvalidInput("Invalid model provider base URL".into()))?;
+        let url = url::Url::parse(&self.base_url).map_err(|_| ClientError::InvalidInput("Invalid model provider base URL".into()))?;
         if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
             return Err(ClientError::InvalidInput("Invalid model provider base URL".into()));
         }
@@ -192,6 +217,7 @@ impl OpenAiCompatibleClient {
     fn parse_sse_fallback(raw_body: &str) -> Result<CompletionResponse, ClientError> {
         let mut result = CompletionResponse::default();
         let mut message_seen = false;
+        let mut choice_finished = false;
         // Buffered completions permit the final event without a blank separator,
         // as before, while still requiring the provider's terminal marker.
         let mut parser = crate::sse::EventParser::new(8 * 1024 * 1024 + 2);
@@ -205,7 +231,7 @@ impl OpenAiCompatibleClient {
             let choice = Self::first_choice(&event)?;
             crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
             if let Some(choice) = choice {
-                Self::append_sse_choice(choice, &mut result.content, &mut message_seen, &mut |_| {})?;
+                Self::append_sse_choice(choice, &mut result.content, &mut message_seen, &mut choice_finished, &mut |_| {})?;
             }
             if let Some(usage) = event.get("usage") {
                 result.token_count_input = usage.get("prompt_tokens").and_then(|v| v.as_i64()).or(result.token_count_input);
@@ -219,7 +245,10 @@ impl OpenAiCompatibleClient {
         Ok(result)
     }
 
-    fn append_sse_choice<F: FnMut(&str)>(choice: &serde_json::Value, content: &mut String, message_seen: &mut bool, on_delta: &mut F) -> Result<(), ClientError> {
+    fn append_sse_choice<F: FnMut(&str)>(choice: &serde_json::Value, content: &mut String, message_seen: &mut bool, choice_finished: &mut bool, on_delta: &mut F) -> Result<(), ClientError> {
+        if *choice_finished {
+            return Err(ClientError::Provider("Model stream continued after its finish reason".into()));
+        }
         Self::reject_non_text_choice(choice, "delta")?;
         Self::reject_non_text_choice(choice, "message")?;
         let delta = choice.pointer("/delta/content").and_then(serde_json::Value::as_str).unwrap_or("");
@@ -238,6 +267,9 @@ impl OpenAiCompatibleClient {
         if let Some(full) = message {
             if content.is_empty() { content.push_str(&full); on_delta(&full); }
             *message_seen = true;
+        }
+        if choice.get("finish_reason").and_then(serde_json::Value::as_str) == Some("stop") {
+            *choice_finished = true;
         }
         Ok(())
     }
@@ -322,6 +354,7 @@ impl OpenAiCompatibleClient {
         }
         let mut result = CompletionResponse::default();
         let mut message_seen = false;
+        let mut choice_finished = false;
         crate::sse::read_sse(response, "Model", |data| {
             if data == b"[DONE]" { return Ok(true); }
             let event: serde_json::Value = serde_json::from_slice(data)
@@ -336,7 +369,7 @@ impl OpenAiCompatibleClient {
             let choice = Self::first_choice(&event)?;
             crate::CompletionMetadata::merge(&mut result.metadata, &event, choice.and_then(|v| v.get("finish_reason")));
             if let Some(choice) = choice {
-                Self::append_sse_choice(choice, &mut result.content, &mut message_seen, &mut on_delta)?;
+                Self::append_sse_choice(choice, &mut result.content, &mut message_seen, &mut choice_finished, &mut on_delta)?;
             }
             Ok(false)
         }).await?;
@@ -354,8 +387,9 @@ impl OpenAiCompatibleClient {
             .mime_str(&input.mime_type)
             .map_err(|error| ClientError::InvalidInput(format!("Unsupported audio mime type: {error}")))?;
         let language_field = self.transcription_language_field(&input.model);
-        let mut form = reqwest::multipart::Form::new().text("model", input.model).part("file", file);
+        let mut form = reqwest::multipart::Form::new().text("model", input.model.clone()).part("file", file);
         if let Some(language) = input.language.filter(|value| !value.trim().is_empty()) {
+            let language = self.transcription_language_value(&input.model, language)?;
             form = form.text(language_field, language);
         }
         let mut request = self.client()?.post(self.endpoint_url("/audio/transcriptions")?).multipart(form);
@@ -770,8 +804,18 @@ mod tests {
         let official = OpenAiCompatibleClient::new("https://api.openai.com/v1".into(), None);
         assert_eq!(official.transcription_language_field("gpt-transcribe"), "languages[]");
         assert_eq!(official.transcription_language_field("whisper-1"), "language");
+        assert_eq!(official.transcription_language_value("gpt-transcribe", "en-US".into()).unwrap(), "en");
+        assert_eq!(official.transcription_language_value("gpt-transcribe", "ZH-TW".into()).unwrap(), "zh-tw");
+        assert_eq!(official.transcription_language_value("gpt-transcribe", "eng".into()).unwrap(), "eng");
+        assert_eq!(official.transcription_language_value("gpt-transcribe", "en_US".into()).unwrap(), "en");
+        assert_eq!(official.transcription_language_value("gpt-transcribe", "en-US-u-ca-gregory".into()).unwrap(), "en");
+        assert!(matches!(official.transcription_language_value("gpt-transcribe", "en--US".into()), Err(ClientError::InvalidInput(_))));
+        assert_eq!(official.transcription_language_value("whisper-1", "en-US".into()).unwrap(), "en-US");
         let proxy = OpenAiCompatibleClient::new("http://localhost:1234/v1".into(), None);
         assert_eq!(proxy.transcription_language_field("gpt-transcribe"), "language");
+        assert_eq!(proxy.transcription_language_value("gpt-transcribe", "en-US".into()).unwrap(), "en-US");
+        let forced = OpenAiCompatibleClient::new("https://api.openai.com/v1".into(), None).with_transcription_language_mode(TranscriptionLanguageMode::Array);
+        assert_eq!(forced.transcription_language_value("gpt-transcribe", "en-US".into()).unwrap(), "en-US");
         let spoof = OpenAiCompatibleClient::new("https://api.openai.com.example.invalid/v1".into(), None);
         assert_eq!(spoof.transcription_language_field("gpt-transcribe"), "language");
         assert_eq!(official.with_transcription_language_mode(TranscriptionLanguageMode::Singular).transcription_language_field("gpt-transcribe"), "language");
@@ -972,6 +1016,20 @@ mod tests {
             "data: [DONE]\n\n",
             "data: {\"choices\":[{\"delta\":{\"refusal\":\"no\"}}]}\n\ndata: [DONE]\n\n",
         ] { assert!(openai_stream_fixture(body).await.0.is_err()); }
+    }
+
+    #[tokio::test]
+    async fn rejects_choice_events_after_a_finished_response() {
+        for next in [
+            r#"{"delta":{"content":"unexpected"}}"#,
+            r#"{"delta":{},"finish_reason":"stop"}"#,
+        ] {
+            let body = format!("data: {{\"choices\":[{{\"delta\":{{\"content\":\"hello\"}},\"finish_reason\":\"stop\"}}]}}\n\ndata: {{\"choices\":[{next}]}}\n\ndata: [DONE]\n\n");
+            let (result, chunks) = openai_stream_fixture(&body).await;
+            assert!(result.is_err(), "stream accepted another choice after finish");
+            assert_eq!(chunks, ["hello"]);
+            assert!(OpenAiCompatibleClient::parse_sse_fallback(&body).is_err(), "buffered stream accepted another choice after finish");
+        }
     }
 
 

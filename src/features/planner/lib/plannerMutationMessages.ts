@@ -28,7 +28,8 @@ export function buildPlannerMutationMessages(
       content: result.plan.assistant_response,
       meta: "Suggestion awaiting confirmation",
       kind: "proposal",
-      plan: result.plan,
+      plan: structuredClone(result.plan),
+      proposalDraftSnapshot: result.draftTreeNodes ? structuredClone(result.draftTreeNodes) : undefined,
       treeNodes: result.treeNodes,
       traceEvents: result.traceEvents,
     });
@@ -42,7 +43,8 @@ export function buildPlannerMutationMessages(
       content: joinResponseLines([result.plan.assistant_response, ...(result.execution?.lines ?? [])]),
       meta: "Design updated",
       kind: "proposal",
-      plan: result.plan,
+      plan: structuredClone(result.plan),
+      proposalDraftSnapshot: result.draftTreeNodes ? structuredClone(result.draftTreeNodes) : undefined,
       treeNodes: result.treeNodes,
       traceEvents: result.traceEvents,
     });

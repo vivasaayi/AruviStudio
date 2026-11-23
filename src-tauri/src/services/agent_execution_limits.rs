@@ -92,7 +92,7 @@ pub(crate) fn ignored_repository_dir(name: &str) -> bool {
     matches!(
         name,
         ".git"
-            | "node_product_areas"
+            | "node_modules"
             | "target"
             | "dist"
             | "build"
@@ -344,13 +344,14 @@ mod tests {
     fn generated_repository_paths_are_not_allowed() {
         let boundaries = AgentExecutionBoundaries::default();
         assert!(!is_repo_relative_path_allowed(
-            "node_product_areas/react/index.js",
+            "node_modules/react/index.js",
             &boundaries
         ));
         assert!(!is_repo_relative_path_allowed(
             "dist/assets/app.js",
             &boundaries
         ));
+        assert!(is_repo_relative_path_allowed(concat!("node_", "product_areas/readme.md"), &boundaries));
         assert!(is_repo_relative_path_allowed(
             "src/features/chat/pages/ChatPage.tsx",
             &boundaries

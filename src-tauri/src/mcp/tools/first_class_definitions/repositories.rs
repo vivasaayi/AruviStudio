@@ -12,6 +12,12 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
             empty_object_schema(),
         ),
         first_class_tool(
+            "repositories.attachments.list_all",
+            "List All Repository Attachments",
+            "List repository attachments across product and product area scopes.",
+            empty_object_schema(),
+        ),
+        first_class_tool(
             "repositories.register",
             "Register Repository",
             "Register a repository with Aruvi.",
@@ -113,6 +119,20 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
                         "relativePath",
                         string_property("Repository-relative file path."),
                     ),
+                    ("expectedRoot", string_property("Optional workspace root captured earlier; reject if it changed.")),
+                ],
+                &["repositoryId", "relativePath"],
+            ),
+        ),
+        first_class_tool(
+            "repositories.files.read_binary",
+            "Read Binary Repository File",
+            "Read a saved file up to 8 MiB as base64; optionally reject a changed workspace root.",
+            object_schema(
+                vec![
+                    ("repositoryId", string_property("The repository id.")),
+                    ("relativePath", string_property("Repository-relative file path.")),
+                    ("expectedRoot", string_property("Optional workspace root captured when browsing.")),
                 ],
                 &["repositoryId", "relativePath"],
             ),
@@ -129,6 +149,7 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
                         string_property("Repository-relative file path."),
                     ),
                     ("content", string_property("New file content.")),
+                    ("expectedRoot", string_property("Optional workspace root captured earlier; reject if it changed.")),
                 ],
                 &["repositoryId", "relativePath", "content"],
             ),
@@ -136,7 +157,7 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "repositories.files.get_sha256",
             "Get Repository File SHA256",
-            "Get the SHA256 of a repository file.",
+            "Get a repository file's SHA256 and workspace root from the same guarded snapshot.",
             object_schema(
                 vec![
                     ("repositoryId", string_property("The repository id.")),
@@ -144,6 +165,7 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
                         "relativePath",
                         string_property("Repository-relative file path."),
                     ),
+                    ("expectedRoot", string_property("Optional workspace root captured earlier; reject if it changed.")),
                 ],
                 &["repositoryId", "relativePath"],
             ),
@@ -164,8 +186,40 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
                         "baseSha256",
                         string_property("Optional expected base SHA256 for optimistic locking."),
                     ),
+                    ("expectedRoot", string_property("Optional workspace root captured earlier; reject if it changed.")),
                 ],
                 &["repositoryId", "relativePath", "patch"],
+            ),
+        ),
+        first_class_tool(
+            "repositories.files.preview_patch",
+            "Preview Repository Patch",
+            "Preview a patch against a captured workspace root without writing. Retain the returned workspace_root, base_sha256 and exists values for reviewed application.",
+            object_schema(
+                vec![
+                    ("repositoryId", string_property("The repository id.")),
+                    ("relativePath", string_property("Repository-relative file path.")),
+                    ("patch", string_property("Unified patch text to preview.")),
+                    ("baseSha256", string_property("Optional expected base SHA256.")),
+                    ("expectedRoot", string_property("Workspace root captured when reading the file.")),
+                ],
+                &["repositoryId", "relativePath", "patch", "expectedRoot"],
+            ),
+        ),
+        first_class_tool(
+            "repositories.files.apply_reviewed_patch",
+            "Apply Reviewed Repository Patch",
+            "Apply a previously previewed patch only if its workspace root and file baseline still match.",
+            object_schema(
+                vec![
+                    ("repositoryId", string_property("The repository id.")),
+                    ("relativePath", string_property("Repository-relative file path.")),
+                    ("patch", string_property("The reviewed unified patch.")),
+                    ("baseSha256", string_property("Base SHA256 returned by preview.")),
+                    ("expectedExists", boolean_property("File existence returned by preview.")),
+                    ("expectedRoot", string_property("Workspace root returned by preview.")),
+                ],
+                &["repositoryId", "relativePath", "patch", "baseSha256", "expectedExists", "expectedRoot"],
             ),
         ),
         first_class_tool(

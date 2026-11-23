@@ -33,6 +33,53 @@ const CAPABILITY_TREE_SELECT_COLUMNS: &str = "
     c.created_at AS created_at,
     c.updated_at AS updated_at";
 
+/// Atomically reorder one complete sibling group if it still matches the
+/// caller's snapshot. Area and parent identifiers are scoped to the product.
+pub(crate) async fn reorder_hierarchy_checked(
+    pool: &SqlitePool, product_id: &str, area_id: Option<&str>, parent_id: Option<&str>,
+    expected: &[String], ordered: &[String],
+) -> Result<bool, AppError> {
+    use std::collections::HashSet;
+    if product_id.is_empty() || (area_id.is_none() && parent_id.is_some()) || expected.is_empty() || expected.len() > 1000 || expected.len() != ordered.len() {
+        return Err(AppError::Validation("Invalid hierarchy order".into()));
+    }
+    let originals: HashSet<_> = expected.iter().collect();
+    let desired: HashSet<_> = ordered.iter().collect();
+    if originals.len() != expected.len() || desired.len() != ordered.len() || originals != desired {
+        return Err(AppError::Validation("Order must contain each sibling exactly once".into()));
+    }
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id=?)").bind(product_id).fetch_one(&mut *tx).await?;
+    if !exists { return Ok(false); }
+    let current: Vec<String> = if let Some(area) = area_id {
+        let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM product_areas WHERE id=? AND product_id=?)")
+            .bind(area).bind(product_id).fetch_one(&mut *tx).await?;
+        if !valid { return Ok(false); }
+        if let Some(parent) = parent_id {
+            let valid: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM capabilities WHERE id=? AND product_area_id=?)")
+                .bind(parent).bind(area).fetch_one(&mut *tx).await?;
+            if !valid { return Ok(false); }
+        }
+        sqlx::query_scalar("SELECT id FROM capabilities WHERE product_area_id=? AND parent_capability_id IS ? ORDER BY sort_order, name")
+            .bind(area).bind(parent_id).fetch_all(&mut *tx).await?
+    } else {
+        sqlx::query_scalar("SELECT id FROM product_areas WHERE product_id=? ORDER BY sort_order")
+            .bind(product_id).fetch_all(&mut *tx).await?
+    };
+    if current != expected { return Ok(false); }
+    for (index, id) in ordered.iter().enumerate() {
+        if let Some(area) = area_id {
+            sqlx::query("UPDATE capabilities SET sort_order=?, updated_at=datetime('now') WHERE id=? AND product_area_id=? AND parent_capability_id IS ?")
+                .bind(index as i64).bind(id).bind(area).bind(parent_id).execute(&mut *tx).await?;
+        } else {
+            sqlx::query("UPDATE product_areas SET sort_order=?, updated_at=datetime('now') WHERE id=? AND product_id=?")
+                .bind(index as i64).bind(id).bind(product_id).execute(&mut *tx).await?;
+        }
+    }
+    tx.commit().await?;
+    Ok(true)
+}
+
 pub async fn get_product_tree(
     pool: &SqlitePool,
     product_id: &str,

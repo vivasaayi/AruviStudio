@@ -10,16 +10,8 @@ trap cleanup EXIT
 "${fixture_compose[@]}" run --rm -d --name "$pdf" pdf >/dev/null
 docker inspect "$pdf" | python3 -c 'import json,sys; d=json.load(sys.stdin)[0]; h=d["HostConfig"]; mounts=d["Mounts"]; assert d["Config"]["User"] == "aruvi" and h["NetworkMode"] == "none" and h["ReadonlyRootfs"] and "ALL" in h["CapDrop"]; assert any(x.startswith("no-new-privileges") for x in h["SecurityOpt"]) and h["Memory"] > 0 and h["PidsLimit"] > 0; assert [m["Destination"] for m in mounts] == ["/pdf-socket"]; env=d["Config"]["Env"]; assert not any(x.startswith(("ARUVI_MOBILE_API_TOKEN=", "ARUVI_MCP_API_TOKEN=")) for x in env); print("PDF renderer isolation verified")'
 "${fixture_compose[@]}" run --rm -d --name "$name" fixture >/dev/null
-docker exec "$name" sh -c '
-  d=/repositories/remote-fixture
-  mkdir -p "$d" && git init -q "$d" && printf "base line\n" > "$d/git-diff.txt" && git -C "$d" add git-diff.txt &&
-  git -C "$d" -c user.name=Fixture -c user.email=fixture@example.invalid commit -q -m fixture &&
-  printf "staged line\n" > "$d/git-diff.txt" && git -C "$d" add git-diff.txt && printf "working line\n" > "$d/git-diff.txt" &&
-  mkdir "$d/second" "$d/node_modules" "$d/nested" && git init -q "$d/second" && printf "nested fixture\n" > "$d/nested/target-file.txt" && : > "$d/patch-safety-fixture.txt" && ln "$d/patch-safety-fixture.txt" "$d/patch-alias.txt" &&
-  printf "workspace inspection fixture\n" > "$d/inspection.txt" && printf "windows line\r\n" > "$d/windows.txt" &&
-  printf "one\r\ntwo\n" > "$d/mixed.txt" && printf "hidden fixture\n" > "$d/node_modules/excluded.txt" &&
-  ln -s /etc/passwd "$d/outside-link" && truncate -s 2097153 "$d/oversized.txt" && yes é | head -c 3000 > "$d/aaa_unicode.txt"
-'
+source "$root/scripts/test-remote-fixture-setup.sh"
+
 "${fixture_compose[@]}" run --rm -d --name "$browser" \
   -e "ARUVI_REMOTE_URL=http://${name}:8787" -e "ARUVI_TEST_MODEL_URL=http://${browser}:19876/v1" \
   -e "ARUVI_TEST_BOOK_EPUB_CAPTURE=${ARUVI_REMOTE_EPUB_OUTPUT:+/tmp/aruvi-captured-book.epub}" \
@@ -43,13 +35,4 @@ if [[ -n "${ARUVI_REMOTE_IMAGE_OUTPUT_DIR:-}" ]]; then
   docker cp "$browser:/tmp/inline-image.pdf" "$ARUVI_REMOTE_IMAGE_OUTPUT_DIR/inline-image.pdf"
 fi
 docker stop "$pdf" >/dev/null
-docker exec "$name" node -e '
-  (async () => {
-    const headers = {"Content-Type":"application/json", "Authorization":"Bearer workflow-mobile-test"};
-    const product = await fetch("http://127.0.0.1:8787/api/mobile/products", {method:"POST", headers, body:JSON.stringify({name:"PDF renderer failure fixture"})});
-    if (product.status !== 201) throw new Error("Could not create isolated failure fixture");
-    const {id} = await product.json();
-    const result = await fetch(`http://127.0.0.1:8787/api/mobile/products/${encodeURIComponent(id)}/book-export`, {method:"POST", headers, body:JSON.stringify({format:"pdf"})});
-    if (result.status !== 400 || !(await result.text()).includes("unavailable")) throw new Error("PDF export did not fail closed when isolated renderer stopped");
-    console.log("PDF renderer outage fails closed");
-  })().catch(error => { console.error(error.message); process.exitCode=1; });'
+source "$root/scripts/test-remote-fixture-outage.sh"

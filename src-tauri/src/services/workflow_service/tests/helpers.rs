@@ -114,7 +114,7 @@ pub(super) fn create_empty_calculator_test_repo(
     )?;
     std::fs::write(
         repo_dir.join(".gitignore"),
-        "node_product_areas/\ndist/\nbuild/\ncoverage/\n",
+        "node_modules/\ndist/\nbuild/\ncoverage/\n",
     )?;
     std::fs::write(repo_dir.join("tests/.gitkeep"), "")?;
 

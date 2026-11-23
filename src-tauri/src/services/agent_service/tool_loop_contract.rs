@@ -120,6 +120,7 @@ pub(super) fn build_coding_tool_prompt(
     );
     prompt.push_str("\n- repo.search -> {\"query\":\"text\",\"max_results\":20}");
     prompt.push_str("\n- repo.list_tree -> {\"path\":\"optional/subdir\",\"max_depth\":3}");
+    prompt.push_str("\n  A result with exists=false means that directory is absent; do not repeatedly list it unless it changes.");
     prompt
         .push_str("\nIMPORTANT: prefer repo.read_file with line/chunk arguments for large files.");
     prompt.push_str(
@@ -134,9 +135,11 @@ pub(super) fn build_coding_tool_prompt(
     );
     prompt.push_str("\nWhen implementation is complete, return:");
     prompt.push_str("\n{\"type\":\"final\",\"summary\":\"...\",\"result\":\"...\"}");
+    prompt.push_str("\nThe final response is a report only: code or patches in summary or result are not written to the repository. Apply all required edits using an allowed tool before returning final.");
+    prompt.push_str("\nWhen modifying an existing module, preserve its required existing exports and add any new exports in the actual file. Edit existing definitions in place; do not add a duplicate definition merely to preserve it.");
     prompt.push_str("\nIf no files need to change, return type=final with no_changes_needed=true and explain why in summary. Otherwise write the files with a tool before finishing.");
     if allowed_tools.contains("repo.read_file") {
-        prompt.push_str("\nAfter a successful write, inspect the current file if needed. Do not repeat an edit that already succeeded; finish when the requested implementation is complete.");
+        prompt.push_str("\nAfter an edit, line numbers may shift. Before another range edit to that file, read the current target lines. Inspect the resulting file for unintended duplicate definitions and missing exports before finishing. Do not repeat an edit that already succeeded; finish when the requested implementation is complete.");
     } else {
         prompt.push_str("\nDo not repeat an edit that already succeeded; finish when the requested implementation is complete.");
     }
@@ -463,6 +466,12 @@ mod configured_tool_tests {
         assert!(!changed.contains("no files have been changed"));
         assert!(changed.contains("If the requested implementation is complete"));
         assert!(no_changes.contains("Allowed tools: repo.apply_patch, repo.list_tree, repo.read_file, repo.replace_range, repo.search, repo.write_file"));
+        assert!(changed.contains("do not add a duplicate definition"));
+        assert!(changed.contains("Inspect the resulting file for unintended duplicate definitions and missing exports"));
+        let write_only = resolve_allowed_tools(&["repo.write_file".to_string()]);
+        let restricted = build_coding_tool_prompt("task", "", &write_only, &[], 2, 8, true);
+        assert!(restricted.contains("do not add a duplicate definition"));
+        assert!(!restricted.contains("Inspect the resulting file"));
     }
 
     #[test]
@@ -478,6 +487,18 @@ mod configured_tool_tests {
         let restricted = failed_tool_observation(1, "repo.read_file", None, &error, &reader);
         assert!(restricted.contains("do not repeat this read"));
         assert!(!restricted.contains("repo.write_file"));
+    }
+
+    #[test]
+    fn missing_tree_result_reaches_the_next_coding_prompt() {
+        let tools = resolve_allowed_tools(&[]);
+        let args = serde_json::json!({"path":"src"});
+        let result = serde_json::json!({"path":"src","exists":false,"entries":[],"hint":"The directory is absent. If a new file is required, repo.write_file creates parent directories."});
+        let observation = crate::services::agent_execution_limits::compact_tool_observation(1, "repo.list_tree", None, "tool_result", &serde_json::to_string(&result).unwrap(), &args);
+        let prompt = build_coding_tool_prompt("Create src/new.js", "Create src/new.js", &tools, &[observation], 2, 8, false);
+        assert!(prompt.contains("\"exists\":false"));
+        assert!(prompt.contains("do not repeatedly list it"));
+        assert!(prompt.contains("repo.write_file creates parent directories"));
     }
 
     #[test]

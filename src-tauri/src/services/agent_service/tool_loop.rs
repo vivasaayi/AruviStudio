@@ -13,7 +13,11 @@ use crate::services::agent_execution_limits::{self, AgentExecutionBoundaries};
 use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
-struct ReplacementGuard { last: HashMap<String, (u64, u64, String)> }
+struct ReplacementGuard {
+    last: HashMap<String, (u64, u64, String)>,
+    changed: HashSet<String>,
+    fresh_lines: HashMap<String, (u64, u64)>,
+}
 
 impl ReplacementGuard {
     fn signature(tool: &str, args: &serde_json::Value) -> Option<(String, (u64, u64, String))> {
@@ -21,19 +25,40 @@ impl ReplacementGuard {
         let path = agent_execution_limits::normalize_relative_path(args.get("path")?.as_str()?)?;
         Some((path, (args.get("start_line")?.as_u64()?, args.get("end_line")?.as_u64()?, args.get("content")?.as_str()?.trim_end_matches(['\r', '\n']).to_owned())))
     }
-    fn check(&self, tool: &str, args: &serde_json::Value) -> Result<(), AppError> {
+    fn check(&self, tool: &str, args: &serde_json::Value, can_read: bool) -> Result<(), AppError> {
         if let Some((path, signature)) = Self::signature(tool, args) {
             if self.last.get(&path) == Some(&signature) {
                 return Err(AppError::Validation(format!("This replacement already succeeded for {path}; reread the file before repeating it or finish the task.")));
             }
+            if can_read && self.changed.contains(&path) && !self.fresh_lines.get(&path).is_some_and(|(start, end)| *start <= signature.0 && *end >= signature.1) {
+                return Err(AppError::Validation(format!("The file {path} changed after your last edit. Read its current lines {} through {} before replacing them; earlier line numbers may have shifted.", signature.0, signature.1)));
+            }
         }
         Ok(())
     }
-    fn record_success(&mut self, tool: &str, args: &serde_json::Value) {
+    fn record_success(&mut self, tool: &str, args: &serde_json::Value, result: &serde_json::Value) {
         if let Some((path, signature)) = Self::signature(tool, args) {
+            self.changed.insert(path.clone());
+            self.fresh_lines.remove(&path);
             self.last.insert(path, signature);
-        } else if ["repo.read_file", "repo.write_file", "repo.apply_patch"].iter().any(|name| tool.trim().eq_ignore_ascii_case(name)) {
-            if let Some(path) = args.get("path").and_then(serde_json::Value::as_str).and_then(agent_execution_limits::normalize_relative_path) { self.last.remove(&path); }
+        } else if let Some(path) = args.get("path").and_then(serde_json::Value::as_str).and_then(agent_execution_limits::normalize_relative_path) {
+            if tool.trim().eq_ignore_ascii_case("repo.read_file") {
+                self.last.remove(&path);
+                self.fresh_lines.remove(&path);
+                // A truncated or offset read cannot prove that the model saw
+                // all requested lines; require a complete line-range read.
+                if result.get("truncated").and_then(serde_json::Value::as_bool) == Some(false)
+                    && result.get("offset_chars").and_then(serde_json::Value::as_u64) == Some(0) {
+                    let start = result.get("selection_start_line").and_then(serde_json::Value::as_u64).unwrap_or(1);
+                    let end = result.get("selection_end_line").and_then(serde_json::Value::as_u64)
+                        .or_else(|| result.get("file_total_lines").and_then(serde_json::Value::as_u64));
+                    if let Some(end) = end.filter(|end| *end >= start) { self.fresh_lines.insert(path, (start, end)); }
+                }
+            } else if ["repo.write_file", "repo.apply_patch"].iter().any(|name| tool.trim().eq_ignore_ascii_case(name)) {
+                self.last.remove(&path);
+                self.fresh_lines.remove(&path);
+                self.changed.insert(path);
+            }
         }
     }
 }
@@ -152,7 +177,7 @@ impl AgentService {
                         arguments,
                         reason,
                     }) => {
-                        let execution = match replacement_guard.check(&tool, &arguments) {
+                        let execution = match replacement_guard.check(&tool, &arguments, allowed_tools.contains("repo.read_file")) {
                             Err(error) => Err(error),
                             Ok(()) => self
                             .execute_tool_call_in_workspace(
@@ -167,7 +192,7 @@ impl AgentService {
                         };
                         match execution {
                             Ok(result) => {
-                                replacement_guard.record_success(&tool, &arguments);
+                                replacement_guard.record_success(&tool, &arguments, &result);
                                 let rendered = serde_json::to_string_pretty(&result)
                                     .unwrap_or_else(|_| "{}".to_string());
                                 tool_observations.push(
@@ -401,13 +426,47 @@ mod replacement_guard_tests {
     fn repeated_replacement_requires_a_fresh_read() {
         let mut guard = ReplacementGuard::default();
         let edit = json!({"path":"src/math.js", "start_line":2, "end_line":2, "content":"new code\n"});
-        assert!(guard.check("repo.replace_range", &edit).is_ok());
-        guard.record_success("repo.replace_range", &edit);
+        assert!(guard.check("repo.replace_range", &edit, true).is_ok());
+        guard.record_success("repo.replace_range", &edit, &json!({}));
         let repeated = json!({"path":"src/math.js", "start_line":2, "end_line":2, "content":"new code"});
-        assert!(guard.check("repo.replace_range", &repeated).is_err());
-        guard.record_success("repo.read_file", &json!({"path":"another.js"}));
-        assert!(guard.check("repo.replace_range", &repeated).is_err());
-        guard.record_success("repo.read_file", &json!({"path":"src/math.js"}));
-        assert!(guard.check("repo.replace_range", &repeated).is_ok());
+        let different = json!({"path":"src/math.js", "start_line":2, "end_line":2, "content":"replacement with exports"});
+        assert!(guard.check("repo.replace_range", &repeated, true).is_err());
+        assert!(guard.check("repo.replace_range", &different, true).is_err());
+        guard.record_success("repo.read_file", &json!({"path":"another.js"}), &json!({"truncated":false,"offset_chars":0,"file_total_lines":20}));
+        assert!(guard.check("repo.replace_range", &different, true).is_err());
+        guard.record_success("repo.read_file", &json!({"path":"src/math.js"}), &json!({"truncated":true,"offset_chars":0,"selection_start_line":1,"selection_end_line":2}));
+        assert!(guard.check("repo.replace_range", &different, true).is_err());
+        guard.record_success("repo.read_file", &json!({"path":"src/math.js"}), &json!({"truncated":false,"offset_chars":3,"selection_start_line":1,"selection_end_line":2}));
+        assert!(guard.check("repo.replace_range", &different, true).is_err());
+        guard.record_success("repo.read_file", &json!({"path":"src/math.js"}), &json!({"truncated":false,"offset_chars":0,"selection_start_line":3,"selection_end_line":5}));
+        assert!(guard.check("repo.replace_range", &different, true).is_err());
+        guard.record_success("repo.read_file", &json!({"path":"src/math.js"}), &json!({"truncated":false,"offset_chars":0,"selection_start_line":1,"selection_end_line":5}));
+        assert!(guard.check("repo.replace_range", &different, true).is_ok());
+    }
+
+    #[test]
+    fn write_only_configuration_keeps_legacy_distinct_edit_behavior() {
+        let mut guard = ReplacementGuard::default();
+        let edit = json!({"path":"src/math.js", "start_line":2, "end_line":2, "content":"first"});
+        guard.record_success("repo.replace_range", &edit, &json!({}));
+        assert!(guard.check("repo.replace_range", &edit, false).is_err());
+        let different = json!({"path":"src/math.js", "start_line":3, "end_line":3, "content":"second"});
+        assert!(guard.check("repo.replace_range", &different, false).is_ok());
+        assert!(guard.check("repo.replace_range", &different, true).is_err());
+    }
+
+    #[test]
+    fn full_writes_and_patches_invalidate_only_the_changed_path() {
+        let mut guard = ReplacementGuard::default();
+        for tool in ["repo.write_file", "repo.apply_patch"] {
+            let changed = json!({"path":"src/math.js"});
+            guard.record_success(tool, &changed, &json!({}));
+            let edit = json!({"path":"src/math.js", "start_line":1, "end_line":2, "content":"updated"});
+            let other = json!({"path":"src/other.js", "start_line":1, "end_line":2, "content":"updated"});
+            assert!(guard.check("repo.replace_range", &edit, true).is_err());
+            assert!(guard.check("repo.replace_range", &other, true).is_ok());
+            guard.record_success("repo.read_file", &changed, &json!({"truncated":false,"offset_chars":0,"selection_start_line":null,"selection_end_line":null,"file_total_lines":5}));
+            assert!(guard.check("repo.replace_range", &edit, true).is_ok());
+        }
     }
 }

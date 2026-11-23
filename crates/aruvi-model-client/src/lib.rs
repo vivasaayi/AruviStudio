@@ -231,9 +231,55 @@ pub trait ModelGateway: Send + Sync {
     }
 }
 
+/// Explicit transport configuration. Credentials are supplied by the application
+/// and this type deliberately does not implement Debug or serialization.
+pub enum GatewayConfig {
+    OpenAiCompatible {
+        base_url: String,
+        api_key: Option<String>,
+        options: ClientOptions,
+        completion: openai_compatible::CompletionOptions,
+        stream_usage: bool,
+        transcription_language: openai_compatible::TranscriptionLanguageMode,
+    },
+    Anthropic { base_url: String, api_key: String, options: ClientOptions },
+    DeepSeekVoice { base_url: String, api_key: String, options: ClientOptions },
+}
+
+/// Construct a provider transport without selecting models or storing secrets.
+pub fn create_gateway(config: GatewayConfig) -> Result<Box<dyn ModelGateway>, ClientError> {
+    match config {
+        GatewayConfig::OpenAiCompatible { base_url, api_key, options, completion, stream_usage, transcription_language } => {
+            let client = openai_compatible::OpenAiCompatibleClient::with_options(base_url, api_key, options)?;
+            Ok(Box::new(client.with_completion_options(completion).with_stream_usage(stream_usage).with_transcription_language_mode(transcription_language)))
+        }
+        GatewayConfig::Anthropic { base_url, api_key, options } => Ok(Box::new(anthropic::AnthropicClient::with_options(base_url, api_key, options)?)),
+        GatewayConfig::DeepSeekVoice { base_url, api_key, options } => Ok(Box::new(deepseek::DeepSeekVoiceClient::with_options(base_url, api_key, options)?)),
+    }
+}
+
 #[cfg(test)]
 mod response_compatibility_tests {
     use super::*;
+
+    #[test]
+    fn gateway_factory_selects_transport_and_rejects_unsafe_urls() {
+        let openai = create_gateway(GatewayConfig::OpenAiCompatible {
+            base_url: "http://127.0.0.1:1234/v1".into(), api_key: None,
+            options: ClientOptions::default(), completion: openai_compatible::CompletionOptions::default(),
+            stream_usage: false, transcription_language: openai_compatible::TranscriptionLanguageMode::Auto,
+        }).unwrap();
+        assert!(openai.transport_capabilities().text_streaming);
+        let voice = create_gateway(GatewayConfig::DeepSeekVoice {
+            base_url: "https://api.deepseek.com".into(), api_key: "fixture".into(), options: ClientOptions::default(),
+        }).unwrap();
+        assert!(voice.transport_capabilities().speech);
+        assert!(!voice.transport_capabilities().text_completion);
+        let invalid = create_gateway(GatewayConfig::Anthropic {
+            base_url: "https://user:secret@example.invalid".into(), api_key: "fixture".into(), options: ClientOptions::default(),
+        });
+        assert!(invalid.is_err());
+    }
 
     #[test]
     fn debug_does_not_print_private_model_payloads() {
@@ -293,5 +339,13 @@ mod response_compatibility_tests {
         let response: CompletionResponse = serde_json::from_value(old.clone()).unwrap();
         assert!(response.metadata.is_none());
         assert_eq!(serde_json::to_value(response).unwrap(), old);
+    }
+
+    #[test]
+    fn nested_blob_origin_is_opaque_without_recursive_overflow() {
+        // RUSTSEC-2026-0592: older url releases overflowed the stack here.
+        let value = format!("{}https://example.com/", "blob:".repeat(10_000));
+        let parsed = url::Url::parse(&value).unwrap();
+        assert!(matches!(parsed.origin(), url::Origin::Opaque(_)));
     }
 }

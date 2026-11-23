@@ -99,7 +99,7 @@ async fn start_workflow_closes_orphaned_coordinator_review_and_creates_fresh_run
     .await
     .expect("failed to disable auto test review");
 
-    AgentService::set_test_model_outputs_for_any_workflow(vec![
+    AgentService::set_test_model_outputs_for_any_workflow(&pool, vec![
         "requirement analysis complete".to_string(),
         "planning complete".to_string(),
     ]);
@@ -129,7 +129,7 @@ async fn start_workflow_closes_orphaned_coordinator_review_and_creates_fresh_run
     assert_eq!(refreshed_fresh.current_stage, "pending_plan_approval");
     assert_eq!(refreshed_fresh.status, "running");
 
-    AgentService::set_test_model_outputs_for_any_workflow(Vec::new());
+    AgentService::set_test_model_outputs_for_any_workflow(&pool, Vec::new());
     let _ = std::fs::remove_dir_all(temp_root);
 }
 

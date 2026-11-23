@@ -105,7 +105,7 @@ pub(crate) async fn create_local_workspace_for_scope(
     }
 
     let readme = format!("# {}\n\nWorkspace prepared by AruviStudio.\n", product_name);
-    let gitignore = "node_product_areas/\ndist/\nbuild/\ncoverage/\n.env\n.DS_Store\n";
+    let gitignore = "node_modules/\ndist/\nbuild/\ncoverage/\n.env\n.DS_Store\n";
     std::fs::write(workspace_path.join("README.md"), readme)?;
     std::fs::write(workspace_path.join(".gitignore"), gitignore)?;
     std::fs::create_dir_all(workspace_path.join("tests"))?;
@@ -117,25 +117,9 @@ pub(crate) async fn create_local_workspace_for_scope(
 
     let local_path = workspace_path.to_string_lossy().to_string();
     let default_branch = "main".to_string();
-    let existing_repo = repository_repo::list_repositories(&state.db)
-        .await?
-        .into_iter()
-        .find(|repo| normalize_path(&repo.local_path) == normalize_path(&local_path));
-
-    let repository = if let Some(existing_repo) = existing_repo {
-        existing_repo
-    } else {
-        let repo_id = uuid::Uuid::new_v4().to_string();
-        repository_repo::create_repository(
-            &state.db,
-            &repo_id,
-            &product_name,
-            &local_path,
-            "",
-            &default_branch,
-        )
-        .await?
-    };
+    let repository = super::register_repository_for_state(
+        state, product_name.clone(), local_path.clone(), String::new(), default_branch,
+    ).await?;
 
     let (attached_scope_type, attached_scope_id) =
         if let Some(product_area_id) = product_area_id.as_deref() {
@@ -220,14 +204,6 @@ fn slugify(input: &str) -> String {
         }
     }
     out.trim_matches('-').to_string()
-}
-
-fn normalize_path(path: &str) -> String {
-    PathBuf::from(path)
-        .components()
-        .map(|component| component.as_os_str().to_string_lossy().to_string())
-        .collect::<Vec<_>>()
-        .join("/")
 }
 
 fn ensure_git_repository(workspace_path: &PathBuf, product_name: &str) -> Result<(), AppError> {

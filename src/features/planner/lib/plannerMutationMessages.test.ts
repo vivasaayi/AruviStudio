@@ -19,6 +19,16 @@ function makeIdFactory() {
 }
 
 describe("plannerMutationMessages", () => {
+  it("retains an independent proposal plan and staged tree", () => {
+    const result: PlannerMutationResult = { mode:"draft_updated", userInput:"design", plan:{...basePlan, actions:[{type:"create_work_item", title:"Original task"}]}, execution:{lines:[],errors:[]},
+      draftTreeNodes:[{id:"root",label:"Original",children:[{id:"child",label:"Original child",children:[]}]}] };
+    const message = buildPlannerMutationMessages([], result, makeIdFactory())[1];
+    result.draftTreeNodes![0].children[0].label = "Changed child";
+    result.plan.actions[0] = {type:"create_work_item", title:"Changed task"};
+    expect(message.proposalDraftSnapshot?.[0].children[0].label).toBe("Original child");
+    expect(message.plan?.actions[0]).toMatchObject({title:"Original task"});
+  });
+
   it("builds confirmation-required proposal messages", () => {
     const result: PlannerMutationResult = {
       mode: "confirmation_required",

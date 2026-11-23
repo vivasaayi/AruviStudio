@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::persistence::{product_repo, settings_repo};
+use crate::persistence::{product_repo, settings_repo, strategy_repo};
 use crate::services::product_service::{self, HIDE_EXAMPLE_PRODUCTS_KEY};
 use crate::state::AppState;
 use serde_json::Value;
@@ -13,6 +13,72 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "list_strategy_nodes" => action_result("list_strategy_nodes", strategy_repo::list_strategy_nodes(&state.db).await?),
+        "create_strategy_node" => {
+            let id = uuid::Uuid::new_v4().to_string();
+            let parent = args.optional_string(&["parent_node_id", "parentNodeId"])?;
+            let kind = args.required_string(&["node_kind", "nodeKind"], "node_kind")?;
+            let name = args.required_string(&["name"], "name")?;
+            let description = args.string_or_default(&["description"], "")?;
+            let owner = args.string_or_default(&["owner_label", "ownerLabel"], "")?;
+            action_result("create_strategy_node", strategy_repo::create_strategy_node(&state.db, &id, parent.as_deref(), &kind, &name, &description, &owner).await?)
+        }
+        "update_strategy_node" => {
+            let id = args.required_string(&["id"], "id")?;
+            let parent = args.optional_string(&["parent_node_id", "parentNodeId"])?;
+            let clear = args.bool_or_default(&["clear_parent", "clearParent"], false)?;
+            if clear && parent.is_some() { return Err(AppError::Validation("Cannot set and clear the parent together".into())); }
+            let next_parent = if clear { Some(None) } else { parent.as_deref().map(Some) };
+            let kind = args.optional_string(&["node_kind", "nodeKind"])?;
+            let name = args.optional_string(&["name"])?;
+            let description = args.optional_string(&["description"])?;
+            let owner = args.optional_string(&["owner_label", "ownerLabel"])?;
+            let expected: Option<crate::domain::strategy::StrategyNode> = args.optional_deserialize(&["expected"], "expected")?;
+            action_result("update_strategy_node", strategy_repo::update_strategy_node_guarded(&state.db, &id, next_parent, kind.as_deref(), name.as_deref(), description.as_deref(), owner.as_deref(), expected.as_ref()).await?)
+        }
+        "delete_strategy_node" => {
+            let id = args.required_string(&["id"], "id")?;
+            let nodes: Option<Vec<crate::domain::strategy::StrategyNode>> = args.optional_deserialize(&["expected_nodes"], "expected_nodes")?;
+            let links: Option<Vec<crate::domain::strategy::ProductStrategyLink>> = args.optional_deserialize(&["expected_links"], "expected_links")?;
+            match (nodes, links) {
+                (Some(nodes), Some(links)) => strategy_repo::delete_strategy_node_guarded(&state.db, &id, &nodes, &links).await?,
+                (None, None) => strategy_repo::delete_strategy_node(&state.db, &id).await?,
+                _ => return Err(AppError::Validation("Both expected nodes and links are required".into())),
+            }
+            Ok(action_ok("delete_strategy_node"))
+        }
+        "list_product_strategy_links" => action_result("list_product_strategy_links", strategy_repo::list_product_strategy_links(&state.db).await?),
+        "link_product_to_strategy" => {
+            let id = uuid::Uuid::new_v4().to_string();
+            let product = args.required_string(&["product_id", "productId"], "product_id")?;
+            let node = args.required_string(&["strategy_node_id", "strategyNodeId"], "strategy_node_id")?;
+            let primary = args.bool_or_default(&["is_primary", "isPrimary"], false)?;
+            let expected: Option<Vec<crate::domain::strategy::ProductStrategyLink>> = args.optional_deserialize(&["expected_links"], "expected_links")?;
+            action_result("link_product_to_strategy", strategy_repo::link_product_to_strategy_guarded(&state.db, &id, &product, &node, primary, expected.as_deref()).await?)
+        }
+        "unlink_product_from_strategy" => {
+            let product = args.required_string(&["product_id", "productId"], "product_id")?;
+            let node = args.required_string(&["strategy_node_id", "strategyNodeId"], "strategy_node_id")?;
+            let expected: Option<Vec<crate::domain::strategy::ProductStrategyLink>> = args.optional_deserialize(&["expected_links"], "expected_links")?;
+            strategy_repo::unlink_product_from_strategy_guarded(&state.db, &product, &node, expected.as_deref()).await?;
+            Ok(action_ok("unlink_product_from_strategy"))
+        }
+        "list_product_dependencies" => action_result("list_product_dependencies", strategy_repo::list_product_dependencies(&state.db).await?),
+        "create_product_dependency" => {
+            let id = uuid::Uuid::new_v4().to_string();
+            let product = args.required_string(&["product_id", "productId"], "product_id")?;
+            let target = args.required_string(&["depends_on_product_id", "dependsOnProductId"], "depends_on_product_id")?;
+            let capability = args.optional_string(&["capability_id", "capabilityId"])?;
+            let target_capability = args.optional_string(&["depends_on_capability_id", "dependsOnCapabilityId"])?;
+            let kind = args.string_or_default(&["dependency_kind", "dependencyKind"], "platform")?;
+            let description = args.string_or_default(&["description"], "")?;
+            let status = args.string_or_default(&["status"], "active")?;
+            action_result("create_product_dependency", strategy_repo::create_product_dependency(&state.db, strategy_repo::CreateProductDependencyInput { id: &id, product_id: &product, capability_id: capability.as_deref(), depends_on_product_id: &target, depends_on_capability_id: target_capability.as_deref(), dependency_kind: &kind, description: &description, status: &status }).await?)
+        }
+        "delete_product_dependency" => {
+            strategy_repo::delete_product_dependency(&state.db, &args.required_string(&["id"], "id")?).await?;
+            Ok(action_ok("delete_product_dependency"))
+        }
         "create_product" => {
             let name = args.required_string(&["name"], "name")?;
             let description = args.string_or_default(&["description"], "")?;
@@ -185,6 +251,17 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             product_repo::delete_product_area(&state.db, &id).await?;
             Ok(action_ok(action))
         }
+        "reorder_hierarchy_checked" => {
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            let area_id = args.optional_string(&["area_id", "areaId"])?;
+            let parent_id = args.optional_string(&["parent_id", "parentId"])?;
+            let expected = args.required_string_list(&["expected_order", "expectedOrder"], "expected_order")?;
+            let ordered = args.required_string_list(&["ordered_ids", "orderedIds"], "ordered_ids")?;
+            if !crate::persistence::product_tree_repo::reorder_hierarchy_checked(&state.db, &product_id, area_id.as_deref(), parent_id.as_deref(), &expected, &ordered).await? {
+                return Err(AppError::Validation("Hierarchy changed or belongs to another product. Refresh before reordering.".into()));
+            }
+            Ok(action_ok("reorder_hierarchy_checked"))
+        }
         action @ "reorder_product_areas" => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             let ordered_ids =
@@ -241,6 +318,17 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 "list_capabilities",
                 product_repo::list_capabilities(&state.db, &product_area_id).await?,
             )
+        }
+        "list_product_capabilities" => {
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            action_result(
+                "list_product_capabilities",
+                product_repo::list_product_capabilities(&state.db, &product_id).await?,
+            )
+        }
+        "get_capability" => {
+            let id = args.required_string(&["id"], "id")?;
+            action_result("get_capability", product_repo::get_capability(&state.db, &id).await?)
         }
         "update_capability" => {
             let id = args.required_string(&["id"], "id")?;
@@ -393,6 +481,13 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             }
             action_result("get_product_tree", tree_value)
         }
+        "summarize_product_tree" => {
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            action_result(
+                "summarize_product_tree",
+                product_repo::summarize_product_tree(&state.db, &product_id).await?,
+            )
+        }
         action @ ("list_references" | "list_product_references") => {
             let scope_type = args.optional_string(&["scope_type", "scopeType"])?;
             let scope_id = args.optional_string(&["scope_id", "scopeId"])?;
@@ -437,6 +532,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         }
         action @ ("get_bulk_import_schema"
         | "submit_bulk_import"
+        | "submit_inline_bulk_import"
         | "get_bulk_import_status"
         | "list_bulk_import_jobs") => catalog_bulk_import::handle(state, action, &args).await,
         other => Err(AppError::Validation(format!(

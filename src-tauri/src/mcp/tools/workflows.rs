@@ -1,6 +1,6 @@
 use crate::domain::workflow::UserAction;
 use crate::error::AppError;
-use crate::persistence::{agent_repo, workflow_repo};
+use crate::persistence::{agent_repo, model_call_repo, workflow_repo};
 use crate::state::AppState;
 use serde_json::{json, Value};
 
@@ -95,31 +95,28 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 agent_repo::list_agent_runs_for_workflow(&state.db, &workflow_run_id).await?,
             )
         }
+        "list_agent_model_calls_for_workflow" => {
+            let workflow_run_id = args.required_string(&["workflow_run_id", "workflowRunId"], "workflow_run_id")?;
+            action_result("list_agent_model_calls_for_workflow", model_call_repo::list_model_calls_for_workflow(&state.db, &workflow_run_id).await?)
+        }
         "mark_workflow_run_failed" => {
             let workflow_run_id =
                 args.required_string(&["workflow_run_id", "workflowRunId"], "workflow_run_id")?;
             let run = workflow_repo::get_workflow_run(&state.db, &workflow_run_id).await?;
-            if run.current_stage != "failed" {
-                workflow_repo::update_workflow_stage(&state.db, &workflow_run_id, "failed").await?;
-                workflow_repo::record_stage_transition(
-                    &state.db,
-                    &uuid::Uuid::new_v4().to_string(),
-                    &workflow_run_id,
-                    &run.current_stage,
-                    "failed",
-                    "user_override",
-                    args.optional_string(&["reason"])?
-                        .as_deref()
-                        .unwrap_or("Marked failed by MCP operator"),
-                )
-                .await?;
+            let expected_stage = args.optional_string(&["expected_stage", "expectedStage"])?;
+            let expected_status = args.optional_string(&["expected_status", "expectedStatus"])?;
+            if expected_stage.is_some() != expected_status.is_some() {
+                return Err(AppError::Validation("Both expected_stage and expected_status are required together".into()));
             }
-            workflow_repo::update_workflow_lifecycle(
+            if expected_stage.is_none() && run.current_stage == "failed" && run.status == "failed" {
+                return Ok(action_ok("mark_workflow_run_failed"));
+            }
+            crate::services::workflow_failure::mark_workflow_failed_by_operator(
                 &state.db,
                 &workflow_run_id,
-                "failed",
-                args.optional_string(&["reason"])?.as_deref(),
-                true,
+                expected_stage.as_deref().unwrap_or(&run.current_stage),
+                expected_status.as_deref().unwrap_or(&run.status),
+                args.optional_string(&["reason"])?.as_deref().unwrap_or("Marked failed by MCP operator"),
             )
             .await?;
             Ok(action_ok("mark_workflow_run_failed"))

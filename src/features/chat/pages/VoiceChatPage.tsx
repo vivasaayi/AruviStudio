@@ -4,6 +4,7 @@ import {
   speakTextNatively,
   startModelChatStream,
   transcribeAudio,
+  getDesktopTranscriptionTarget,
 } from "../../../lib/tauri";
 import { VoiceChatPageContent } from "../components/VoiceChatPageContent";
 import { useVoiceChatConfiguration } from "../hooks/useVoiceChatConfiguration";
@@ -23,8 +24,6 @@ export function VoiceChatPage() {
     providerId,
     modelName,
     systemPrompt,
-    speechProviderId,
-    speechModelName,
     speechLocale,
     speechNativeVoice,
     voiceEnabled,
@@ -35,6 +34,8 @@ export function VoiceChatPage() {
   const [messages, setMessages] = useState<LocalChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sessionActive, setSessionActive] = useState(false);
+  const [isPreparing, setIsPreparing] = useState(false);
+  const [resolvedSpeechModel, setResolvedSpeechModel] = useState("");
   const [isListening, setIsListening] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [isSending, setIsSending] = useState(false);
@@ -43,11 +44,13 @@ export function VoiceChatPage() {
   const [lastTranscript, setLastTranscript] = useState("");
   const [error, setError] = useState<string | null>(null);
   const audioCaptureRef = useRef<SilenceAwareAudioCapture | null>(null);
+  const pendingCaptureRef = useRef<AbortController | null>(null);
   const messagesRef = useRef<LocalChatMessage[]>([]);
   const sessionActiveRef = useRef(false);
-  const isLoopingRef = useRef(false);
+  const isLoopingRef = useRef<number | null>(null);
   const speakQueueRef = useRef(Promise.resolve());
   const sessionIdRef = useRef(crypto.randomUUID());
+  const preflightSequenceRef = useRef(0);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -58,6 +61,8 @@ export function VoiceChatPage() {
   }, [sessionActive]);
 
   const stopCurrentCapture = async () => {
+    pendingCaptureRef.current?.abort();
+    pendingCaptureRef.current = null;
     const capture = audioCaptureRef.current;
     if (!capture) {
       return;
@@ -72,6 +77,7 @@ export function VoiceChatPage() {
   };
 
   useEffect(() => () => {
+    preflightSequenceRef.current += 1;
     void stopCurrentCapture();
     stopBrowserSpeech();
   }, []);
@@ -206,10 +212,11 @@ export function VoiceChatPage() {
   };
 
   const listenForTurn = async () => {
+    const generation = preflightSequenceRef.current;
     if (
       !sessionActiveRef.current
       || !voiceEnabled
-      || isLoopingRef.current
+      || isLoopingRef.current === generation
       || isListening
       || isTranscribing
       || isSending
@@ -217,54 +224,60 @@ export function VoiceChatPage() {
     ) {
       return;
     }
-    if (!speechProviderId || !speechModelName) {
-      setError("Configure a speech transcription provider and model in Settings before using Voice Chat.");
-      setSessionActive(false);
-      return;
-    }
     if (!providerId || !modelName) {
       setError("Select a chat model first.");
+      sessionActiveRef.current = false;
       setSessionActive(false);
       return;
     }
 
-    isLoopingRef.current = true;
+    isLoopingRef.current = generation;
     setError(null);
     setStatus("Listening... Speak naturally and pause when you're done.");
+    let capture: SilenceAwareAudioCapture | null = null;
+    const controller = new AbortController();
+    pendingCaptureRef.current = controller;
     try {
-      const capture = await startSilenceAwareWavCapture({
+      capture = await startSilenceAwareWavCapture({
         silenceDurationMs: 1100,
         minSpeechDurationMs: 500,
         maxDurationMs: 18000,
-      });
+      }, controller.signal);
+      if (pendingCaptureRef.current === controller) pendingCaptureRef.current = null;
+      if (!sessionActiveRef.current || generation !== preflightSequenceRef.current) { await capture.stop(); return; }
       audioCaptureRef.current = capture;
       setIsListening(true);
       const audioBlob = await capture.completed;
       if (audioCaptureRef.current === capture) {
         audioCaptureRef.current = null;
       }
+      if (!sessionActiveRef.current || generation !== preflightSequenceRef.current) return;
       setIsListening(false);
       setIsTranscribing(true);
       setStatus("Transcribing your speech...");
+      const audioBytesBase64 = await blobToBase64(audioBlob);
+      if (!sessionActiveRef.current || generation !== preflightSequenceRef.current) return;
       const transcriptResponse = await transcribeAudio({
-        providerId: speechProviderId,
-        modelName: speechModelName,
-        audioBytesBase64: await blobToBase64(audioBlob),
+        audioBytesBase64,
         mimeType: audioBlob.type || "audio/wav",
-        locale: speechLocale || undefined,
+        fallbackLocale: "en-US",
       });
+      if (!sessionActiveRef.current || generation !== preflightSequenceRef.current) return;
       setIsTranscribing(false);
       await handleTranscript(transcriptResponse.transcript);
     } catch (listenError) {
-      setIsListening(false);
-      setIsTranscribing(false);
-      if (sessionActiveRef.current) {
+      if (sessionActiveRef.current && generation === preflightSequenceRef.current) {
+        setIsListening(false);
+        setIsTranscribing(false);
         setError(String(listenError));
         setStatus("Voice capture failed.");
+        sessionActiveRef.current = false;
+        setSessionActive(false);
       }
     } finally {
-      audioCaptureRef.current = null;
-      isLoopingRef.current = false;
+      if (pendingCaptureRef.current === controller) pendingCaptureRef.current = null;
+      if (audioCaptureRef.current === capture) audioCaptureRef.current = null;
+      if (isLoopingRef.current === generation) isLoopingRef.current = null;
     }
   };
 
@@ -279,19 +292,36 @@ export function VoiceChatPage() {
       void listenForTurn();
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [sessionActive, voiceEnabled, isListening, isTranscribing, isSending, isSpeaking, providerId, modelName, speechProviderId, speechModelName]);
+  }, [sessionActive, voiceEnabled, isListening, isTranscribing, isSending, isSpeaking, providerId, modelName]);
 
-  const startSession = () => {
+  const startSession = async () => {
     setError(null);
-    if (messagesRef.current.length === 0) {
-      sessionIdRef.current = crypto.randomUUID();
+    if (!voiceEnabled || isPreparing) return;
+    if (!providerId || !modelName) { setError("Select a chat model first."); return; }
+    const requestId = ++preflightSequenceRef.current;
+    setIsPreparing(true); setStatus("Checking speech settings...");
+    try {
+      const target = await getDesktopTranscriptionTarget("en-US");
+      if (requestId !== preflightSequenceRef.current) return;
+      setResolvedSpeechModel(target.model_name);
+      if (messagesRef.current.length === 0) sessionIdRef.current = crypto.randomUUID();
+      sessionActiveRef.current = true;
+      setSessionActive(true);
+      setStatus("Voice session started. I'll listen, answer, and continue automatically.");
+    } catch (preflightError) {
+      if (requestId !== preflightSequenceRef.current) return;
+      setResolvedSpeechModel(""); setError(String(preflightError)); setStatus("Speech settings need attention.");
+    } finally {
+      if (requestId === preflightSequenceRef.current) setIsPreparing(false);
     }
-    setSessionActive(true);
-    setStatus("Voice session started. I'll listen, answer, and continue automatically.");
   };
 
   const stopSession = async () => {
+    preflightSequenceRef.current += 1;
+    sessionActiveRef.current = false;
     setSessionActive(false);
+    setIsListening(false);
+    setIsTranscribing(false);
     setStatus("Voice session stopped.");
     await stopCurrentCapture();
     stopBrowserSpeech();
@@ -318,7 +348,8 @@ export function VoiceChatPage() {
       modelOptions={combinedModelOptions}
       sessionActive={sessionActive}
       voiceEnabled={voiceEnabled}
-      speechModelName={speechModelName}
+      isPreparing={isPreparing}
+      speechModelName={resolvedSpeechModel}
       isListening={isListening}
       isTranscribing={isTranscribing}
       isSending={isSending}
@@ -329,7 +360,7 @@ export function VoiceChatPage() {
       messages={messages}
       draft={draft}
       onModelChange={setSelectedModelValue}
-      onStartSession={startSession}
+      onStartSession={() => void startSession()}
       onStopSession={() => void stopSession()}
       onDraftChange={setDraft}
       onSendTypedMessage={() => void sendTypedMessage()}

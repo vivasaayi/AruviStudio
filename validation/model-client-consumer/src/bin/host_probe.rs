@@ -1,6 +1,6 @@
 //! Real-host check from a separate crate using the pinned public Git dependency.
 //! Read the token from stdin; do not print requests, responses, or credentials.
-use aruvi_model_client::{openai_compatible::OpenAiCompatibleClient, ChatMessage, CompletionRequest, ModelGateway, SpeechRequest, TranscriptionRequest};
+use aruvi_model_client::{create_gateway, ClientOptions, GatewayConfig, openai_compatible::{CompletionOptions, TranscriptionLanguageMode}, ChatMessage, CompletionRequest, SpeechRequest, TranscriptionRequest};
 use std::io::Read;
 
 fn request(model: &str, prompt: &str, max_tokens: i64) -> CompletionRequest {
@@ -15,7 +15,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     std::io::stdin().read_to_string(&mut token)?;
     let token = token.trim();
     if token.is_empty() { return Err("Model Host token is empty".into()); }
-    let gateway: Box<dyn ModelGateway> = Box::new(OpenAiCompatibleClient::new(base, Some(token.into())));
+    let gateway = create_gateway(GatewayConfig::OpenAiCompatible {
+        base_url: base, api_key: Some(token.into()), options: ClientOptions::default(),
+        completion: CompletionOptions::default(), stream_usage: false,
+        transcription_language: TranscriptionLanguageMode::Auto,
+    })?;
     let caps = gateway.transport_capabilities();
     if !caps.text_completion || !caps.text_streaming || !caps.model_discovery { return Err("Required client transport capability is unavailable".into()); }
     let page = gateway.list_models_page(None).await?;

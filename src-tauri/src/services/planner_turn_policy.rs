@@ -1,9 +1,36 @@
 use crate::domain::product::Product;
+use crate::error::AppError;
+use crate::persistence::product_repo;
 use crate::services::planner_types::{PlannerDraftNode, PlannerDraftPlan, PlannerPlan};
 use serde_json::{json, Value};
+use sqlx::SqlitePool;
 
 pub(crate) fn normalize(value: Option<&str>) -> String {
     value.unwrap_or_default().trim().to_lowercase()
+}
+
+// A product switch must never silently replace the session's staged design.
+// Older drafts may have generated root IDs, so only use a name match when the
+// draft root does not identify a persisted product.
+pub(crate) async fn ensure_draft_product_scope(
+    db: &SqlitePool,
+    draft: Option<&PlannerDraftPlan>,
+    product: &Product,
+) -> Result<(), AppError> {
+    for root in draft.into_iter().flat_map(|draft| &draft.nodes)
+        .filter(|node| node.node_type == "product" && node.parent_id.is_none()) {
+        if root.id == product.id { continue; }
+        let same_legacy_product = match product_repo::get_product(db, &root.id).await {
+            Ok(_) => false,
+            Err(AppError::NotFound(_)) => root.details.get("type").and_then(Value::as_str) != Some("update_product")
+                && normalize(Some(&root.name)) == normalize(Some(&product.name)),
+            Err(error) => return Err(error),
+        };
+        if !same_legacy_product {
+            return Err(AppError::Validation("The Planner session has a draft for another product. Review and clear it or start a new session before switching products.".to_string()));
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn seed_draft_with_product(
@@ -52,7 +79,7 @@ pub(crate) fn seed_draft_with_product(
     draft_plan
 }
 
-pub(crate) fn scope_plan_to_selected_product(plan: &mut PlannerPlan, product: &Product) {
+pub(crate) fn scope_plan_to_selected_product(plan: &mut PlannerPlan, product: &Product) -> Result<(), AppError> {
     plan.actions.retain(|action| {
         !matches!(
             action.get("type").and_then(Value::as_str),
@@ -60,6 +87,11 @@ pub(crate) fn scope_plan_to_selected_product(plan: &mut PlannerPlan, product: &P
         )
     });
     for action in &mut plan.actions {
+        for value in [action.get("productName"), action.get("target").and_then(|target| target.get("productName"))].into_iter().flatten() {
+            if !value.is_null() && value.as_str().is_none_or(|name| normalize(Some(name)) != normalize(Some(&product.name))) {
+                return Err(AppError::Validation("Planner action is outside the selected product.".into()));
+            }
+        }
         let Some(action_object) = action.as_object_mut() else {
             continue;
         };
@@ -70,11 +102,10 @@ pub(crate) fn scope_plan_to_selected_product(plan: &mut PlannerPlan, product: &P
             *target = json!({});
         }
         if let Some(target_object) = target.as_object_mut() {
-            target_object
-                .entry("productName".to_string())
-                .or_insert_with(|| Value::String(product.name.clone()));
+            target_object.insert("productName".to_string(), Value::String(product.name.clone()));
         }
     }
+    Ok(())
 }
 
 pub(crate) fn heuristic_plan(input: &str) -> PlannerPlan {

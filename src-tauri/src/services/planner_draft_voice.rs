@@ -33,7 +33,10 @@ pub(crate) fn parse_voice_node_reference(spoken_remainder: &str) -> (Option<&'st
         ("work item ", "work_item"),
         ("work-item ", "work_item"),
         ("workitem ", "work_item"),
+        ("story ", "story"),
+        ("task ", "task"),
         ("capability ", "capability"),
+        ("feature ", "feature"),
         ("product area ", "product_area"),
         ("product ", "product"),
         ("node ", "node"),
@@ -65,7 +68,7 @@ pub(crate) fn resolve_voice_draft_node_reference(
 
     let selected_path = build_draft_node_path(draft_plan, selected_node_id);
     let selected_node = selected_path.last().copied();
-    let effective_type = explicit_type.filter(|value| *value != "node");
+    let effective_type = explicit_type.filter(|value| *value != "node").map(|value| if value == "feature" { "capability" } else if value == "story" || value == "task" { "work_item" } else { value });
 
     let special_match = match reference.as_str() {
         "this" | "selected" | "this node" | "selected node" | "current" | "current node" => {
@@ -95,6 +98,11 @@ pub(crate) fn resolve_voice_draft_node_reference(
         _ => None,
     };
     if let Some(node) = special_match {
+        if explicit_type.filter(|value| *value == "story" || *value == "task")
+            .is_some_and(|value| node.details.get("workItemType").or_else(|| node.details.get("work_item_type")).and_then(serde_json::Value::as_str) != Some(value)) {
+            return Ok(None);
+        }
+        if explicit_type == Some("feature") && node.details.get("nodeKind").or_else(|| node.details.get("node_kind")).and_then(serde_json::Value::as_str) != Some("feature") { return Ok(None); }
         return Ok(Some(node.clone()));
     }
 
@@ -102,9 +110,10 @@ pub(crate) fn resolve_voice_draft_node_reference(
         .nodes
         .iter()
         .filter(|node| {
-            effective_type
-                .map(|value| node.node_type == value)
-                .unwrap_or(true)
+            effective_type.map(|value| node.node_type == value).unwrap_or(true)
+                && explicit_type.filter(|value| *value == "story" || *value == "task")
+                    .map(|value| node.details.get("workItemType").or_else(|| node.details.get("work_item_type")).and_then(serde_json::Value::as_str) == Some(value)).unwrap_or(true)
+                && (explicit_type != Some("feature") || node.details.get("nodeKind").or_else(|| node.details.get("node_kind")).and_then(serde_json::Value::as_str) == Some("feature"))
         })
         .collect::<Vec<_>>();
 

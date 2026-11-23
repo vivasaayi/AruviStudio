@@ -52,9 +52,11 @@ export function ChatPage() {
   const [streamStopping, setStreamStopping] = useState(false);
   const activeStreamRef = useRef<{ id: string; cleanup: () => void } | null>(null);
   const [isListening, setIsListening] = useState(false);
+  const [isPreparingCapture, setIsPreparingCapture] = useState(false);
   const [voiceRepliesEnabled, setVoiceRepliesEnabled] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const audioCaptureRef = useRef<ActiveAudioCapture | null>(null);
+  const pendingCaptureRef = useRef<AbortController | null>(null);
   const latestAssistantRef = useRef("");
   const sessionIdRef = useRef(crypto.randomUUID());
 
@@ -272,12 +274,25 @@ export function ChatPage() {
 
   const toggleListening = async () => {
     setError(null);
+    if (pendingCaptureRef.current) {
+      pendingCaptureRef.current.abort();
+      pendingCaptureRef.current = null;
+      setIsPreparingCapture(false);
+      return;
+    }
     if (audioCaptureRef.current) {
       await stopListening();
       return;
     }
+    const controller = new AbortController();
+    pendingCaptureRef.current = controller;
+    setIsPreparingCapture(true);
     try {
-      const capture = await startWavCapture();
+      const capture = await startWavCapture(controller.signal);
+      if (controller.signal.aborted || pendingCaptureRef.current !== controller) {
+        await capture.stop().catch(() => undefined);
+        return;
+      }
       audioCaptureRef.current = capture;
       setIsListening(true);
       void capture.completed.then(
@@ -285,11 +300,18 @@ export function ChatPage() {
         () => { if (audioCaptureRef.current === capture) void stopListening(); },
       );
     } catch (listenError) {
-      setError(String(listenError));
+      if (!controller.signal.aborted) setError(String(listenError));
+    } finally {
+      if (pendingCaptureRef.current === controller) {
+        pendingCaptureRef.current = null;
+        setIsPreparingCapture(false);
+      }
     }
   };
 
   React.useEffect(() => () => {
+    pendingCaptureRef.current?.abort();
+    pendingCaptureRef.current = null;
     const stream = activeStreamRef.current;
     if (stream) {
       stream.cleanup();
@@ -350,7 +372,7 @@ export function ChatPage() {
             disabled={transcribeAudioMutation.isPending}
             data-testid="chat-mic-toggle"
           >
-            {isListening ? "Stop Listening" : "Start Listening"}
+            {isListening ? "Stop Listening" : isPreparingCapture ? "Cancel microphone request" : "Start Listening"}
           </button>
           <button
             style={voiceRepliesEnabled ? styles.btn : styles.btnGhost}

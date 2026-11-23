@@ -85,7 +85,7 @@ async fn plan_approval_continues_to_coding_and_records_history_and_artifacts() {
     .await
     .expect("failed to disable auto test review for manual-gate test");
 
-    AgentService::set_test_model_outputs_for_any_workflow(vec![
+    AgentService::set_test_model_outputs_for_any_workflow(&pool, vec![
         "requirement analysis complete".to_string(),
         "planning complete".to_string(),
         json!({
@@ -194,6 +194,6 @@ async fn plan_approval_continues_to_coding_and_records_history_and_artifacts() {
         "generated file content did not match expected coding output"
     );
 
-    AgentService::set_test_model_outputs_for_any_workflow(Vec::new());
+    AgentService::set_test_model_outputs_for_any_workflow(&pool, Vec::new());
     let _ = std::fs::remove_dir_all(temp_root);
 }

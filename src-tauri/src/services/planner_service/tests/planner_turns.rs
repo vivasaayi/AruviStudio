@@ -3,6 +3,404 @@ use crate::persistence::{product_repo, work_item_repo};
 use serde_json::json;
 
 #[tokio::test]
+async fn voice_stages_existing_nodes_with_scope_and_atomic_exchange() {
+    use crate::services::planner_session::load_session_from_db;
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("voice_existing_catalog").await;
+    let product = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"voice-product", name:"Voice product", description:"", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let other = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"voice-other", name:"Other product", description:"", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let area_input = |id: &'static str, product_id: &'static str, name: &'static str| product_repo::CreateProductAreaInput { id, product_id, name, description:"", purpose:"", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" };
+    let area = product_repo::create_product_area(&state.db, area_input("voice-area", "voice-product", "Inventory")).await.unwrap();
+    product_repo::create_product_area(&state.db, area_input("voice-other-area", "voice-other", "Inventory")).await.unwrap();
+    let capability = product_repo::create_capability(&state.db, product_repo::CreateCapabilityInput { id:"voice-capability", product_area_id:&area.id, parent_capability_id:None, name:"Stock alerts", description:"", acceptance_criteria:"", priority:"medium", risk:"low", technical_notes:"", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let no_scope = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "Select existing product area Inventory".into(), None, None).await.unwrap_err();
+    assert!(no_scope.to_string().contains("Select a product"));
+    let selected = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "Select existing product area Inventory.".into(), None, Some(product.id.clone())).await.unwrap();
+    assert_eq!(selected.selected_draft_node_id.as_deref(), Some(area.id.as_str()));
+    let loaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert!(loaded.draft_plan.as_ref().unwrap().nodes.iter().any(|node| node.id==area.id && node.details.get("_catalog_binding").is_some()));
+    assert_eq!(loaded.conversation.len(), 2);
+    let selected = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "Select existing capability Stock alerts".into(), Some(area.id.clone()), Some(product.id.clone())).await.unwrap();
+    assert_eq!(selected.selected_draft_node_id.as_deref(), Some(capability.id.as_str()));
+    let before = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    product_repo::create_product_area(&state.db, area_input("voice-area-duplicate", "voice-product", "Inventory")).await.unwrap();
+    let duplicate = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "Select existing product area Inventory".into(), Some(capability.id.clone()), Some(product.id.clone())).await.unwrap_err();
+    assert!(duplicate.to_string().contains("Multiple existing items"));
+    let after = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(serde_json::to_value(&after.draft_plan).unwrap(), serde_json::to_value(&before.draft_plan).unwrap());
+    assert_eq!(after.conversation.len(), before.conversation.len());
+    let feature = product_repo::create_capability(&state.db, product_repo::CreateCapabilityInput { id:"voice-feature", product_area_id:&area.id, parent_capability_id:Some(&capability.id), name:"Stock alerts", description:"", acceptance_criteria:"", priority:"medium", risk:"low", technical_notes:"", node_kind:Some("feature"), explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let feature_session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let selected_feature = submit_planner_voice_turn(state.planner_service.clone(), &state, feature_session.session_id.clone(), "Select existing feature Stock alerts".into(), None, Some(product.id.clone())).await.unwrap();
+    assert_eq!(selected_feature.selected_draft_node_id.as_deref(), Some(feature.id.as_str()));
+    let draft_feature = submit_planner_voice_turn(state.planner_service.clone(), &state, feature_session.session_id.clone(), "Select feature Stock alerts".into(), Some(feature.id.clone()), Some(product.id.clone())).await.unwrap();
+    assert_eq!(draft_feature.selected_draft_node_id.as_deref(), Some(feature.id.as_str()));
+    use crate::persistence::work_item_write_repo;
+    let make_work = |id: &'static str, kind: &'static str, parent: Option<&'static str>| work_item_repo::CreateWorkItemInput { id, product_id:"voice-product", product_area_id:Some("voice-area"), capability_id:None, source_node_id:None, source_node_type:None, parent_work_item_id:parent, title:"Shared title", problem_statement:"", description:"", acceptance_criteria:"", constraints:"", work_item_type:kind, priority:"medium", complexity:"medium" };
+    let story = work_item_write_repo::create_work_item(&state.db, make_work("voice-story", "story", None)).await.unwrap();
+    let task = work_item_write_repo::create_work_item(&state.db, make_work("voice-task", "task", Some("voice-story"))).await.unwrap();
+    let work_session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let story_selected = submit_planner_voice_turn(state.planner_service.clone(), &state, work_session.session_id.clone(), "Select existing story Shared title".into(), None, Some(product.id.clone())).await.unwrap();
+    assert_eq!(story_selected.selected_draft_node_id.as_deref(), Some(story.id.as_str()));
+    let task_selected = submit_planner_voice_turn(state.planner_service.clone(), &state, work_session.session_id.clone(), "Select existing task Shared title".into(), Some(story.id.clone()), Some(product.id.clone())).await.unwrap();
+    assert_eq!(task_selected.selected_draft_node_id.as_deref(), Some(task.id.as_str()));
+    sqlx::query("CREATE TRIGGER fail_voice_catalog_exchange BEFORE INSERT ON planner_conversation_entries WHEN NEW.role='assistant' BEGIN SELECT RAISE(FAIL, 'fixture failure'); END").execute(&state.db).await.unwrap();
+    let failure = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "Select existing product Voice product".into(), Some(capability.id.clone()), Some(product.id.clone())).await;
+    assert!(failure.is_err());
+    let after = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(serde_json::to_value(&after.draft_plan).unwrap(), serde_json::to_value(&before.draft_plan).unwrap());
+    assert_eq!(after.selected_draft_node_id, before.selected_draft_node_id);
+    assert_eq!(after.conversation.len(), before.conversation.len());
+    assert_ne!(product.id, other.id);
+}
+
+#[tokio::test]
+async fn staged_product_root_checks_identity_and_concurrent_edits() {
+    use crate::services::planner_catalog_binding::stage_catalog_node;
+    use crate::services::planner_session::load_session_from_db;
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("stage_product_root").await;
+    let product = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"bound-product", name:"Bound product", description:"Original", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    assert!(stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "product".into(), "another-product".into()).await.is_err());
+    let staged = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "product".into(), product.id.clone()).await.unwrap();
+    assert_eq!(staged.selected_draft_node_id.as_deref(), Some(product.id.as_str()));
+    let loaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    let actions = normalize_actions(vec![json!({"type":"update_product", "details":{"name":"Improved product", "description":"Planned description"}, "target":{"productName":"Bound product"}})]);
+    let draft = apply_actions_to_draft(loaded.draft_plan, Some(&product.id), &actions).unwrap();
+    sqlx::query("UPDATE products SET description='Concurrent edit' WHERE id=?").bind(&product.id).execute(&state.db).await.unwrap();
+    assert!(commit_draft_plan(&state, &draft).await.unwrap_err().to_string().contains("staged product changed"));
+    let current = product_repo::get_product(&state.db, &product.id).await.unwrap();
+    assert_eq!(current.name, "Bound product");
+    sqlx::query("UPDATE products SET description='Original' WHERE id=?").bind(&product.id).execute(&state.db).await.unwrap();
+    commit_draft_plan(&state, &draft).await.unwrap();
+    let updated = product_repo::get_product(&state.db, &product.id).await.unwrap();
+    assert_eq!(updated.name, "Improved product");
+    assert_eq!(updated.description, "Planned description");
+}
+
+#[tokio::test]
+async fn staged_work_item_updates_identity_and_preserves_parent_and_scope() {
+    use crate::services::planner_catalog_binding::stage_catalog_node;
+    use crate::services::planner_session::load_session_from_db;
+    use crate::persistence::{work_item_read_repo, work_item_write_repo};
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("stage_existing_work").await;
+    let product = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"work-product", name:"Work product", description:"", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let area = product_repo::create_product_area(&state.db, product_repo::CreateProductAreaInput { id:"work-area", product_id:&product.id, name:"Work area", description:"", purpose:"", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let input = |id: &'static str, title: &'static str, parent: Option<&'static str>| work_item_repo::CreateWorkItemInput {
+        id, product_id:"work-product", product_area_id:Some("work-area"), capability_id:None, source_node_id:None, source_node_type:None, parent_work_item_id:parent,
+        title, problem_statement:"Original problem", description:"Original description", acceptance_criteria:"Original criteria", constraints:"Original constraints", work_item_type:"story", priority:"high", complexity:"medium"
+    };
+    let parent = work_item_write_repo::create_work_item(&state.db, input("work-parent", "Parent", None)).await.unwrap();
+    let child = work_item_write_repo::create_work_item(&state.db, input("work-child", "Child", Some("work-parent"))).await.unwrap();
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let other = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"work-other", name:"Other product", description:"", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    assert!(stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), other.id.clone(), "work_item".into(), child.id.clone()).await.is_err());
+    let staged = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "work_item".into(), child.id.clone()).await.unwrap();
+    assert_eq!(staged.selected_draft_node_id.as_deref(), Some(child.id.as_str()));
+    let loaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    let mut draft = loaded.draft_plan.unwrap();
+    assert_eq!(draft.nodes.iter().find(|node| node.id == child.id).unwrap().parent_id.as_deref(), Some(parent.id.as_str()));
+    let wrong = normalize_actions(vec![json!({"type":"update_work_item", "fields":{"acceptanceCriteria":"Wrong item"}, "target":{"productName":"Work product", "workItemTitle":"Parent"}})]);
+    assert!(apply_actions_to_draft(Some(draft.clone()), Some(&child.id), &wrong).unwrap_err().to_string().contains("does not match"));
+    let actions = normalize_actions(vec![
+        json!({"type":"update_work_item", "details":{"acceptanceCriteria":"Updated criteria"}, "target":{"productName":"Work product"}}),
+        json!({"type":"create_work_item", "title":"New task", "target":{"productName":"Work product", "productAreaName":"Work area"}})
+    ]);
+    draft = apply_actions_to_draft(Some(draft), Some(&child.id), &actions).unwrap();
+    let new_node = draft.nodes.iter().find(|node| node.name == "New task").unwrap();
+    assert_eq!(new_node.parent_id.as_deref(), Some(child.id.as_str()));
+    let mut forged = draft.clone();
+    forged.nodes.iter_mut().find(|node| node.id == child.id).unwrap().details["_catalog_binding"]["snapshot"]["parent_work_item_id"] = json!("other-parent");
+    assert!(commit_draft_plan(&state, &forged).await.unwrap_err().to_string().contains("selected hierarchy or parent"));
+    sqlx::query("UPDATE work_items SET constraints='Parent changed' WHERE id=?").bind(&parent.id).execute(&state.db).await.unwrap();
+    assert!(commit_draft_plan(&state, &draft).await.unwrap_err().to_string().contains("changed"));
+    sqlx::query("UPDATE work_items SET constraints='Original constraints' WHERE id=?").bind(&parent.id).execute(&state.db).await.unwrap();
+    sqlx::query("INSERT INTO workflow_runs (id, work_item_id, status, current_stage) VALUES ('active-workflow', ?, 'running', 'draft')").bind(&child.id).execute(&state.db).await.unwrap();
+    assert!(commit_draft_plan(&state, &draft).await.unwrap_err().to_string().contains("active workflow or CLI"));
+    sqlx::query("UPDATE workflow_runs SET status='completed', current_stage='done' WHERE id='active-workflow'").execute(&state.db).await.unwrap();
+    sqlx::query("INSERT INTO external_cli_runs (id, work_item_id, provider, label, command, status) VALUES ('active-run', ?, 'fixture', 'fixture', 'fixture', 'running')").bind(&child.id).execute(&state.db).await.unwrap();
+    assert!(commit_draft_plan(&state, &draft).await.unwrap_err().to_string().contains("active workflow or CLI"));
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM work_items WHERE product_id=?").bind(&product.id).fetch_one(&state.db).await.unwrap();
+    assert_eq!(count, 2);
+    sqlx::query("UPDATE external_cli_runs SET status='completed' WHERE id='active-run'").execute(&state.db).await.unwrap();
+    sqlx::query("UPDATE work_items SET constraints='Concurrent edit' WHERE id=?").bind(&child.id).execute(&state.db).await.unwrap();
+    assert!(commit_draft_plan(&state, &draft).await.unwrap_err().to_string().contains("changed"));
+    sqlx::query("UPDATE work_items SET constraints='Original constraints' WHERE id=?").bind(&child.id).execute(&state.db).await.unwrap();
+    commit_draft_plan(&state, &draft).await.unwrap();
+    let updated = work_item_read_repo::get_work_item(&state.db, &child.id).await.unwrap();
+    assert_eq!(updated.acceptance_criteria, "Updated criteria");
+    assert_eq!(updated.parent_work_item_id.as_deref(), Some(parent.id.as_str()));
+    assert_eq!(updated.product_area_id.as_deref(), Some(area.id.as_str()));
+    assert_eq!(updated.priority.to_string(), "high");
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM work_items WHERE product_id=?").bind(&product.id).fetch_one(&state.db).await.unwrap();
+    assert_eq!(count, 3);
+    let task_parent: String = sqlx::query_scalar("SELECT parent_work_item_id FROM work_items WHERE title='New task'").fetch_one(&state.db).await.unwrap();
+    assert_eq!(task_parent, child.id);
+    let task_type: String = sqlx::query_scalar("SELECT work_item_type FROM work_items WHERE title='New task'").fetch_one(&state.db).await.unwrap();
+    assert_eq!(task_type, "task");
+}
+
+#[tokio::test]
+async fn model_updates_a_staged_catalog_capability_without_creating_a_duplicate() {
+    use crate::persistence::model_repo;
+    use crate::services::planner_catalog_binding::stage_catalog_node;
+    use crate::services::planner_text_turn::submit_planner_turn;
+    use axum::{routing::post, Json, Router};
+    async fn complete(Json(request): Json<serde_json::Value>) -> Json<serde_json::Value> {
+        let actions = if request.to_string().contains("Add nested child") {
+            json!([{"type":"create_capability", "details":{"name":"Nested model child", "nodeKind":"capability", "technicalNotes":"Nested notes", "examples":["First", "Second"], "parent_id":"untrusted-id"}}])
+        } else {
+            json!([{"type":"update_capability","target":{"productName":"Model-bound product","productAreaName":"Model-bound area","capabilityName":"Model-bound capability"},"fields":{"technicalNotes":"Model proposed notes"}}])
+        };
+        let reply = json!({"type":"final","assistant_response":"Prepared the design", "needs_confirmation":true,"clarification_question":null,"actions":actions});
+        Json(json!({"choices":[{"message":{"content":reply.to_string()},"finish_reason":"stop"}]}))
+    }
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("model_bound_catalog").await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let server = tokio::spawn(async move { axum::serve(listener, Router::new().route("/v1/chat/completions", post(complete))).await.unwrap() });
+    model_repo::create_provider(&state.db, "bound-provider", "Fixture", "openai_compatible", &format!("http://{address}/v1"), None).await.unwrap();
+    model_repo::create_model_definition(&state.db, "bound-model", "bound-provider", "fixture", None, None, None).await.unwrap();
+    let product = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"model-bound-product", name:"Model-bound product", description:"", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let area = product_repo::create_product_area(&state.db, product_repo::CreateProductAreaInput { id:"model-bound-area", product_id:&product.id, name:"Model-bound area", description:"", purpose:"", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let capability = product_repo::create_capability(&state.db, product_repo::CreateCapabilityInput { id:"model-bound-capability", product_area_id:&area.id, parent_capability_id:None, name:"Model-bound capability", description:"", acceptance_criteria:"", priority:"medium", risk:"low", technical_notes:"Original", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let session = create_planner_session(state.planner_service.clone(), &state.db, Some("bound-provider".into()), Some("fixture".into())).await.unwrap();
+    stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "capability".into(), capability.id.clone()).await.unwrap();
+    let turn = submit_planner_turn(state.planner_service.clone(), &state, session.session_id.clone(), "Improve technical notes".into(), Some(capability.id.clone()), Some(product.id.clone())).await.unwrap();
+    assert_eq!(turn.status, "proposal", "{}", turn.assistant_message);
+    assert_eq!(product_repo::get_capability(&state.db, &capability.id).await.unwrap().technical_notes, "Original");
+    let confirmed = submit_planner_turn(state.planner_service.clone(), &state, session.session_id.clone(), "confirm".into(), None, Some(product.id.clone())).await.unwrap();
+    assert_eq!(confirmed.status, "execution", "{}", confirmed.assistant_message);
+    let capabilities = product_repo::list_capabilities(&state.db, &area.id).await.unwrap();
+    assert_eq!(capabilities.len(), 1); assert_eq!(capabilities[0].id, capability.id); assert_eq!(capabilities[0].technical_notes, "Model proposed notes");
+    let second = create_planner_session(state.planner_service.clone(), &state.db, Some("bound-provider".into()), Some("fixture".into())).await.unwrap();
+    stage_catalog_node(state.planner_service.clone(), &state.db, second.session_id.clone(), product.id.clone(), "product_area".into(), area.id.clone()).await.unwrap();
+    let turn = submit_planner_turn(state.planner_service.clone(), &state, second.session_id.clone(), "Add nested child".into(), Some(area.id.clone()), Some(product.id.clone())).await.unwrap();
+    assert_eq!(turn.status, "proposal", "{}", turn.assistant_message);
+    let confirmed = submit_planner_turn(state.planner_service.clone(), &state, second.session_id.clone(), "confirm".into(), None, Some(product.id.clone())).await.unwrap();
+    assert_eq!(confirmed.status, "execution", "{}", confirmed.assistant_message);
+    let capabilities = product_repo::list_capabilities(&state.db, &area.id).await.unwrap();
+    assert_eq!(capabilities.len(), 2);
+    let child = capabilities.iter().find(|item| item.name == "Nested model child").unwrap();
+    assert_eq!(child.product_area_id, area.id); assert!(child.parent_capability_id.is_none()); assert_eq!(child.technical_notes, "Nested notes"); assert_eq!(child.examples, "First\nSecond");
+    server.abort();
+}
+
+#[tokio::test]
+async fn staging_catalog_node_preserves_draft_and_commits_existing_records() {
+    use crate::services::planner_catalog_binding::stage_catalog_node;
+    use crate::services::planner_draft_commands::rename_planner_draft_node;
+    use crate::services::planner_session::load_session_from_db;
+    use crate::services::planner_text_turn::submit_planner_turn;
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("stage_existing_catalog").await;
+    let product = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"stage-product", name:"Staging product", description:"", vision:"A vision", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let other = product_repo::create_product(&state.db, product_repo::CreateProductInput { id:"stage-other", name:"Other product", description:"", vision:"", goals:"[]", tags:"[]", lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None }).await.unwrap();
+    let other_area = product_repo::create_product_area(&state.db, product_repo::CreateProductAreaInput { id:"stage-other-area", product_id:&other.id, name:"Other area", description:"", purpose:"", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let area = product_repo::create_product_area(&state.db, product_repo::CreateProductAreaInput { id:"stage-area", product_id:&product.id, name:"Catalog area", description:"Area description", purpose:"Purpose", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let capability = product_repo::create_capability(&state.db, product_repo::CreateCapabilityInput { id:"stage-capability", product_area_id:&area.id, parent_capability_id:None, name:"Catalog capability", description:"Capability description", acceptance_criteria:"Criteria", priority:"medium", risk:"low", technical_notes:"Notes", node_kind:None, explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let feature = product_repo::create_capability(&state.db, product_repo::CreateCapabilityInput { id:"stage-feature", product_area_id:&area.id, parent_capability_id:Some(&capability.id), name:"Catalog feature", description:"Feature description", acceptance_criteria:"", priority:"medium", risk:"low", technical_notes:"", node_kind:Some("feature"), explanation:"", examples:"", implementation_notes:"", test_guidance:"" }).await.unwrap();
+    let changed_session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let mut changed = crate::services::planner_turn_policy::seed_draft_with_product(None, &product);
+    changed.nodes[0].details["roadmap"] = json!("Unbound staged roadmap");
+    persist_draft_state(&state.db, &changed_session.session_id, Some(&changed), Some(&product.id)).await.unwrap();
+    let error = stage_catalog_node(state.planner_service.clone(), &state.db, changed_session.session_id.clone(), product.id.clone(), "capability".into(), capability.id.clone()).await.unwrap_err();
+    assert!(error.to_string().contains("unbound changes"));
+    let saved = load_session_from_db(&state.db, &changed_session.session_id).await.unwrap();
+    assert_eq!(serde_json::to_value(saved.draft_plan).unwrap(), serde_json::to_value(Some(changed)).unwrap());
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let stage = || stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "capability".into(), capability.id.clone());
+    let staged = stage().await.unwrap();
+    assert_eq!(staged.selected_draft_node_id.as_deref(), Some(capability.id.as_str()));
+    let loaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(loaded.draft_plan.as_ref().unwrap().nodes.len(), 3);
+    let nested = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "feature".into(), feature.id.clone()).await.unwrap();
+    assert_eq!(nested.selected_draft_node_id.as_deref(), Some(feature.id.as_str()));
+    let loaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(loaded.draft_plan.as_ref().unwrap().nodes.len(), 4);
+    rename_planner_draft_node(state.planner_service.clone(), &state.db, session.session_id.clone(), capability.id.clone(), "Edited capability".into()).await.unwrap();
+    stage().await.unwrap();
+    let before = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert!(before.draft_plan.as_ref().unwrap().nodes.iter().any(|node| node.name == "Edited capability"));
+    let actions = normalize_actions(vec![json!({"type":"update_capability", "target":{"productName":"Staging product", "productAreaName":"Catalog area", "capabilityName":"Edited capability"}, "fields":{"technicalNotes":"Planned update"}})]);
+    let planned = apply_actions_to_draft(before.draft_plan.clone(), Some(&capability.id), &actions).unwrap();
+    persist_draft_state(&state.db, &session.session_id, Some(&planned), Some(&capability.id)).await.unwrap();
+    let before = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    let cross = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), other.id.clone(), "product_area".into(), area.id.clone()).await.unwrap_err();
+    assert!(cross.to_string().contains("draft belongs to another"));
+    let error = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "capability".into(), "not-owned".into()).await.unwrap_err();
+    assert!(error.to_string().contains("not found in the selected product"));
+    let cross_area = stage_catalog_node(state.planner_service.clone(), &state.db, session.session_id.clone(), product.id.clone(), "product_area".into(), other_area.id.clone()).await.unwrap_err();
+    assert!(cross_area.to_string().contains("not found in the selected product"));
+    sqlx::query("UPDATE capabilities SET parent_capability_id=id WHERE id=?").bind(&capability.id).execute(&state.db).await.unwrap();
+    assert!(stage().await.unwrap_err().to_string().contains("cyclic"));
+    sqlx::query("UPDATE capabilities SET parent_capability_id=NULL WHERE id=?").bind(&capability.id).execute(&state.db).await.unwrap();
+    sqlx::query("UPDATE product_areas SET purpose='Concurrent change' WHERE id=?").bind(&area.id).execute(&state.db).await.unwrap();
+    assert!(stage().await.is_err());
+    let after = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(serde_json::to_value(&after.draft_plan).unwrap(), serde_json::to_value(&before.draft_plan).unwrap());
+    assert_eq!(after.selected_draft_node_id, before.selected_draft_node_id);
+    sqlx::query("UPDATE product_areas SET purpose='Purpose' WHERE id=?").bind(&area.id).execute(&state.db).await.unwrap();
+    let committed = submit_planner_turn(state.planner_service.clone(), &state, session.session_id.clone(), "confirm".into(), None, Some(product.id.clone())).await.unwrap();
+    assert_eq!(committed.status, "execution");
+    assert_eq!(product_repo::get_product(&state.db, &product.id).await.unwrap().description, "");
+    let areas = product_repo::list_product_areas(&state.db, &product.id).await.unwrap();
+    assert_eq!(areas.len(), 1); assert_eq!(areas[0].id, area.id);
+    let capabilities = product_repo::list_capabilities(&state.db, &area.id).await.unwrap();
+    assert_eq!(capabilities.len(), 2);
+    let updated = capabilities.iter().find(|item| item.id == capability.id).unwrap();
+    assert_eq!(updated.name, "Edited capability"); assert_eq!(updated.technical_notes, "Planned update");
+    assert!(capabilities.iter().any(|item| item.id == feature.id && item.parent_capability_id.as_deref() == Some(capability.id.as_str())));
+}
+
+#[tokio::test]
+async fn bound_catalog_nodes_update_in_place_and_rollback_on_conflicts() {
+    use crate::services::planner_turn_policy::seed_draft_with_product;
+    use crate::services::planner_types::PlannerDraftNode;
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("bound_catalog_commit").await;
+    let product = product_repo::create_product(&state.db, product_repo::CreateProductInput {
+        id:"bound-product", name:"Bound product", description:"Original product", vision:"", goals:"[]", tags:"[]",
+        lifecycle:None, health:None, owner_label:None, investment_status:None, roadmap:None, evidence:None,
+    }).await.unwrap();
+    let area = product_repo::create_product_area(&state.db, product_repo::CreateProductAreaInput {
+        id:"bound-area", product_id:&product.id, name:"Existing area", description:"Original area", purpose:"Keep purpose", node_kind:None,
+        explanation:"", examples:"", implementation_notes:"", test_guidance:"",
+    }).await.unwrap();
+    let capability = product_repo::create_capability(&state.db, product_repo::CreateCapabilityInput {
+        id:"bound-capability", product_area_id:&area.id, parent_capability_id:None, name:"Existing capability", description:"Original capability",
+        acceptance_criteria:"Keep criteria", priority:"medium", risk:"low", technical_notes:"Original notes", node_kind:None,
+        explanation:"", examples:"", implementation_notes:"", test_guidance:"",
+    }).await.unwrap();
+    let mut draft = seed_draft_with_product(None, &product);
+    draft.nodes[0].details["_catalog_binding"] = json!({"kind":"product","snapshot":product});
+    draft.nodes.push(PlannerDraftNode { id:area.id.clone(), parent_id:Some(product.id.clone()), node_type:"product_area".into(), name:"Updated area".into(), summary:Some("Updated area description".into()), details:json!({"_catalog_binding":{"kind":"product_area","snapshot":area}}) });
+    draft.nodes.push(PlannerDraftNode { id:capability.id.clone(), parent_id:Some(area.id.clone()), node_type:"capability".into(), name:"Updated capability".into(), summary:Some("Updated capability description".into()), details:json!({"_catalog_binding":{"kind":"capability","snapshot":capability}}) });
+    draft.nodes.push(PlannerDraftNode { id:"new-feature-draft".into(), parent_id:Some(capability.id.clone()), node_type:"capability".into(), name:"New feature".into(), summary:None, details:json!({"nodeKind":"feature"}) });
+    draft = serde_json::from_value(serde_json::to_value(&draft).unwrap()).unwrap();
+    let mut no_product_snapshot = draft.clone(); no_product_snapshot.nodes[0].details.as_object_mut().unwrap().remove("_catalog_binding");
+    assert!(commit_draft_plan(&state, &no_product_snapshot).await.is_err());
+    let mut malformed = draft.clone(); malformed.nodes[1].details["_catalog_binding"]["kind"] = json!("capability");
+    assert!(commit_draft_plan(&state, &malformed).await.is_err());
+    let mut unsupported = draft.clone(); unsupported.nodes[3].node_type = "work_item".into(); unsupported.nodes[3].details["_catalog_binding"] = json!({});
+    assert!(commit_draft_plan(&state, &unsupported).await.is_err());
+    let mut wrong = draft.clone(); wrong.nodes[1].details["_catalog_binding"]["snapshot"]["product_id"] = json!("other-product");
+    assert!(commit_draft_plan(&state, &wrong).await.is_err());
+    let mut wrong_parent = draft.clone(); wrong_parent.nodes[2].details["_catalog_binding"]["snapshot"]["parent_capability_id"] = json!("other-parent");
+    assert!(commit_draft_plan(&state, &wrong_parent).await.is_err());
+    let mut missing = draft.clone(); missing.nodes[2].id = "deleted-capability".into(); missing.nodes[2].details["_catalog_binding"]["snapshot"]["id"] = json!("deleted-capability"); missing.nodes[3].parent_id = Some("deleted-capability".into());
+    assert!(commit_draft_plan(&state, &missing).await.unwrap_err().to_string().contains("no longer exists"));
+    sqlx::query("UPDATE products SET description='Concurrent product edit' WHERE id=?").bind(&product.id).execute(&state.db).await.unwrap();
+    let product_error = commit_draft_plan(&state, &draft).await.unwrap_err();
+    assert!(product_error.to_string().contains("staged product changed"));
+    let unchanged = product_repo::list_product_areas(&state.db, &product.id).await.unwrap();
+    assert_eq!(unchanged[0].name, "Existing area");
+    sqlx::query("UPDATE products SET description='Original product' WHERE id=?").bind(&product.id).execute(&state.db).await.unwrap();
+    let refreshed = product_repo::get_product(&state.db, &product.id).await.unwrap();
+    draft.nodes[0].details["_catalog_binding"]["snapshot"] = serde_json::to_value(&refreshed).unwrap();
+    sqlx::query("UPDATE product_areas SET purpose='Concurrent area edit' WHERE id=?").bind(&area.id).execute(&state.db).await.unwrap();
+    let area_error = commit_draft_plan(&state, &draft).await.unwrap_err();
+    assert!(area_error.to_string().contains("staged product area changed"));
+    sqlx::query("UPDATE product_areas SET purpose='Keep purpose' WHERE id=?").bind(&area.id).execute(&state.db).await.unwrap();
+    let refreshed_area = product_repo::list_product_areas(&state.db, &product.id).await.unwrap().remove(0);
+    draft.nodes[1].details["_catalog_binding"]["snapshot"] = serde_json::to_value(&refreshed_area).unwrap();
+    sqlx::query("UPDATE capabilities SET technical_notes='Concurrent edit' WHERE id=?").bind(&capability.id).execute(&state.db).await.unwrap();
+    let error = commit_draft_plan(&state, &draft).await.unwrap_err();
+    assert!(error.to_string().contains("staged capability changed"));
+    let unchanged = product_repo::list_product_areas(&state.db, &product.id).await.unwrap();
+    assert_eq!(unchanged.len(), 1); assert_eq!(unchanged[0].name, "Existing area");
+    let current = product_repo::get_capability(&state.db, &capability.id).await.unwrap();
+    assert_eq!(current.technical_notes, "Concurrent edit");
+    draft.nodes[2].details["_catalog_binding"]["snapshot"] = serde_json::to_value(&current).unwrap();
+    commit_draft_plan(&state, &draft).await.unwrap();
+    let areas = product_repo::list_product_areas(&state.db, &product.id).await.unwrap();
+    assert_eq!(areas.len(), 1); assert_eq!(areas[0].id, area.id); assert_eq!(areas[0].name, "Updated area"); assert_eq!(areas[0].purpose, "Keep purpose");
+    let updated = product_repo::get_capability(&state.db, &capability.id).await.unwrap();
+    assert_eq!(updated.name, "Updated capability"); assert_eq!(updated.acceptance_criteria, "Keep criteria"); assert_eq!(updated.technical_notes, "Concurrent edit");
+    let capabilities = product_repo::list_capabilities(&state.db, &area.id).await.unwrap();
+    assert_eq!(capabilities.len(), 2); assert!(capabilities.iter().any(|item| item.name == "New feature" && item.parent_capability_id.as_deref() == Some(capability.id.as_str())));
+}
+
+#[tokio::test]
+async fn draft_commit_rejects_ambiguous_legacy_product_name_and_honors_id() {
+    use crate::services::planner_turn_policy::seed_draft_with_product;
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("ambiguous_draft_product").await;
+    let make_product = |id| product_repo::CreateProductInput {
+        id, name: "Shared name", description: "Original", vision: "", goals: "[]", tags: "[]",
+        lifecycle: None, health: None, owner_label: None, investment_status: None,
+        roadmap: None, evidence: None,
+    };
+    let first = product_repo::create_product(&state.db, make_product("ambiguous-first")).await.unwrap();
+    let second = product_repo::create_product(&state.db, make_product("ambiguous-second")).await.unwrap();
+    let mut draft = seed_draft_with_product(None, &second);
+    draft.nodes[0].id = "historical-draft-root".into();
+    draft.nodes[0].summary = Some("Proposed change".into());
+    let missing = commit_draft_plan(&state, &draft).await.unwrap_err();
+    assert!(missing.to_string().contains("linked to this draft no longer exists"));
+    draft.nodes[0].details["type"] = json!("create_product");
+    let error = commit_draft_plan(&state, &draft).await.unwrap_err();
+    assert!(error.to_string().contains("Multiple products match draft product"));
+    assert_eq!(product_repo::get_product(&state.db, &first.id).await.unwrap().description, "Original");
+    assert_eq!(product_repo::get_product(&state.db, &second.id).await.unwrap().description, "Original");
+    draft.nodes[0].id = second.id.clone();
+    commit_draft_plan(&state, &draft).await.unwrap();
+    assert_eq!(product_repo::get_product(&state.db, &first.id).await.unwrap().description, "Original");
+    assert_eq!(product_repo::get_product(&state.db, &second.id).await.unwrap().description, "Proposed change");
+}
+
+#[tokio::test]
+async fn product_switch_does_not_discard_or_confirm_another_products_draft() {
+    use crate::services::planner_session::load_session_from_db;
+    use crate::services::planner_text_turn::submit_planner_turn;
+    use crate::services::planner_turn_policy::{ensure_draft_product_scope, seed_draft_with_product};
+    let _guard = acquire_planner_test_lock().await;
+    let state = make_test_state("planner_product_scope_guard").await;
+    let make_product = |id, name| product_repo::CreateProductInput {
+        id, name, description: "", vision: "", goals: "[]", tags: "[]",
+        lifecycle: None, health: None, owner_label: None, investment_status: None,
+        roadmap: None, evidence: None,
+    };
+    let first = product_repo::create_product(&state.db, make_product("scope-first", "Same name")).await.unwrap();
+    let second = product_repo::create_product(&state.db, make_product("scope-second", "Same name")).await.unwrap();
+    let session = create_planner_session(state.planner_service.clone(), &state.db, None, None).await.unwrap();
+    let draft = seed_draft_with_product(None, &first);
+    let mut legacy = draft.clone(); legacy.nodes[0].id = "legacy-generated-root".into();
+    assert!(ensure_draft_product_scope(&state.db, Some(&legacy), &first).await.is_err());
+    legacy.nodes[0].details["type"] = json!("create_product");
+    ensure_draft_product_scope(&state.db, Some(&legacy), &first).await.unwrap();
+    legacy.nodes[0].name = "Different historical product".into();
+    assert!(ensure_draft_product_scope(&state.db, Some(&legacy), &first).await.is_err());
+    persist_draft_state(&state.db, &session.session_id, Some(&draft), Some(&first.id)).await.unwrap();
+    {
+        let mut service = state.planner_service.lock().await;
+        let mut loaded = service.get_session(&session.session_id).unwrap();
+        loaded.draft_plan = Some(draft.clone()); loaded.selected_draft_node_id = Some(first.id.clone());
+        service.save_session(&session.session_id, loaded);
+    }
+    for input in ["Create a new plan", "confirm"] {
+        let error = submit_planner_turn(state.planner_service.clone(), &state, session.session_id.clone(), input.into(), None, Some(second.id.clone())).await.unwrap_err();
+        assert!(error.to_string().contains("draft for another product"));
+    }
+    let error = submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "confirm".into(), None, Some(second.id.clone())).await.unwrap_err();
+    assert!(error.to_string().contains("draft for another product"));
+    let error = crate::services::planner_repository_turn::analyze_repository_for_planner(
+        state.planner_service.clone(), &state.db, &state.artifact_base_path, session.session_id.clone(), "missing-repository".into(), None, Some(second.id.clone())
+    ).await.unwrap_err();
+    assert!(error.to_string().contains("draft for another product"));
+    let reloaded = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert_eq!(reloaded.selected_draft_node_id.as_deref(), Some(first.id.as_str()));
+    assert_eq!(serde_json::to_value(reloaded.draft_plan).unwrap(), serde_json::to_value(Some(draft)).unwrap());
+    submit_planner_voice_turn(state.planner_service.clone(), &state, session.session_id.clone(), "clear draft".into(), None, Some(second.id.clone())).await.unwrap();
+    let cleared = load_session_from_db(&state.db, &session.session_id).await.unwrap();
+    assert!(cleared.draft_plan.is_none());
+}
+
+#[tokio::test]
 async fn submit_planner_voice_turn_selects_draft_nodes() {
     let _guard = acquire_planner_test_lock().await;
     let state = make_test_state("voice_selects_draft_node").await;

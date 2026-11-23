@@ -290,6 +290,8 @@ export function getAllowedDraftChildTypes(node: PlannerTreeNode | null): Planner
       return ["capability", "work_item"];
     case "capability":
       return ["capability", "work_item"];
+    case "work item":
+      return ["work_item"];
     default:
       return [];
   }

@@ -30,30 +30,19 @@ pub(crate) async fn register_repository_for_state(
     default_branch: String,
 ) -> Result<Repository, AppError> {
     let local_path = normalize_repository_path(&local_path)?;
-    if let Some(existing) =
-        repository_repo::find_repository_by_local_path(&state.db, &local_path).await?
-    {
+    let mut transaction = state.db.begin_with("BEGIN IMMEDIATE").await?;
+    let all: Vec<Repository> = sqlx::query_as("SELECT id,name,local_path,remote_url,default_branch,auth_profile,created_at,updated_at FROM repositories")
+        .fetch_all(&mut *transaction).await?;
+    if let Some(existing) = all.into_iter().find(|entry| normalize_repository_path(&entry.local_path).ok().as_deref() == Some(local_path.as_str())) {
+        transaction.commit().await?;
         return Ok(existing);
     }
-    for existing in repository_repo::list_repositories(&state.db).await? {
-        if normalize_repository_path(&existing.local_path)
-            .ok()
-            .as_deref()
-            == Some(local_path.as_str())
-        {
-            return Ok(existing);
-        }
-    }
     let id = uuid::Uuid::new_v4().to_string();
-    repository_repo::create_repository(
-        &state.db,
-        &id,
-        &name,
-        &local_path,
-        &remote_url,
-        &default_branch,
-    )
-    .await
+    let repository = sqlx::query_as::<_, Repository>("INSERT INTO repositories (id,name,local_path,remote_url,default_branch) VALUES (?,?,?,?,?) RETURNING id,name,local_path,remote_url,default_branch,auth_profile,created_at,updated_at")
+        .bind(id).bind(&name).bind(&local_path).bind(&remote_url).bind(&default_branch)
+        .fetch_one(&mut *transaction).await?;
+    transaction.commit().await?;
+    Ok(repository)
 }
 
 fn normalize_repository_path(raw: &str) -> Result<String, AppError> {
@@ -91,61 +80,53 @@ pub async fn update_repository(
     remote_url: String,
     default_branch: String,
 ) -> Result<Repository, AppError> {
+    update_repository_for_state(&state, id, name, local_path, remote_url, default_branch, None)
+        .await?
+        .ok_or_else(|| AppError::Validation("Workspace changed or was removed".into()))
+}
+
+/// Update the workspace and inherited work-item branches under one write lock.
+pub(crate) async fn update_repository_for_state(
+    state: &AppState,
+    id: String,
+    name: String,
+    local_path: String,
+    remote_url: String,
+    default_branch: String,
+    expected: Option<Repository>,
+) -> Result<Option<Repository>, AppError> {
     let trimmed_name = name.trim();
     let trimmed_path = local_path.trim();
     let trimmed_branch = default_branch.trim();
-
-    if trimmed_name.is_empty() {
-        return Err(AppError::Validation(
-            "Workspace name is required".to_string(),
-        ));
-    }
-    if trimmed_path.is_empty() {
-        return Err(AppError::Validation("Local path is required".to_string()));
-    }
-    if trimmed_branch.is_empty() {
-        return Err(AppError::Validation(
-            "Default branch is required".to_string(),
-        ));
-    }
+    if trimmed_name.is_empty() { return Err(AppError::Validation("Workspace name is required".into())); }
+    if trimmed_path.is_empty() { return Err(AppError::Validation("Local path is required".into())); }
+    if trimmed_branch.is_empty() { return Err(AppError::Validation("Default branch is required".into())); }
     let normalized_path = normalize_repository_path(trimmed_path)?;
-    for other in repository_repo::list_repositories(&state.db).await? {
-        if other.id != id
-            && normalize_repository_path(&other.local_path).ok().as_deref()
-                == Some(normalized_path.as_str())
-        {
-            return Err(AppError::Validation(
-                "Another workspace is already registered for this local path".into(),
-            ));
-        }
+    let mut transaction = state.db.begin_with("BEGIN IMMEDIATE").await?;
+    let all: Vec<Repository> = sqlx::query_as("SELECT id,name,local_path,remote_url,default_branch,auth_profile,created_at,updated_at FROM repositories")
+        .fetch_all(&mut *transaction).await?;
+    let Some(existing) = all.iter().find(|row| row.id == id) else { return Ok(None); };
+    if expected.as_ref().is_some_and(|snapshot| snapshot.id != existing.id || snapshot.name != existing.name || snapshot.local_path != existing.local_path || snapshot.remote_url != existing.remote_url || snapshot.default_branch != existing.default_branch) {
+        return Ok(None);
     }
-
-    let existing = repository_repo::get_repository(&state.db, &id).await?;
-    let repository = repository_repo::update_repository(
-        &state.db,
-        &id,
-        trimmed_name,
-        &normalized_path,
-        remote_url.trim(),
-        trimmed_branch,
-    )
-    .await?;
-
+    if all.iter().any(|other| other.id != id && normalize_repository_path(&other.local_path).ok().as_deref() == Some(normalized_path.as_str())) {
+        return Err(AppError::Validation("Another workspace is already registered for this local path".into()));
+    }
+    if existing.local_path != normalized_path || existing.default_branch != trimmed_branch || existing.remote_url != remote_url.trim() {
+        let active: i64 = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM work_items w WHERE (w.active_repo_id=? OR w.repo_override_id=? OR EXISTS (SELECT 1 FROM repository_attachments a WHERE a.repository_id=? AND a.is_default=1 AND ((a.scope_type='product' AND a.scope_id=w.product_id) OR (a.scope_type='product_area' AND a.scope_id=w.product_area_id)))) AND (EXISTS (SELECT 1 FROM workflow_runs r WHERE r.work_item_id=w.id AND r.status IN ('running','paused') AND r.current_stage NOT IN ('done','failed','cancelled')) OR EXISTS (SELECT 1 FROM external_cli_runs c WHERE c.work_item_id=w.id AND c.status='running')))")
+            .bind(&id).bind(&id).bind(&id).fetch_one(&mut *transaction).await?;
+        if active != 0 { return Err(AppError::Validation("Workspace is used by an active workflow or CLI run".into())); }
+    }
+    let repository: Repository = sqlx::query_as("UPDATE repositories SET name=?,local_path=?,remote_url=?,default_branch=?,updated_at=datetime('now') WHERE id=? RETURNING id,name,local_path,remote_url,default_branch,auth_profile,created_at,updated_at")
+        .bind(trimmed_name).bind(&normalized_path).bind(remote_url.trim()).bind(trimmed_branch).bind(&id)
+        .fetch_one(&mut *transaction).await?;
     if existing.default_branch != repository.default_branch {
-        sqlx::query(
-            "UPDATE work_items
-             SET branch_name=?, updated_at=datetime('now')
-             WHERE active_repo_id=?
-               AND (branch_name IS NULL OR branch_name=?)",
-        )
-        .bind(&repository.default_branch)
-        .bind(&repository.id)
-        .bind(&existing.default_branch)
-        .execute(&state.db)
-        .await?;
+        sqlx::query("UPDATE work_items SET branch_name=?,updated_at=datetime('now') WHERE active_repo_id=? AND (branch_name IS NULL OR branch_name=?)")
+            .bind(&repository.default_branch).bind(&repository.id).bind(&existing.default_branch)
+            .execute(&mut *transaction).await?;
     }
-
-    Ok(repository)
+    transaction.commit().await?;
+    Ok(Some(repository))
 }
 
 #[tauri::command]
@@ -298,6 +279,50 @@ pub async fn list_repository_tree(
     )
 }
 
+// Hold the SQLite write reservation while checking the registered root and
+// performing filesystem I/O, so cooperating Studio processes cannot redirect
+// the workspace during a guarded operation.
+pub(crate) async fn lock_repository_root<'a>(state: &'a AppState, repository_id: &str, expected_root: Option<&str>) -> Result<(sqlx::Transaction<'a, sqlx::Sqlite>, String), AppError> {
+    let mut transaction = state.db.begin_with("BEGIN IMMEDIATE").await?;
+    let root: Option<String> = sqlx::query_scalar("SELECT local_path FROM repositories WHERE id=?")
+        .bind(repository_id).fetch_optional(&mut *transaction).await?;
+    let root = root.ok_or_else(|| AppError::NotFound("Workspace not found".into()))?;
+    if expected_root.is_some_and(|expected| expected != root) {
+        return Err(AppError::Validation("Workspace path changed. Reopen the workspace before writing".into()));
+    }
+    Ok((transaction, root))
+}
+
+#[derive(serde::Serialize)]
+pub struct RepositoryFileSnapshot { pub content: String, pub workspace_root: String }
+
+#[tauri::command]
+pub async fn get_repository_root_snapshot(state: State<'_, AppState>, repository_id: String) -> Result<String, AppError> {
+    let (transaction, root) = lock_repository_root(&state, &repository_id, None).await?;
+    transaction.commit().await?;
+    Ok(root)
+}
+
+#[tauri::command]
+pub async fn read_repository_file_snapshot(state: State<'_, AppState>, repository_id: String, relative_path: String, expected_root: Option<String>) -> Result<RepositoryFileSnapshot, AppError> {
+    let (transaction, root) = lock_repository_root(&state, &repository_id, expected_root.as_deref()).await?;
+    let content = repo_service::read_repository_file(&root, &relative_path)?;
+    transaction.commit().await?;
+    Ok(RepositoryFileSnapshot { content, workspace_root: root })
+}
+
+#[tauri::command]
+pub async fn write_repository_file_guarded(state: State<'_, AppState>, repository_id: String, relative_path: String, expected_root: String, expected_content: String, content: String) -> Result<(), AppError> {
+    let (transaction, root) = lock_repository_root(&state, &repository_id, Some(&expected_root)).await?;
+    let current = repo_service::read_repository_file(&root, &relative_path)?;
+    if current != expected_content {
+        return Err(AppError::Validation("File changed since it was opened. Copy or discard your edits, then reopen the file.".into()));
+    }
+    repo_service::write_repository_file(&root, &relative_path, &content)?;
+    transaction.commit().await?;
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn read_repository_file(
     state: State<'_, AppState>,
@@ -348,14 +373,20 @@ pub async fn apply_repository_patch(
 
 #[tauri::command]
 pub async fn matching_repository_files(
-    state: State<'_, AppState>, repository_id: String, relative_path: String, open_paths: Vec<String>, open_repository_id: Option<String>,
+    state: State<'_, AppState>, repository_id: String, relative_path: String, open_paths: Vec<String>, open_repository_id: Option<String>, expected_root: Option<String>, open_expected_root: Option<String>,
 ) -> Result<Vec<String>, AppError> {
-    let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
-    let open_repository = match open_repository_id {
-        Some(id) if id != repository_id => repository_repo::get_repository(&state.db, &id).await?,
-        _ => repository.clone(),
+    let (mut transaction, root) = lock_repository_root(&state, &repository_id, expected_root.as_deref()).await?;
+    let open_root = match open_repository_id {
+        Some(id) if id != repository_id => sqlx::query_scalar::<_, String>("SELECT local_path FROM repositories WHERE id=?")
+            .bind(id).fetch_optional(&mut *transaction).await?.ok_or_else(|| AppError::NotFound("Workspace not found".into()))?,
+        _ => root.clone(),
     };
-    crate::services::repo_file_service::matching_repository_files(&repository.local_path, &relative_path, &open_repository.local_path, &open_paths)
+    if open_expected_root.as_deref().is_some_and(|expected| expected != open_root) {
+        return Err(AppError::Validation("An open file's workspace path changed. Reopen the workspace before applying a patch".into()));
+    }
+    let matches = crate::services::repo_file_service::matching_repository_files(&root, &relative_path, &open_root, &open_paths)?;
+    transaction.commit().await?;
+    Ok(matches)
 }
 
 #[tauri::command]
@@ -366,12 +397,31 @@ pub async fn preview_repository_patch(
     repo_service::preview_repository_patch(&repository.local_path, &relative_path, &patch, base_sha256.as_deref())
 }
 
+#[derive(serde::Serialize)]
+pub struct RepositoryPatchSnapshot {
+    #[serde(flatten)]
+    pub preview: crate::services::repo_file_service::RepositoryPatchPreview,
+    pub workspace_root: String,
+}
+
+#[tauri::command]
+pub async fn preview_repository_patch_snapshot(
+    state: State<'_, AppState>, repository_id: String, relative_path: String, patch: String, base_sha256: Option<String>, expected_root: Option<String>,
+) -> Result<RepositoryPatchSnapshot, AppError> {
+    let (transaction, root) = lock_repository_root(&state, &repository_id, expected_root.as_deref()).await?;
+    let preview = repo_service::preview_repository_patch(&root, &relative_path, &patch, base_sha256.as_deref())?;
+    transaction.commit().await?;
+    Ok(RepositoryPatchSnapshot { preview, workspace_root: root })
+}
+
 #[tauri::command]
 pub async fn apply_reviewed_repository_patch(
-    state: State<'_, AppState>, repository_id: String, relative_path: String, patch: String, base_sha256: String, expected_exists: bool,
+    state: State<'_, AppState>, repository_id: String, relative_path: String, patch: String, base_sha256: String, expected_exists: bool, expected_root: Option<String>,
 ) -> Result<String, AppError> {
-    let repository = repository_repo::get_repository(&state.db, &repository_id).await?;
-    repo_service::apply_reviewed_repository_patch(&repository.local_path, &relative_path, &patch, &base_sha256, expected_exists)
+    let (transaction, root) = lock_repository_root(&state, &repository_id, expected_root.as_deref()).await?;
+    let result = repo_service::apply_reviewed_repository_patch(&root, &relative_path, &patch, &base_sha256, expected_exists)?;
+    transaction.commit().await?;
+    Ok(result)
 }
 
 #[cfg(test)]

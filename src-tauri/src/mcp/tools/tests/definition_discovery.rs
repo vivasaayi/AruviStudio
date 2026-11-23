@@ -83,6 +83,40 @@ fn discovery_exposes_catalog_reference_tools() {
 }
 
 #[test]
+fn discovery_exposes_catalog_read_parity_tools() {
+    let definitions = definitions();
+    for (name, argument) in [
+        ("catalog.capabilities.get", "id"),
+        ("catalog.capabilities.list_for_product", "productId"),
+        ("catalog.products.summarize_tree", "productId"),
+    ] {
+        let tool = definitions.iter().find(|tool| tool.name == name).expect(name);
+        assert!(tool.input_schema["required"].as_array().unwrap().contains(&json!(argument)));
+    }
+}
+
+#[test]
+fn discovery_exposes_scope_and_attachment_read_tools() {
+    let definitions = definitions();
+    let scope = definitions.iter().find(|tool| tool.name == "work_items.summarize_by_scope").unwrap();
+    assert!(scope.input_schema["properties"]["productId"].is_object());
+    assert!(!scope.input_schema["required"].as_array().is_some_and(|required| required.contains(&json!("productId"))));
+    assert!(definitions.iter().any(|tool| tool.name == "repositories.attachments.list_all"));
+}
+
+#[test]
+fn discovery_requires_workspace_root_for_reviewed_patch_tools() {
+    let definitions = definitions();
+    for name in ["repositories.files.preview_patch", "repositories.files.apply_reviewed_patch"] {
+        let tool = definitions.iter().find(|tool| tool.name == name).unwrap();
+        assert!(tool.input_schema["required"].as_array().unwrap().contains(&json!("expectedRoot")));
+    }
+    let digest = definitions.iter().find(|tool| tool.name == "repositories.files.get_sha256").unwrap();
+    assert!(digest.input_schema["properties"]["expectedRoot"].is_object());
+    assert!(!digest.input_schema["required"].as_array().unwrap().contains(&json!("expectedRoot")));
+}
+
+#[test]
 fn discovery_exposes_bulk_import_tools() {
     let definitions = definitions();
     assert!(definitions
@@ -155,10 +189,12 @@ fn discovery_exposes_work_item_pagination_metadata_option() {
         .expect("work_items.list tool");
 
     assert!(list_tool.description.contains("includePagination=true"));
+    assert!(list_tool.description.contains("topLevelOnly=true"));
     let properties = list_tool
         .input_schema
         .get("properties")
         .and_then(Value::as_object)
         .expect("properties object");
     assert!(properties.contains_key("includePagination"));
+    assert_eq!(properties["topLevelOnly"]["type"], "boolean");
 }

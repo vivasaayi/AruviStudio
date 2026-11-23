@@ -29,6 +29,7 @@ export type PlannerMessage = {
   meta?: string;
   kind?: PlannerMessageKind;
   plan?: PlannerPlan;
+  proposalDraftSnapshot?: PlannerTreeNode[];
   treeNodes?: PlannerTreeNode[];
   traceEvents?: PlannerTraceEvent[];
 };

@@ -1,4 +1,3 @@
-use crate::domain::workflow::WorkflowRun;
 use crate::error::AppError;
 use crate::execution::git_ops::GitOperations;
 use crate::persistence::{repository_repo, work_item_repo, workflow_repo};
@@ -91,8 +90,4 @@ pub(crate) async fn execute_git_push_stage(db: &SqlitePool, workflow_run_id: &st
     info!(work_item_id = %work_item.id, commit_id = %commit, "Successfully pushed workflow commit");
     queue_automatic_preview(db, repo_id, work_item.product_id.as_deref(), &work_item.id, workflow_run_id, &commit).await?;
     Ok(())
-}
-
-pub(crate) async fn push_workflow_changes(db: &SqlitePool, workflow_run: &WorkflowRun) -> Result<(), AppError> {
-    execute_git_push_stage(db, &workflow_run.id).await
 }

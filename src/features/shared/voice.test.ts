@@ -6,7 +6,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function fixture(options: { fail?: "constructor" | "resume" | "connect" | "close"; closeGate?: Promise<void>; sampleRate?: number } = {}) {
+function fixture(options: { fail?: "constructor" | "resume" | "connect" | "close"; closeGate?: Promise<void>; resumeGate?: Promise<void>; suspended?: boolean; sampleRate?: number } = {}) {
   const track = { stop: vi.fn() };
   const disconnect = vi.fn();
   const source = { connect: vi.fn(), disconnect };
@@ -17,9 +17,10 @@ function fixture(options: { fail?: "constructor" | "resume" | "connect" | "close
     if (options.closeGate) await options.closeGate;
     if (options.fail === "close") throw new Error("close failed");
   });
-  const resume = vi.fn(async () => { if (options.fail === "resume") throw new Error("resume failed"); });
+  const resume = vi.fn(async () => { if (options.resumeGate) await options.resumeGate; if (options.fail === "resume") throw new Error("resume failed"); });
   class AudioContextFixture {
     sampleRate = options.sampleRate ?? 16000;
+    state = options.suspended ? "suspended" : "running";
     destination = {};
     constructor() { if (options.fail === "constructor") throw new Error("constructor failed"); }
     resume = resume;
@@ -30,10 +31,42 @@ function fixture(options: { fail?: "constructor" | "resume" | "connect" | "close
   }
   vi.stubGlobal("window", { AudioContext: AudioContextFixture, setTimeout, clearTimeout });
   vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn(async () => ({ getTracks: () => [track] })) } });
-  return { track, close, processor, disconnect };
+  return { track, close, processor, disconnect, resume };
 }
 
 describe("desktop PCM capture lifecycle", () => {
+  it("stops a stream granted after capture was cancelled", async () => {
+    const { track } = fixture();
+    let grant!: (stream: MediaStream) => void;
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: () => new Promise<MediaStream>((resolve) => { grant = resolve; }) } });
+    const controller = new AbortController();
+    const capture = startWavCapture(controller.signal);
+    controller.abort();
+    await expect(capture).rejects.toMatchObject({ name: "AbortError" });
+    grant({ getTracks: () => [track] } as unknown as MediaStream);
+    await vi.waitFor(() => expect(track.stop).toHaveBeenCalledOnce());
+  });
+
+  it("releases the stream and context when cancelled during audio resume", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const { track, close, resume } = fixture({ resumeGate: gate });
+    const controller = new AbortController();
+    const capture = startWavCapture(controller.signal);
+    await vi.waitFor(() => expect(resume).toHaveBeenCalledOnce());
+    controller.abort();
+    await expect(capture).rejects.toMatchObject({ name: "AbortError" });
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+    release();
+  });
+
+  it("rejects a context that remains suspended after resume", async () => {
+    const { track, close } = fixture({ suspended: true });
+    await expect(startWavCapture()).rejects.toThrow("Microphone audio could not start");
+    expect(track.stop).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledOnce();
+  });
   it.each(["constructor", "resume", "connect"] as const)("releases the microphone on %s failure", async (fail) => {
     const { track, close } = fixture({ fail });
     await expect(startWavCapture()).rejects.toThrow(`${fail} failed`);

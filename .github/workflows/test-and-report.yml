@@ -24,6 +24,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Verify shared model client pin
+        run: |
+          set -euo pipefail
+          revision=$(python3 -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("validation/model-client-consumer/Cargo.toml").read_text())["dependencies"]["aruvi-model-client"]["rev"])')
+          [[ "$revision" =~ ^[0-9a-f]{40}$ ]]
+          if ! git cat-file -e "${revision}^{commit}" 2>/dev/null; then
+            git fetch --no-tags --depth=1 origin "$revision"
+          fi
+          bash scripts/test shared-client-pin
+
       - name: Install Linux dependencies
         run: |
           sudo apt-get update
@@ -53,6 +63,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
 
+      - name: Test independent model client consumer
+        run: |
+          cargo test --locked --manifest-path validation/model-client-consumer/Cargo.toml
+          cargo build --locked --manifest-path validation/model-client-consumer/Cargo.toml --bin host_probe
+          cd validation/model-client-consumer/target/debug
+          sha256sum host_probe > host_probe.sha256
+
+      - name: Upload independent model client probe
+        uses: actions/upload-artifact@v4
+        with:
+          name: independent-model-client-probe-${{ github.sha }}
+          path: |
+            validation/model-client-consumer/target/debug/host_probe
+            validation/model-client-consumer/target/debug/host_probe.sha256
+          retention-days: 3
+
       - name: Install frontend dependencies
         run: npm ci
 
@@ -62,11 +88,14 @@ jobs:
       - name: Prepare report directories
         run: mkdir -p reports/rust-unit reports/rust-integration reports/playwright
 
-      - name: Run terminology and performance guards
+      - name: Check CI worktree mount configuration
+        run: bash scripts/test ci-shared-worktree
+
+      - name: Run terminology, performance and workflow topology guards
         id: terminology
         run: |
           set +e
-          npm run terminology-check
+          npm run terminology-check && node scripts/check-workflow-topology.mjs
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0

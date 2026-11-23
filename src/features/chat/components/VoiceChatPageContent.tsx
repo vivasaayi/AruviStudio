@@ -10,6 +10,7 @@ type VoiceChatPageContentProps = {
   modelOptions: VoiceChatModelOption[];
   sessionActive: boolean;
   voiceEnabled: boolean;
+  isPreparing: boolean;
   speechModelName: string;
   isListening: boolean;
   isTranscribing: boolean;
@@ -33,6 +34,7 @@ export function VoiceChatPageContent({
   modelOptions,
   sessionActive,
   voiceEnabled,
+  isPreparing,
   speechModelName,
   isListening,
   isTranscribing,
@@ -57,6 +59,7 @@ export function VoiceChatPageContent({
         modelOptions={modelOptions}
         sessionActive={sessionActive}
         voiceEnabled={voiceEnabled}
+        isPreparing={isPreparing}
         onModelChange={onModelChange}
         onStartSession={onStartSession}
         onStopSession={onStopSession}

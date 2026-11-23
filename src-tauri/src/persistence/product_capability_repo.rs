@@ -2,7 +2,7 @@ use crate::domain::product::{
     Capability, ChildReparentStrategy, HierarchyNodeKind, NodeKindConversionResult,
 };
 use crate::error::AppError;
-use crate::persistence::product_capability_read_repo::{get_capability, CAPABILITY_SELECT_COLUMNS};
+use crate::persistence::product_capability_read_repo::CAPABILITY_SELECT_COLUMNS;
 use crate::persistence::product_hierarchy_rules::{
     parse_capability_node_kind, parse_root_node_kind, resolve_child_node_kind,
 };
@@ -87,7 +87,7 @@ async fn ensure_capability_children_allowed(
 }
 
 async fn update_capability_subtree_levels(
-    pool: &SqlitePool,
+    conn: &mut SqliteConnection,
     capability_id: &str,
     level: i64,
 ) -> Result<(), AppError> {
@@ -96,12 +96,12 @@ async fn update_capability_subtree_levels(
         sqlx::query("UPDATE capabilities SET level=?, updated_at=datetime('now') WHERE id=?")
             .bind(current_level)
             .bind(&current_id)
-            .execute(pool)
+            .execute(&mut *conn)
             .await?;
         let child_ids: Vec<String> =
             sqlx::query_scalar("SELECT id FROM capabilities WHERE parent_capability_id=?")
                 .bind(&current_id)
-                .fetch_all(pool)
+                .fetch_all(&mut *conn)
                 .await?;
         for child_id in child_ids {
             pending.push((child_id, current_level + 1));
@@ -111,8 +111,10 @@ async fn update_capability_subtree_levels(
 }
 
 pub async fn create_capability(pool: &SqlitePool, input: CreateCapabilityInput<'_>) -> Result<Capability, AppError> {
-    let mut conn = pool.acquire().await?;
-    create_capability_in_conn(&mut conn, input).await
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let result = create_capability_in_conn(&mut tx, input).await?;
+    tx.commit().await?;
+    Ok(result)
 }
 
 pub(crate) async fn create_capability_in_conn(conn: &mut SqliteConnection, input: CreateCapabilityInput<'_>) -> Result<Capability, AppError> {
@@ -253,12 +255,19 @@ pub async fn convert_capability_node_kind(
     target_node_kind: &str,
     child_strategy: Option<&str>,
 ) -> Result<NodeKindConversionResult, AppError> {
-    let existing = get_capability(pool, id).await?;
+    let mut transaction = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let existing = sqlx::query_as::<_, Capability>(&format!("SELECT {CAPABILITY_SELECT_COLUMNS} FROM capabilities WHERE id=?"))
+        .bind(id).fetch_optional(&mut *transaction).await?
+        .ok_or_else(|| AppError::NotFound(format!("Capability {id} not found")))?;
     let previous_node_kind = existing.node_kind;
     let parent_kind = if let Some(parent_capability_id) = existing.parent_capability_id.as_deref() {
-        get_capability(pool, parent_capability_id).await?.node_kind
+        let kind: String = sqlx::query_scalar("SELECT node_kind FROM capabilities WHERE id=?").bind(parent_capability_id)
+            .fetch_optional(&mut *transaction).await?.ok_or_else(|| AppError::NotFound("Parent capability not found".into()))?;
+        parse_capability_node_kind(&kind)?
     } else {
-        get_product_area_node_kind(pool, &existing.product_area_id).await?
+        let kind: String = sqlx::query_scalar("SELECT node_kind FROM product_areas WHERE id=?").bind(&existing.product_area_id)
+            .fetch_optional(&mut *transaction).await?.ok_or_else(|| AppError::NotFound("Product area not found".into()))?;
+        parse_root_node_kind(&kind)?
     };
     let next_node_kind = resolve_child_node_kind(parent_kind, Some(target_node_kind))?;
     let strategy = child_strategy
@@ -276,7 +285,7 @@ pub async fn convert_capability_node_kind(
         "SELECT {CAPABILITY_SELECT_COLUMNS} FROM capabilities WHERE parent_capability_id=? ORDER BY sort_order, name"
     ))
     .bind(id)
-    .fetch_all(pool)
+    .fetch_all(&mut *transaction)
     .await?;
 
     let reparented_children = if !direct_children.is_empty() && !next_node_kind.can_have_children()
@@ -302,34 +311,24 @@ pub async fn convert_capability_node_kind(
             )
             .bind(existing.parent_capability_id.as_deref())
             .bind(&child.id)
-            .execute(pool)
+            .execute(&mut *transaction)
             .await?;
-            update_capability_subtree_levels(pool, &child.id, next_parent_level).await?;
+            update_capability_subtree_levels(&mut transaction, &child.id, next_parent_level).await?;
         }
         direct_children
     } else {
-        ensure_capability_children_allowed(pool, id, next_node_kind).await?;
+        for child in &direct_children {
+            if !next_node_kind.supports_child_kind(&child.node_kind) {
+                return Err(AppError::Validation(format!("{} cannot contain existing {} children.", next_node_kind, child.node_kind)));
+            }
+        }
         vec![]
     };
 
-    let capability = update_capability(
-        pool,
-        UpdateCapabilityPatch {
-            id,
-            node_kind: Some(target_node_kind),
-            name: None,
-            description: None,
-            acceptance_criteria: None,
-            priority: None,
-            risk: None,
-            technical_notes: None,
-            explanation: None,
-            examples: None,
-            implementation_notes: None,
-            test_guidance: None,
-        },
-    )
-    .await?;
+    let capability = sqlx::query_as::<_, Capability>(&format!(
+        "UPDATE capabilities SET node_kind=?,updated_at=datetime('now') WHERE id=? RETURNING {CAPABILITY_SELECT_COLUMNS}"
+    )).bind(next_node_kind.to_string()).bind(id).fetch_one(&mut *transaction).await?;
+    transaction.commit().await?;
 
     Ok(NodeKindConversionResult {
         capability,

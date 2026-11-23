@@ -24,7 +24,7 @@ impl AnthropicClient {
         let mut api_key = HeaderValue::from_str(&api_key)
             .map_err(|_| ClientError::InvalidInput("Invalid Anthropic API key".into()))?;
         api_key.set_sensitive(true);
-        let url = reqwest::Url::parse(&base_url).map_err(|_| ClientError::InvalidInput("Invalid Anthropic base URL".into()))?;
+        let url = url::Url::parse(&base_url).map_err(|_| ClientError::InvalidInput("Invalid Anthropic base URL".into()))?;
         if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
             return Err(ClientError::InvalidInput("Invalid Anthropic base URL".into()));
         }
@@ -146,6 +146,7 @@ struct StreamState {
     output_tokens: Option<i64>,
     stopped: bool,
     metadata: Option<crate::CompletionMetadata>,
+    open_blocks: std::collections::HashMap<u64, String>,
 }
 
 impl StreamState {
@@ -160,6 +161,15 @@ impl StreamState {
             Some("message_start") => {
                 if event.get("message").is_some_and(|value| !value.is_null() && !value.is_object()) {
                     return Err(ClientError::Provider("Invalid Anthropic stream message".into()));
+                }
+                if event.pointer("/message/error").is_some_and(|value| !value.is_null()) {
+                    return Err(ClientError::Provider("Anthropic stream returned an error".into()));
+                }
+                // The native stream starts with an empty content list; allowing
+                // nonempty or malformed initial content would silently discard
+                // it and could conceal a tool-use block or truncate the answer.
+                if event.pointer("/message/content").is_some_and(|value| !value.is_null() && value.as_array().map_or(true, |items| !items.is_empty())) {
+                    return Err(ClientError::Provider("Anthropic stream initial message contains unsupported content".into()));
                 }
                 AnthropicClient::validate_stop_reason(event.pointer("/message/stop_reason"))?;
                 if let Some(message) = event.get("message") { crate::CompletionMetadata::merge(&mut self.metadata, message, message.get("stop_reason")); }
@@ -177,6 +187,13 @@ impl StreamState {
             }
             Some("content_block_start") => {
                 AnthropicClient::reject_tool_block(event.get("content_block").unwrap_or(&Value::Null))?;
+                if let Some(index) = event.get("index") {
+                    let index = index.as_u64().ok_or_else(|| ClientError::Provider("Invalid Anthropic content block index".into()))?;
+                    let kind = event.pointer("/content_block/type").and_then(Value::as_str).unwrap_or_default();
+                    if self.open_blocks.insert(index, kind.to_owned()).is_some() {
+                        return Err(ClientError::Provider("Duplicate Anthropic content block index".into()));
+                    }
+                }
                 if event.pointer("/content_block/type").and_then(Value::as_str) == Some("text") {
                     if let Some(text) = event.pointer("/content_block/text").and_then(Value::as_str).filter(|text| !text.is_empty()) {
                         self.content.push_str(text); on_delta(text);
@@ -184,6 +201,12 @@ impl StreamState {
                 }
             }
             Some("content_block_delta") if event.pointer("/delta/type").and_then(Value::as_str) == Some("text_delta") => {
+                if let Some(index) = event.get("index") {
+                    let index = index.as_u64().ok_or_else(|| ClientError::Provider("Invalid Anthropic content block index".into()))?;
+                    if self.open_blocks.get(&index).map(String::as_str) != Some("text") {
+                        return Err(ClientError::Provider("Anthropic text delta has no open text block".into()));
+                    }
+                }
                 let text = event.pointer("/delta/text").and_then(Value::as_str).ok_or_else(|| ClientError::Provider("Invalid Anthropic text delta".into()))?;
                 self.content.push_str(text); on_delta(text);
             }
@@ -192,7 +215,18 @@ impl StreamState {
                 _ => return Err(ClientError::Provider("Anthropic returned an unsupported or invalid content delta".into())),
             },
             Some("error") => return Err(ClientError::Provider("Anthropic stream returned an error".into())),
-            Some("message_stop") => self.stopped = true,
+            Some("content_block_stop") => {
+                if let Some(index) = event.get("index") {
+                    let index = index.as_u64().ok_or_else(|| ClientError::Provider("Invalid Anthropic content block index".into()))?;
+                    if self.open_blocks.remove(&index).is_none() {
+                        return Err(ClientError::Provider("Anthropic stopped an unopened content block".into()));
+                    }
+                }
+            }
+            Some("message_stop") => {
+                if !self.open_blocks.is_empty() { return Err(ClientError::Provider("Anthropic stream stopped with an open content block".into())); }
+                self.stopped = true;
+            }
             _ => {} // Ping and future event types may be safely ignored.
         }
         Ok(())
@@ -260,6 +294,28 @@ impl ModelGateway for AnthropicClient {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn indexed_stream_rejects_unclosed_or_mismatched_blocks() {
+        use super::*;
+        let start = serde_json::json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}});
+        let delta = serde_json::json!({"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}});
+        let stop = serde_json::json!({"type":"content_block_stop","index":0});
+        let terminal = serde_json::json!({"type":"message_stop"});
+        let mut state = StreamState::default();
+        let mut emitted = String::new();
+        let mut emit = |text: &str| emitted.push_str(text);
+        state.event(&start, &mut emit).unwrap();
+        state.event(&delta, &mut emit).unwrap();
+        assert!(state.event(&terminal, &mut emit).is_err());
+        state.event(&stop, &mut emit).unwrap();
+        state.event(&terminal, &mut emit).unwrap();
+        assert_eq!(state.finish().unwrap().content, "hello");
+        assert_eq!(emitted, "hello");
+        let mut state = StreamState::default();
+        assert!(state.event(&delta, &mut |_| {}).is_err());
+        state.event(&start, &mut |_| {}).unwrap();
+        assert!(state.event(&start, &mut |_| {}).is_err());
+    }
     use super::*;
     use crate::ChatMessage;
     use std::{io::{Read, Write}, net::TcpListener, thread};
@@ -485,6 +541,18 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn rejects_nonempty_or_invalid_message_start_content_without_partial_success() {
+        for content in [json!([{"type":"text","text":"omitted"}]), json!([{"type":"tool_use","name":"tool"}]), json!({"type":"text"}), json!("invalid")] {
+            let body = format!("data: {{\"type\":\"message_start\",\"message\":{{\"content\":{content}}}}}\n\ndata: {{\"type\":\"content_block_delta\",\"delta\":{{\"type\":\"text_delta\",\"text\":\"partial\"}}}}\n\ndata: {{\"type\":\"message_stop\"}}\n\n");
+            let (result, chunks) = stream_fixture(&body).await;
+            assert!(result.is_err(), "stream accepted start content {content}");
+            assert!(chunks.is_empty());
+        }
+        let valid = "data: {\"type\":\"message_start\",\"message\":{\"content\":[]}}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\ndata: {\"type\":\"message_stop\"}\n\n";
+        assert_eq!(stream_fixture(valid).await.0.unwrap().content, "ok");
+    }
+
+    #[tokio::test]
     async fn rejects_malformed_envelopes_after_partial_text() {
         for invalid in [
             json!([]),
@@ -492,6 +560,8 @@ mod tests {
             json!({"message": "missing type"}),
             json!({"type": "message_start", "message": 5}),
             json!({"type": "message_start", "message": {"stop_reason": "max_tokens"}}),
+            json!({"type": "message_start", "message": {"content": [{"type":"text","text":"omitted"}]}}),
+            json!({"type": "message_start", "message": {"error": {"message":"private-provider-detail"}}}),
             json!({"type": "message_delta", "delta": false}),
         ] {
             let body = format!("data: {{\"type\":\"content_block_delta\",\"delta\":{{\"type\":\"text_delta\",\"text\":\"partial\"}}}}\n\ndata: {invalid}\n\ndata: {{\"type\":\"message_stop\"}}\n\n");

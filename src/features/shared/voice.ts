@@ -125,8 +125,32 @@ type PcmCaptureOptions = {
   silenceThreshold?: number;
 };
 
-async function createPcmCapture(options?: PcmCaptureOptions) {
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+function captureAbortError() {
+  return new DOMException("Microphone capture was cancelled.", "AbortError");
+}
+
+async function waitForCapture<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return operation;
+  if (signal.aborted) {
+    void operation.catch(() => undefined);
+    throw captureAbortError();
+  }
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => reject(captureAbortError());
+    signal.addEventListener("abort", abort, { once: true });
+    operation.then(resolve, reject).finally(() => signal.removeEventListener("abort", abort));
+  });
+}
+
+async function createPcmCapture(options?: PcmCaptureOptions, signal?: AbortSignal) {
+  if (signal?.aborted) throw captureAbortError();
+  const pendingStream = navigator.mediaDevices.getUserMedia({ audio: true });
+  // A browser permission prompt cannot be dismissed programmatically. Release
+  // the stream if permission arrives after the caller has stopped waiting.
+  void pendingStream.then((lateStream) => {
+    if (signal?.aborted) lateStream.getTracks().forEach((track) => track.stop());
+  }, () => {});
+  const stream = await waitForCapture(pendingStream, signal);
   const audioContextCtor = window.AudioContext
     || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
 
@@ -141,7 +165,9 @@ async function createPcmCapture(options?: PcmCaptureOptions) {
   let sink: GainNode | undefined;
   try {
     audioContext = new audioContextCtor();
-    await audioContext.resume();
+    await waitForCapture(audioContext.resume(), signal);
+    if (signal?.aborted) throw captureAbortError();
+    if (audioContext.state === "suspended") throw new Error("Microphone audio could not start in this runtime.");
     source = audioContext.createMediaStreamSource(stream);
     processor = audioContext.createScriptProcessor(4096, 1, 1);
     sink = audioContext.createGain();
@@ -257,16 +283,16 @@ async function createPcmCapture(options?: PcmCaptureOptions) {
   };
 }
 
-export async function startWavCapture(): Promise<ActiveAudioCapture> {
-  return createPcmCapture({ maxDurationMs: MANUAL_CAPTURE_MAX_MS });
+export async function startWavCapture(signal?: AbortSignal): Promise<ActiveAudioCapture> {
+  return createPcmCapture({ maxDurationMs: MANUAL_CAPTURE_MAX_MS }, signal);
 }
 
-export async function startSilenceAwareWavCapture(options?: PcmCaptureOptions): Promise<SilenceAwareAudioCapture> {
+export async function startSilenceAwareWavCapture(options?: PcmCaptureOptions, signal?: AbortSignal): Promise<SilenceAwareAudioCapture> {
   const capture = await createPcmCapture({
     silenceDurationMs: options?.silenceDurationMs ?? 1200,
     minSpeechDurationMs: options?.minSpeechDurationMs ?? 600,
     maxDurationMs: options?.maxDurationMs ?? 20000,
     silenceThreshold: options?.silenceThreshold ?? 0.012,
-  });
+  }, signal);
   return capture;
 }

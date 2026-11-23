@@ -37,9 +37,10 @@ impl AgentService {
             let mut next: Option<String> = None;
             let mut remove_keys: Vec<String> = Vec::new();
 
+            let pool_key = super::test_pool_key(&self.db);
             for key in [
                 agent_run.workflow_run_id.as_str(),
-                super::TEST_ANY_WORKFLOW_KEY,
+                pool_key.as_str(),
             ] {
                 if next.is_some() {
                     break;

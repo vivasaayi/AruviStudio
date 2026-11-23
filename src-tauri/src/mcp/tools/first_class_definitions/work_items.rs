@@ -8,7 +8,7 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
         first_class_tool(
             "work_items.list",
             "List Work Items",
-            "List delivery stories and tasks filtered by product, product area, feature, source scope, or status. Results are server-side paginated; set includePagination=true to receive workItems plus pagination metadata.",
+            "List delivery stories and tasks filtered by product, product area, feature, source scope, or status. Set topLevelOnly=true to exclude child work. Results are server-side paginated; set includePagination=true to receive workItems plus pagination metadata.",
             object_schema(
                 vec![
                     ("productId", string_property("Optional product id.")),
@@ -23,6 +23,7 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
                         ),
                     ),
                     ("status", string_property("Optional work item status filter.")),
+                    ("topLevelOnly", boolean_property("When true, exclude work items with a parent. Defaults to false.")),
                     (
                         "limit",
                         integer_property(
@@ -236,6 +237,15 @@ pub(super) fn definitions() -> Vec<ToolDefinition> {
             "Summarize Work Items By Product",
             "Summarize work item counts grouped by product.",
             empty_object_schema(),
+        ),
+        first_class_tool(
+            "work_items.summarize_by_scope",
+            "Summarize Work Items By Scope",
+            "Summarize work item counts by product, hierarchy scope and status, optionally for one product.",
+            object_schema(
+                vec![("productId", string_property("Optional product id filter."))],
+                &[],
+            ),
         ),
     ]
 }

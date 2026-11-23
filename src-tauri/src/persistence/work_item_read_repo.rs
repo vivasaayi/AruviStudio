@@ -264,7 +264,7 @@ pub async fn get_sub_work_items_page(
         "SELECT {WORK_ITEM_SELECT_COLUMNS}
          FROM work_items
          WHERE parent_work_item_id=?
-         ORDER BY sort_order
+         ORDER BY sort_order, id
          LIMIT ? OFFSET ?"
     ))
     .bind(parent_work_item_id)
@@ -318,7 +318,7 @@ async fn list_work_items_internal(
     if top_level_only {
         sql.push_str(" AND parent_work_item_id IS NULL");
     }
-    sql.push_str(" ORDER BY sort_order, created_at DESC");
+    sql.push_str(" ORDER BY sort_order, created_at DESC, id");
     sql.push_str(" LIMIT ? OFFSET ?");
 
     let mut query_builder = sqlx::query_as::<_, WorkItem>(&sql);

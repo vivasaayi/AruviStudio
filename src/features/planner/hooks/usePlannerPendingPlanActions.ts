@@ -45,7 +45,10 @@ export function usePlannerPendingPlanActions({
       return;
     }
     void (async () => {
-      const response = await confirmPlannerPlan(sessionId);
+      const response = await confirmPlannerPlan(sessionId, selectedProductId);
+      if (response.status === "error" || response.execution_errors.length > 0) {
+        throw new Error(response.assistant_message || response.execution_errors.join(" | ") || "Planner confirmation failed");
+      }
       const execution: ExecutionResult = {
         lines: response.execution_lines,
         errors: response.execution_errors,
@@ -91,6 +94,7 @@ export function usePlannerPendingPlanActions({
         ...current,
         { id: makeId(), role: "assistant", content: String(error), meta: "Planner error", kind: "error" },
       ]);
+      setPlannerView("conversation");
     });
   };
 

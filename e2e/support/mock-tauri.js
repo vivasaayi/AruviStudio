@@ -758,6 +758,7 @@
         id: node.id,
         label: node.label,
         meta: node.meta,
+        node_type: node.type,
         children: node.children.map(visit).filter(Boolean),
       };
     }
@@ -1579,9 +1580,11 @@
 
   const invokeCalls = [];
   let productExportFailure = false;
+  let plannerConfirmFailure = false;
 
   window.__ARUVI_E2E__ = {
     setProductExportFailure(enabled) { productExportFailure = enabled; },
+    setPlannerConfirmFailure(enabled) { plannerConfirmFailure = enabled; },
     clearInvokeCalls() {
       invokeCalls.length = 0;
     },
@@ -1901,6 +1904,7 @@
         case "submit_planner_voice_turn_command":
           return ok(submitPlannerVoiceTurn(args || {}));
         case "confirm_planner_plan_command":
+          if (plannerConfirmFailure) return ok({status:"error",assistant_message:"Catalog node changed; review the draft",execution_lines:[],execution_errors:["Catalog node changed; review the draft"],trace_events:[]});
           return ok(confirmPlannerPlan(args || {}));
         case "rename_planner_draft_node_command":
           return ok(renamePlannerDraftNode(args || {}));
@@ -1997,13 +2001,20 @@
           return ok(null);
         case "read_artifact_content":
           return ok("");
+        case "read_artifact_page":
+          return ok({ content: "", offset: 0, next_offset: null, total_bytes: 0, version: "mock" });
         case "route_planner_contact_command":
           return ok({ channel: "whatsapp", status: "sent", reason: "Mock router chose WhatsApp for this request." });
         case "send_twilio_whatsapp_message":
         case "start_twilio_voice_call":
         case "speak_text_natively_command":
           return ok(null);
+        case "get_desktop_transcription_target":
+          if (state.settings["e2e.voice_preflight_fail"] === "true") throw new Error("A speech transcription provider is required");
+          return ok({ provider_id: "server-provider", model_name: "server-transcriber" });
         case "transcribe_audio_command":
+          if (state.settings["e2e.voice_transcription_fail"] === "true") throw new Error("Synthetic transcription failure");
+          if (state.settings["e2e.voice_transcription_delay"] === "true") return new Promise((resolve) => { window.fixtureResolveTranscription = () => resolve({ transcript: "A stale transcription" }); });
           return ok({ transcript: "Add voice-driven planning for the selected node" });
         case "browse_for_local_model_file":
           return ok("/tmp/mock-models/ggml-base.en.bin");
@@ -2049,6 +2060,13 @@
           return ok("/tmp/mock-repository");
         case "build_planner_review_packet_command":
           return ok({ filename: "shared-design-review-packet.html", html: "<!doctype html><h1>Shared packet fixture</h1>" });
+        case "validate_planner_tree_command":
+          return import("/src/features/planner/lib/plannerDraftTree.ts")
+            .then(({ buildDraftValidation }) => buildDraftValidation(args.nodes));
+        case "render_planner_packet_snapshot_command": {
+          return import("/src/features/planner/lib/plannerPacketBackend.ts")
+            .then(({ renderJson }) => JSON.parse(renderJson(JSON.stringify(args.snapshot))));
+        }
         case "export_product_overview_html":
         case "export_product_overview_epub":
         case "export_product_overview_pdf":

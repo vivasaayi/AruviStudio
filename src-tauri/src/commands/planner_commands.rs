@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use crate::services::planner_service::{
     add_planner_draft_child, analyze_repository_for_planner, clear_planner_pending,
-    confirm_planner_plan, create_planner_session, delete_planner_draft_node,
+    create_planner_session, delete_planner_draft_node,
     rename_planner_draft_node, submit_planner_turn, submit_planner_voice_turn,
     update_planner_session, PlannerSessionInfo, PlannerTurnResponse,
 };
@@ -24,6 +24,11 @@ pub async fn build_planner_review_packet_command(
     expected_nodes: Vec<crate::services::planner_types::PlannerTreeNode>, selected_node_id: Option<String>,
 ) -> Result<crate::services::planner_review_packet::DesignReviewPacket, AppError> {
     crate::services::planner_review_packet::build_desktop_review_packet(state.planner_service.clone(), &state.db, session_id, expected_nodes, selected_node_id).await
+}
+
+#[tauri::command]
+pub async fn render_planner_packet_snapshot_command(snapshot: serde_json::Value) -> Result<crate::services::planner_review_packet::DesignReviewPacket, AppError> {
+    crate::services::planner_packet_snapshot::render_snapshot(snapshot).await
 }
 
 #[tauri::command]
@@ -129,10 +134,20 @@ pub async fn submit_planner_voice_turn_command(
 pub async fn confirm_planner_plan_command(
     state: State<'_, AppState>,
     session_id: Option<String>,
+    product_id: Option<String>,
 ) -> Result<PlannerTurnResponse, AppError> {
     let session_id =
         session_id.ok_or_else(|| AppError::Validation("missing planner session id".to_string()))?;
-    confirm_planner_plan(state.planner_service.clone(), &state, session_id).await
+    submit_planner_turn(state.planner_service.clone(), &state, session_id, "confirm".to_string(), None, product_id).await
+}
+
+#[tauri::command]
+pub async fn stage_planner_catalog_node_command(
+    state: State<'_, AppState>, session_id: String, product_id: String, node_type: String, node_id: String,
+) -> Result<PlannerTurnResponse, AppError> {
+    crate::services::planner_catalog_binding::stage_catalog_node(
+        state.planner_service.clone(), &state.db, session_id, product_id, node_type, node_id,
+    ).await
 }
 
 #[tauri::command]
@@ -228,3 +243,24 @@ pub async fn analyze_repository_for_planner_command(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod snapshot_packet_ipc_tests {
+    use tauri::test::{mock_builder, mock_context, noop_assets, INVOKE_KEY};
+    #[test]
+    fn desktop_can_render_a_packet_without_a_session() {
+        let app = mock_builder().invoke_handler(tauri::generate_handler![super::render_planner_packet_snapshot_command])
+            .build(mock_context(noop_assets())).unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default()).build().unwrap();
+        let snapshot = serde_json::json!({"title":"<Inventory>","generatedAt":"fixture","activeProductName":null,
+            "currentProducts":[],"currentProductTrees":[],"currentWorkItems":[],"currentWorkItemsHasMore":false,
+            "draftTreeNodes":[],"plan":null,"validation":{"score":0,"issues":[]},"selectedNode":null,"latestAssistantText":null});
+        let result = tauri::test::get_ipc_response(&webview, tauri::webview::InvokeRequest {
+            cmd:"render_planner_packet_snapshot_command".into(), callback:tauri::ipc::CallbackFn(0), error:tauri::ipc::CallbackFn(1),
+            url:"http://tauri.localhost".parse().unwrap(), body:tauri::ipc::InvokeBody::Json(serde_json::json!({"snapshot":snapshot})),
+            headers:Default::default(), invoke_key:INVOKE_KEY.to_string(),
+        }).unwrap().deserialize::<serde_json::Value>().unwrap();
+        assert_eq!(result["filename"], "inventory-design-review-packet.html");
+        assert!(result["html"].as_str().unwrap().contains("&lt;Inventory&gt;"));
+    }
+}

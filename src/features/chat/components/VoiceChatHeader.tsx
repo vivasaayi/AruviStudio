@@ -12,6 +12,7 @@ interface VoiceChatHeaderProps {
   modelOptions: VoiceChatModelOption[];
   sessionActive: boolean;
   voiceEnabled: boolean;
+  isPreparing: boolean;
   onModelChange: (value: string) => void;
   onStartSession: () => void;
   onStopSession: () => void;
@@ -22,6 +23,7 @@ export function VoiceChatHeader({
   modelOptions,
   sessionActive,
   voiceEnabled,
+  isPreparing,
   onModelChange,
   onStartSession,
   onStopSession,
@@ -50,8 +52,8 @@ export function VoiceChatHeader({
           ))}
         </select>
         {!sessionActive ? (
-          <button style={styles.btn} onClick={onStartSession} disabled={!voiceEnabled} data-testid="voice-chat-start">
-            Start Voice Session
+          <button style={styles.btn} onClick={onStartSession} disabled={!voiceEnabled || isPreparing} data-testid="voice-chat-start">
+            {isPreparing ? "Checking speech settings…" : "Start Voice Session"}
           </button>
         ) : (
           <button style={styles.btnDanger} onClick={onStopSession} data-testid="voice-chat-stop">

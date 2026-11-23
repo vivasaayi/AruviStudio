@@ -30,7 +30,11 @@ limitations and validation items below are not complete.
   reachable references and all work items. One SQLite read transaction prevents
   concurrent changes from mixing versions. Desktop exports and the authenticated
   MCP catalog action use it. Database tests exercise concurrent writes, reference
-  scope and more than 2,000 work items; the snapshot is still unbounded in size.
+  scope and more than 2,000 work items. A preflight in the same transaction
+  rejects snapshots over 64 MiB of raw database values or 100,000 candidate rows
+  before loading them; it does not truncate them. It includes all table columns
+  and some reference candidates that may later be filtered out, so it can reject
+  a snapshot whose final renderer input would be smaller.
 - [x] Move EPUB archive packaging into a reusable Rust service and use it for
   desktop export. This no longer invokes the system `zip` utility or writes a
   temporary source tree; archive tests inspect the first uncompressed mimetype,
@@ -57,11 +61,14 @@ limitations and validation items below are not complete.
   from their generation timestamps (`scripts/test-product-book-renderer`).
   Bundled output is checked against source in the frontend test suite. The
   runtime limits input to 64 MiB, JavaScript heap to 256 MiB, execution to 30
-  seconds, and simultaneous snapshots/renders to two. Source snapshot creation
-  and serialization are currently unbounded before the input-size check.
+  seconds, and simultaneous snapshots/renders to two. Serialization now stops
+  at the input limit. The source snapshot also has the conservative raw-data and
+  row limits described above; neither limit is a strict process-memory cap.
   Desktop HTML, EPUB and PDF exports call this same backend renderer and retain
   their native file writers. Browser and MCP HTML/EPUB/PDF exports use it as well;
   image-resource packaging and broad visual comparison remain open.
+  Docs and Book HTML share the same reference URL scheme checks; unsafe URLs
+  remain visible as text rather than clickable links.
   For a local worktree, request a rendered book with:
 
   ```sh
@@ -72,15 +79,24 @@ limitations and validation items below are not complete.
   browser and `aruvi_catalog.export_product_book`; MCP returns a filename, media
   type and base64 bytes. Artifacts over 24 MiB fail explicitly; PDF source is
   limited to 12 MiB and PDF rendering to 60 seconds. EPUB and PDF can include
-  embedded PNG and JPEG data images, subject to count, dimension and byte
+  embedded PNG, JPEG and static GIF data images, subject to count, dimension and byte
   limits (32 references, 4 MiB per image, 12 MiB total unique image data, and
-  2048 pixels per dimension). Repository-relative paths, remote URLs, animated
-  PNG and other image types fail explicitly; safe scope-aware resolution and
+  2048 pixels per dimension). GIF is a core [EPUB 3 media type](https://www.w3.org/TR/epub-33/#sec-core-media-types).
+  Repository-relative paths, remote URLs, animated PNG/GIF and other image types
+  fail explicitly; safe scope-aware resolution and
   broader format support remain open. HTML may reference external resources.
-  The real browser/MCP fixture includes PNG, JPEG and a duplicate PNG; the
+  The existing browser/MCP fixture includes PNG, JPEG and a duplicate PNG; the
   captured EPUB passed EPUBCheck 5.4.0 and the captured PDF contained both
   image types, with its first page visually inspected. The EPUB writer used by
-  desktop shares the same image packaging code.
+  desktop shares the same image packaging code. Static GIF packaging and
+  animated-GIF rejection have local Rust coverage; a desktop-rendered fixture
+  with an inserted GIF passed EPUBCheck, and a native PDF worker rendered a
+  GIF that was visually inspected. The Linux browser/MCP fixture verified the
+  GIF's exact bytes in EPUB, rejected animated GIFs, and generated PDF. Its
+  captured EPUB passed EPUBCheck without findings, and the PDF contained the
+  distinct GIF-sized image. A disposable deployed-branch product also exported
+  the GIF through MCP and was archived. Reader and physical desktop acceptance
+  remain open.
   The export action accepts `product_id`, `format` (`docs_html`, `book_html`,
   `epub`, or `pdf`) and `trim_preset` (`trade-6x9`, `a5`, or `us-letter`). For example:
 
@@ -107,8 +123,9 @@ limitations and validation items below are not complete.
   disabled there because this Mac's container runtime denies its namespace
   operation; the container is an additional isolation boundary, not a proof of
   Chromium sandboxing. The app fails closed if the renderer is unavailable.
-  Staging and production adapters have not been updated or validated for this
-  sidecar and must not be treated as release-ready on this evidence.
+  Staging and production adapters include the sidecar; disposable local fixtures
+  exercised PDF rendering and restart persistence. Actual staging and production
+  deployments remain unvalidated and are not release-ready on this evidence.
   Other servers can use `ARUVI_PDF_SOCKET` for an isolated service, or configure
   `ARUVI_PDF_NODE`, `ARUVI_PDF_BROWSER`, and `ARUVI_PDF_PLAYWRIGHT_PATH` for a
   local worker; local `ARUVI_PDF_SANDBOX` defaults to `1`.

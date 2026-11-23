@@ -1,0 +1,97 @@
+name: Branch container
+
+on:
+  push:
+    branches: [codex/aruvi-web-docker]
+    paths:
+      - .github/workflows/branch-container.yml
+      - Dockerfile
+      - .dockerignore
+      - package.json
+      - package-lock.json
+      - index.html
+      - 'tsconfig*.json'
+      - vite.config.ts
+      - src/**
+      - src-tauri/**
+      - crates/**
+      - scripts/**
+      - e2e-remote/**
+      - playwright.remote.config.js
+      - vendor/**
+      - docs/mcp-resources/**
+      - LICENSE
+      - NOTICE
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+          - arch: amd64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build clean ${{ matrix.arch }} image
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          docker build --no-cache --platform linux/${{ matrix.arch }} \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --tag "aruvi-branch:$GITHUB_SHA" .
+          test "$(docker image inspect "aruvi-branch:$GITHUB_SHA" --format '{{.Os}}/{{.Architecture}}')" = "linux/${{ matrix.arch }}"
+          docker image inspect "aruvi-branch:$GITHUB_SHA" --format '{{.Id}} {{.Os}}/{{.Architecture}}' > image-identity.txt
+          printf '%s\n' "$GITHUB_SHA" > source-revision.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install browser fixture dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Validate the exact clean image
+        env:
+          ARUVI_TEST_PROJECT: aruvi-studio-fixture-${{ github.run_id }}-${{ github.run_attempt }}
+          ARUVI_TEST_ENV_FILE: ${{ runner.temp }}/aruvi-fixture.env
+          ARUVI_TEST_APP_IMAGE: aruvi-branch:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          umask 077
+          printf 'APP_IMAGE=%s\n' "$ARUVI_TEST_APP_IMAGE" > "$ARUVI_TEST_ENV_FILE"
+          bash scripts/test-host-browser-fixture.sh workflow
+          bash scripts/test-host-browser-fixture.sh remote
+          bash scripts/test-host-browser-fixture.sh ci
+      - name: Upload browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-failure-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.arch }}
+          path: test-results/
+          retention-days: 3
+          if-no-files-found: ignore
+      - name: Export and checksum image
+        run: |
+          set -euo pipefail
+          docker save "aruvi-branch:$GITHUB_SHA" | gzip -1 > aruvi-branch-${{ matrix.arch }}.tar.gz
+          sha256sum aruvi-branch-${{ matrix.arch }}.tar.gz > SHA256SUMS
+      - name: Upload temporary branch image
+        uses: actions/upload-artifact@v4
+        with:
+          name: aruvi-branch-${{ matrix.arch }}-${{ github.sha }}
+          path: |
+            aruvi-branch-${{ matrix.arch }}.tar.gz
+            SHA256SUMS
+            source-revision.txt
+            image-identity.txt
+          retention-days: 3
+          compression-level: 0
+          if-no-files-found: error

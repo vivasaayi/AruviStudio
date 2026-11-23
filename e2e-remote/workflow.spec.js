@@ -1,6 +1,41 @@
 import { test, expect } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
+test("MCP discovers and invokes catalog read parity tools", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  const invoke = async (name, arguments_) => {
+    const response = await request.post("/api/mcp", { headers, data: {
+      jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: arguments_ },
+    } });
+    expect(response.ok()).toBeTruthy();
+    const rpc = (await response.json()).result;
+    expect(rpc.isError).not.toBeTruthy();
+    return rpc.structuredContent.result;
+  };
+  const unauthorized = await request.post("/api/mcp", { data: {
+    jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "catalog.capabilities.get", arguments: { id: "missing" } },
+  } });
+  expect(unauthorized.status()).toBe(401);
+  const discovery = await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} } });
+  expect(discovery.ok()).toBeTruthy();
+  const names = (await discovery.json()).result.tools.map((tool) => tool.name);
+  for (const name of ["catalog.capabilities.get", "catalog.capabilities.list_for_product", "catalog.products.summarize_tree"]) expect(names).toContain(name);
+
+  const product = await invoke("catalog.products.create", { name: "Catalog parity fixture" });
+  const other = await invoke("catalog.products.create", { name: "Other catalog fixture" });
+  const area = await invoke("catalog.product_areas.create", { productId: product.id, name: "Inventory" });
+  const capability = await invoke("catalog.capabilities.create", { productAreaId: area.id, name: "Stock", nodeKind: "capability" });
+  const feature = await invoke("catalog.capabilities.create", { productAreaId: area.id, parentCapabilityId: capability.id, name: "Updates", nodeKind: "feature" });
+  expect((await invoke("catalog.capabilities.get", { id: feature.id })).id).toBe(feature.id);
+  expect((await invoke("catalog.capabilities.list_for_product", { productId: product.id })).map((item) => item.id)).toEqual([capability.id, feature.id]);
+  expect(await invoke("catalog.capabilities.list_for_product", { productId: other.id })).toEqual([]);
+  const summary = await invoke("catalog.products.summarize_tree", { productId: product.id });
+  expect(summary).toMatchObject({ product_id: product.id, product_area_count: 1, capability_count: 2, leaf_node_count: 1 });
+  const legacy = await invoke("aruvi_catalog", { action: "summarize_product_tree", arguments: { product_id: product.id } });
+  expect(legacy).toEqual(summary);
+});
+
 test("quiet hours block a voice fallback when WhatsApp is unavailable", async ({ request, page }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires the disposable fixture with blocked HTTPS egress");
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
@@ -149,6 +184,23 @@ test("automatic transcription prefers explicit speech capabilities", async ({ re
   const result = (await mcp.json()).result;
   expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
   expect(result.structuredContent.result.transcript).toBe("Synthetic microphone transcript");
+});
+
+test("compatible-provider fallback is preserved through browser API and MCP", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const base_url = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/legacy-fallback/v1");
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "Compatible fallback fixture", base_url } });
+  expect(created.ok(), await created.text()).toBeTruthy();
+  const provider = await created.json();
+  const payload = { provider_id: provider.id, audio_bytes_base64: Buffer.from("RIFF fixture").toString("base64"), mime_type: "audio/wav", locale: "en-US" };
+  const browser = await request.post("/api/mobile/speech/transcribe", { headers, data: payload });
+  expect(browser.ok(), await browser.text()).toBeTruthy();
+  expect((await browser.json()).transcript).toBe("Compatible fallback transcript");
+  const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` }, data: { jsonrpc: "2.0", id: 21, method: "tools/call", params: { name: "aruvi_speech", arguments: { action: "transcribe_audio", arguments: payload } } } });
+  const result = (await response.json()).result;
+  expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
+  expect(result.structuredContent.result.transcript).toBe("Compatible fallback transcript");
 });
 
 test("custom transcription model IDs work through browser API and MCP", async ({ request }) => {
@@ -338,6 +390,7 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
     await mcp("aruvi_settings", "set_setting", { key: "workflow.auto_start_after_work_item_approval", value: "true" });
   }
   let assignedTeam, assignedAgent, codingPolicy;
+  try {
   if (scenario === "passed") {
     assignedTeam = await api("/api/mobile/teams", { name: "Workflow owner", department: "Engineering", description: "", enabled: true, max_concurrent_workflows: 2 });
     await api("/api/mobile/team-assignments", { team_id: assignedTeam.id, product_id: product.id, scope_type: "product", scope_id: product.id });
@@ -351,15 +404,17 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
   }
   const repository = await api("/api/mobile/repositories", { name: "Isolated workflow repo", local_path: `${process.env.ARUVI_TEST_REPOSITORY_PATH}-${scenario}` });
   await api("/api/mobile/repository-attachments", { product_id: product.id, repository_id: repository.id });
+  const overrideRepo = scenario === "passed" ? await api("/api/mobile/repositories", { name: "Work item override repo", local_path: "/repositories/workflow-test-override" }) : null;
 
   await page.goto("/remote");
   await page.locator("#tokenInput").fill(mobileToken);
   await page.locator("#saveButton").click();
   await page.getByRole("button", { name: "Work", exact: true }).click();
   await page.locator("#workProductSelect").selectOption(product.id);
+  await expect(page.getByText("A passing command covers only the checks it runs. Include behavioral tests for the work item's acceptance criteria; syntax checks alone do not verify behavior.")).toBeVisible();
   await expect(page.locator("#workflowTestScopeStatus")).toContainText(`Settings for Isolated workflow ${scenario}`);
   await page.locator("#workflowTestMode").selectOption(scenario === "skipped" ? "disabled" : "custom");
-  const command = scenario === "passed" ? ["/bin/sh", "-c", "test -z \"${ARUVI_MOBILE_API_TOKEN-}\" && test \"$(cat src/generated.txt)\" = \"generated by workflow test\""] : scenario === "failed" ? ["/bin/sh", "-c", "printf 'test failure'; head -c 50000 /dev/zero; exit 9"] : [];
+  const command = scenario === "passed" ? ["/bin/sh", "-c", "test -z \"${ARUVI_MOBILE_API_TOKEN-}\" && test \"$(cat src/generated.txt)\" = \"generated by workflow test\" || exit 1; (sleep 1; touch /repositories/workflow-child-leak-marker) & exit 0"] : scenario === "failed" ? ["/bin/sh", "-c", "printf 'test failure'; head -c 50000 /dev/zero; exit 9"] : [];
   if (scenario !== "skipped") await page.locator("#workflowTestArgv").fill(JSON.stringify(command));
   await page.getByRole("button", { name: "Save test command" }).click();
   await expect(page.locator("#status")).toHaveText("Workflow test command saved");
@@ -370,12 +425,24 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
   await page.locator("#createWorkButton").click();
   const workItem = await (await created).json();
   await expect(page.locator("#deliveryStatus")).toHaveText("draft");
+  if (overrideRepo) {
+    await page.getByRole("button", { name:"Change work item workspace" }).click();
+    await page.getByLabel("Work item workspace", { exact:true }).selectOption(overrideRepo.id);
+    await page.getByRole("button", { name:"Save work item workspace" }).click();
+    await expect(page.locator("#status")).toHaveText("Work item workspace saved");
+  }
   const started = page.waitForResponse((response) => response.url().endsWith(`/work-items/${workItem.id}/approve`), { timeout: 60000 });
   await page.locator("#approveWorkButton").click();
   const startResponse = await started;
   expect(startResponse.ok(), await startResponse.text()).toBeTruthy();
   if (assignedTeam) expect((await startResponse.json()).workflow_run.assigned_team_id).toBe(assignedTeam.id);
   await expect(page.locator("#deliveryStatus")).toHaveText("pending plan approval", { timeout: 60000 });
+  if (overrideRepo) {
+    const blocked = await request.post("/api/mcp", { headers: { Authorization:`Bearer ${mcpToken}` }, data: { jsonrpc:"2.0", id:91, method:"tools/call", params:{name:"aruvi_work_items", arguments:{action:"assign_work_item_workspace", arguments:{id:workItem.id, repository_id:repository.id, branch_name:"main"}}} } });
+    expect((await blocked.json()).result.isError).toBeTruthy();
+    const deleteBlocked = await request.post("/api/mcp", { headers: { Authorization:`Bearer ${mcpToken}` }, data: { jsonrpc:"2.0", id:93, method:"tools/call", params:{name:"aruvi_work_items", arguments:{action:"delete_work_item", arguments:{id:workItem.id}}} } });
+    expect((await deleteBlocked.json()).result.isError).toBeTruthy();
+  }
   const advanced = page.waitForResponse((response) => response.url().includes("/api/mobile/workflows/") && response.url().endsWith("/action"), { timeout: 90000 });
   await page.getByRole("button", { name: "Approve Gate" }).click();
   const advanceResponse = await advanced;
@@ -388,7 +455,31 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
   }
   const delivery = await (await request.get(`/api/mobile/work-items/${workItem.id}/delivery`, { headers })).json();
   expect(delivery.artifacts.some((artifact) => artifact.artifact_type === "coding_applied_files")).toBeTruthy();
+  if (scenario === "passed") {
+    const artifact = delivery.artifacts.find((entry) => entry.artifact_type === "coding_applied_files");
+    const artifactPath = `/api/mobile/work-items/${workItem.id}/artifacts/${artifact.id}`;
+    expect((await request.get(artifactPath)).status()).toBe(401);
+    expect((await request.get(`/api/mobile/work-items/other/artifacts/${artifact.id}`, { headers })).status()).toBe(404);
+    const response = await request.get(artifactPath, { headers });
+    expect(response.ok()).toBeTruthy();
+    const content = (await response.json()).content;
+    expect(content).toContain("src/generated.txt");
+    expect((await mcp("aruvi_checkpoints", "read_artifact_content", { artifact_id: artifact.id })).content).toBe(content);
+    await page.getByRole("button", { name: "Show artifact " + (artifact.summary || artifact.artifact_type), exact: true }).click();
+    await expect(page.locator("#deliveryDetails")).toContainText("src/generated.txt");
+    const artifactCard = page.getByRole("button", { name: "Show artifact " + (artifact.summary || artifact.artifact_type), exact: true }).locator("..");
+    await artifactCard.getByRole("button", { name: "Read in pages", exact: true }).click();
+    await expect(artifactCard).toContainText("Bytes 0–");
+    await expect(artifactCard).toContainText("src/generated.txt");
+    await page.getByRole("button", { name: "Review workflow stages" }).click();
+    await page.getByLabel("Workflow stage").selectOption("coding");
+    const stageArtifact = page.getByRole("button", { name: "Show stage artifact: " + (artifact.summary || artifact.artifact_type), exact: true }).locator("..");
+    await stageArtifact.getByRole("button", { name: "Read in pages", exact: true }).click();
+    await expect(stageArtifact).toContainText("Bytes 0–");
+    await expect(stageArtifact).toContainText("src/generated.txt");
+  }
   const testResult = delivery.artifacts.find((artifact) => artifact.artifact_type === "workflow_test_result");
+  if (scenario === "passed") await expect(page.locator("#deliveryDetails")).toContainText("syntax checks alone do not verify behavior");
   expect(testResult.summary).toBe(scenario === "passed" ? "Configured test command passed" : scenario === "failed" ? "Configured test command failed" : "Tests were not run; manual test review is required");
   await page.getByRole("button", { name: "Show test result" }).click();
   await expect(page.locator("#deliveryDetails")).toContainText(`"status": "${scenario}"`);
@@ -456,11 +547,37 @@ for (const scenario of ["passed", "failed", "skipped"]) test(`isolated workflow 
     const denied = await request.post("/api/mobile/agents/delete", { headers, data: { id, expected: { name, role, description, prompt_template_ref, allowed_tools, skill_tags, boundaries, enabled, employment_status } } });
     expect(denied.status()).toBe(409);
     expect(await denied.text()).toContain("execution history");
-    const { id: policyId, primary_roles, fallback_roles, coordinator_required } = codingPolicy;
-    await api("/api/mobile/routing-policies/delete", { stage_name: "coding", expected: { id: policyId, primary_roles, fallback_roles, coordinator_required } });
   }
-  const file = await mcp("aruvi_repositories", "read_repository_file", { repository_id: repository.id, relative_path: "src/generated.txt" });
+  const file = await mcp("aruvi_repositories", "read_repository_file", { repository_id: overrideRepo?.id || repository.id, relative_path: "src/generated.txt" });
   expect(file.content).toBe("generated by workflow test\n");
+  if (overrideRepo) {
+    const untouched = await request.post("/api/mcp", { headers: { Authorization:`Bearer ${mcpToken}` }, data: { jsonrpc:"2.0", id:92, method:"tools/call", params:{name:"aruvi_repositories", arguments:{action:"read_repository_file", arguments:{repository_id:repository.id, relative_path:"src/generated.txt"}}} } });
+    expect((await untouched.json()).result.isError).toBeTruthy();
+  }
+  if (scenario === "skipped") {
+    const button = page.getByRole("button", { name: "Mark workflow failed", exact: true });
+    await expect(page.locator("#deliveryDetails")).toContainText("does not stop running processes");
+    page.once("dialog", (dialog) => dialog.dismiss());
+    await button.click();
+    expect((await (await request.get(`/api/mobile/work-items/${workItem.id}/delivery`, { headers })).json()).workflow_run.status).toBe("running");
+    const onDialog = async (dialog) => { if (dialog.type() === "prompt") await dialog.accept("Fixture recovery"); else await dialog.accept(); };
+    page.on("dialog", onDialog);
+    const result = page.waitForResponse((response) => response.url().endsWith(`/workflows/${delivery.workflow_run.id}/mark-failed`));
+    await button.click();
+    expect((await result).status()).toBe(200);
+    page.off("dialog", onDialog);
+    await expect(page.locator("#deliveryStatus")).toHaveText("failed");
+    const updated = await (await request.get(`/api/mobile/work-items/${workItem.id}/delivery`, { headers })).json();
+    expect(updated.workflow_run).toMatchObject({ current_stage:"failed", status:"failed", error_message:"Fixture recovery" });
+    expect((await mcp("aruvi_workflows", "get_workflow_history", { workflow_run_id:delivery.workflow_run.id })).filter((entry) => entry.trigger === "user_override")).toHaveLength(1);
+    await expect(button).toHaveCount(0);
+  }
+  } finally {
+    if (codingPolicy) {
+      const { id: policyId, primary_roles, fallback_roles, coordinator_required } = codingPolicy;
+      await api("/api/mobile/routing-policies/delete", { stage_name: "coding", expected: { id: policyId, primary_roles, fallback_roles, coordinator_required } });
+    }
+  }
 });
 
 test("MCP creates a product and drives a workflow through delivery", async ({ page, request }) => {
@@ -628,6 +745,37 @@ test("product test policies inherit, override, and disable the default", async (
   expect(await post("/api/mobile/workflow-test-config", { product_id: product.id, mode: "inherit" })).toEqual({ mode: "inherit", argv: ["/bin/true"] });
   expect((await request.post("/api/mobile/workflow-test-config", { headers, data: { product_id: product.id, mode: "custom", argv: [] } })).status()).toBe(400);
   expect((await request.post("/api/mobile/workflow-test-config", { headers, data: { product_id: "missing", mode: "disabled" } })).status()).toBe(400);
+});
+
+test("browser preserves a stale workflow test command draft", async ({ page, request }) => {
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  async function post(path, data) {
+    const response = await request.post(path, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  }
+  await post("/api/mobile/workflow-test-config", { argv: ["/bin/true"] });
+  const product = await post("/api/mobile/products", { name: "Test policy conflict fixture" });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Work", exact: true }).click();
+  await page.locator("#workProductSelect").selectOption(product.id);
+  await expect(page.locator("#workflowTestScopeStatus")).toContainText(product.name);
+  await page.locator("#workflowTestMode").selectOption("custom");
+  await page.locator("#workflowTestArgv").fill('["/bin/false"]');
+  await post("/api/mobile/workflow-test-config", { argv: ["/bin/echo", "changed"] });
+  await page.getByRole("button", { name: "Save test command" }).click();
+  await expect(page.locator("#status")).toContainText("Test command changed");
+  await expect(page.locator("#workflowTestArgv")).toHaveValue('["/bin/false"]');
+  const current = await request.get(`/api/mobile/workflow-test-config?product_id=${product.id}`, { headers });
+  expect(await current.json()).toEqual({ mode: "inherit", argv: ["/bin/echo", "changed"] });
+  await page.getByRole("button", { name: "Reload test settings" }).click();
+  await expect(page.locator("#workflowTestArgv")).toHaveValue('["/bin/echo","changed"]');
+  await page.locator("#workflowTestMode").selectOption("custom");
+  await page.locator("#workflowTestArgv").fill('["/bin/false"]');
+  await page.getByRole("button", { name: "Save test command" }).click();
+  await expect(page.locator("#status")).toHaveText("Workflow test command saved");
 });
 
 test("isolated provider key rotation uses the new credential", async ({ page, request }) => {
@@ -884,6 +1032,15 @@ test("browser installs a fixed speech preset and reuses its existing file", asyn
   expect(repeated.ok()).toBeTruthy();
   expect((await repeated.json()).model_definition.id).toBe(result.model_definition.id);
   if (process.env.ARUVI_TEST_LOCAL_AUDIO) {
+    if (process.env.ARUVI_TEST_WHISPER_MODE === "existing") {
+      const card = page.locator("#providerList .tool-card").filter({ hasText: result.provider.name });
+      await card.getByText("Manage provider", { exact: true }).click();
+      await card.getByLabel(`Edit server model path ${result.provider.name}`).fill("/data/models/fixture/alternative.bin");
+      await card.getByRole("button", { name: "Save provider" }).click();
+      await expect(page.locator("#status")).toHaveText("Provider saved");
+      const providers = await (await request.get("/api/mobile/providers", { headers })).json();
+      expect(providers.find((provider) => provider.id === result.provider.id).base_url).toBe("/data/models/fixture/alternative.bin");
+    }
     const wav = readFileSync(process.env.ARUVI_TEST_LOCAL_AUDIO);
     const data = { provider_id: result.provider.id, model_name: result.model_definition.name,
       audio_bytes_base64: wav.toString("base64"), mime_type: "audio/wav", locale: "en" };
@@ -943,7 +1100,7 @@ test("browser registers a server local speech model and preserves it on repeat",
   await page.getByRole("button", { name: "Models", exact: true }).click();
   await page.getByLabel("Local provider name").fill(data.provider_name);
   await page.getByLabel("Local model name").fill(data.model_name);
-  await page.getByLabel("Server model path").fill(data.model_path);
+  await page.getByLabel("Server model path", { exact: true }).fill(data.model_path);
   const created = page.waitForResponse((r) => r.url().endsWith(endpoint) && r.request().method() === "POST");
   await page.getByRole("button", { name: "Register local speech model" }).click();
   const response = await created;
@@ -957,6 +1114,28 @@ test("browser registers a server local speech model and preserves it on repeat",
   const repeat = await request.post(endpoint, { headers, data });
   expect(repeat.ok()).toBeTruthy();
   expect((await repeat.json()).model_definition.id).toBe(registered.model_definition.id);
+  let localCard = page.locator("#providerList .tool-card").filter({ hasText: data.provider_name });
+  await localCard.getByText("Manage provider", { exact: true }).click();
+  await expect(localCard.getByLabel(`Edit server model path ${data.provider_name}`)).toHaveValue(data.model_path);
+  await localCard.getByLabel("Provider enabled").uncheck();
+  await localCard.getByRole("button", { name: "Save provider" }).click();
+  await expect(page.locator("#status")).toHaveText("Provider saved");
+  localCard = page.locator("#providerList .tool-card").filter({ hasText: data.provider_name });
+  await expect(localCard).toContainText("disabled");
+  const providers = await (await request.get("/api/mobile/providers", { headers })).json();
+  const local = providers.find((provider) => provider.id === registered.provider.id);
+  const localExpected = { name: local.name, base_url: local.base_url, enabled: local.enabled, protocol: local.protocol, completion_profile: local.completion_profile };
+  const invalid = await request.post("/api/mobile/providers/update", { headers, data: { id: local.id, expected: localExpected, fields: { ...localExpected, base_url: "/data/models/fixture/missing.bin" } } });
+  expect(invalid.status()).toBe(400);
+  await localCard.getByText("Manage provider", { exact: true }).click();
+  await localCard.getByLabel(`Edit server model path ${data.provider_name}`).fill("/data/models/fixture/alternative.bin");
+  await localCard.getByLabel("Provider enabled").check();
+  await localCard.getByRole("button", { name: "Save provider" }).click();
+  await expect(page.locator("#status")).toHaveText("Provider saved");
+  const updatedLocal = (await (await request.get("/api/mobile/providers", { headers })).json()).find((provider) => provider.id === local.id);
+  expect(updatedLocal.base_url).toBe("/data/models/fixture/alternative.bin");
+  const stale = await request.post("/api/mobile/providers/update", { headers, data: { id: local.id, expected: localExpected, fields: { ...localExpected, name: "stale local edit" } } });
+  expect(stale.status()).toBe(409);
   await expect(page.locator("#bindingModel").locator(`option[value="${registered.model_definition.id}"]`)).toHaveCount(0);
   async function agents(action, arguments_) {
     const response = await request.post("/api/mcp", { headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` },
@@ -1186,8 +1365,12 @@ test("browser streams Anthropic text and preserves errors and usage", async ({ p
   await expect(page.locator("#status")).not.toContainText("private-anthropic-fixture");
   await expect(page.locator("#chatConversation .assistant").nth(-2)).toContainText("Response incomplete");
   await expect(page.locator("#chatConversation .assistant").last()).toContainText("Anthropic stream returned an error");
+  await page.locator("#chatComposer").fill("initial content");
+  await page.locator("#chatSendButton").click();
+  await expect(page.locator("#status")).toContainText("initial message contains unsupported content");
+  await expect(page.locator("#chatConversation .assistant").last()).toContainText("initial message contains unsupported content");
   const calls = (await (await request.get("/api/mobile/model-calls?limit=100", { headers })).json()).filter((call) => call.provider_id === provider.id);
-  expect(calls.map((call) => call.status).sort()).toEqual(["completed", "failed", "failed", "failed"]);
+  expect(calls.map((call) => call.status).sort()).toEqual(["completed", "failed", "failed", "failed", "failed"]);
   expect(calls.find((call) => call.status === "completed")).toMatchObject({ token_count_input: 17, token_count_output: 3 });
 });
 
@@ -1728,7 +1911,7 @@ test("browser manages agent definitions and detects conflicts", async ({ page, r
   await page.locator("#saveButton").click();
   await page.getByRole("button", { name: "Agents", exact: true }).click();
   await expect(page.getByText("An empty allowed-tools list uses the default repository tools", { exact: false })).toBeVisible();
-  await expect(page.getByText("Prompt template references are stored but are not currently applied", { exact: false })).toBeVisible();
+  await expect(page.getByText("Older references remain inactive metadata", { exact: false }).first()).toBeVisible();
   const createForm = page.locator("#createAgentEditor");
   await createForm.getByLabel("Agent name", { exact: true }).fill(fields.name);
   await createForm.getByLabel("Agent role", { exact: true }).fill(fields.role);
@@ -1871,6 +2054,58 @@ test("browser edits and resets stage routing without overwriting concurrent chan
   expect((await mcp("list_workflow_stage_policies", {})).some((item) => item.stage_name === "coding")).toBe(false);
 });
 
+test("MCP workflow start respects team capacity without leaving a phantom run", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  test.setTimeout(180000);
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const mcpHeaders = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  async function post(path, data) {
+    const response = await request.post(path, { headers, data });
+    expect(response.ok(), await response.text()).toBeTruthy();
+    return response.json();
+  }
+  async function call(name, action, args) {
+    const response = await request.post("/api/mcp", { headers: mcpHeaders,
+      data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: { action, arguments: args } } } });
+    return (await response.json()).result;
+  }
+  async function mcp(name, action, args) {
+    const result = await call(name, action, args);
+    expect(result.isError, JSON.stringify(result)).not.toBeTruthy();
+    return result.structuredContent.result;
+  }
+  await request.post("http://127.0.0.1:19876/workflow/reset");
+  const provider = await post("/api/mobile/providers", { name: "Capacity provider", base_url: process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/workflow/v1") });
+  const model = await post("/api/mobile/models", { provider_id: provider.id, name: "browser-test-model" });
+  const agents = await (await request.get("/api/mobile/agents", { headers })).json();
+  for (const agent of agents.filter((a) => a.enabled && a.employment_status === "active"))
+    await post("/api/mobile/agent-model-bindings", { agent_id: agent.id, model_id: model.id });
+  await mcp("aruvi_settings", "set_setting", { key: "workflow.auto_start_after_work_item_approval", value: "false" });
+  await mcp("aruvi_settings", "set_setting", { key: "workflow.auto_approve_plan", value: "false" });
+  const product = await post("/api/mobile/products", { name: "Team capacity fixture" });
+  const repository = await post("/api/mobile/repositories", { name: "Capacity fixture repository", local_path: process.env.ARUVI_TEST_REPOSITORY_PATH });
+  await post("/api/mobile/repository-attachments", { product_id: product.id, repository_id: repository.id });
+  const team = await post("/api/mobile/teams", { name: "Capacity fixture team", department: "", description: "", enabled: true, max_concurrent_workflows: 1 });
+  await post("/api/mobile/team-assignments", { team_id: team.id, product_id: product.id, scope_type: "product", scope_id: product.id });
+  const first = await mcp("aruvi_work_items", "create_work_item", { product_id: product.id, title: "First capacity work", work_item_type: "task" });
+  const second = await mcp("aruvi_work_items", "create_work_item", { product_id: product.id, title: "Second capacity work", work_item_type: "task" });
+  for (const item of [first, second]) await mcp("aruvi_checkpoints", "approve_work_item", { work_item_id: item.id });
+  const started = await mcp("aruvi_workflows", "start_work_item_workflow", { work_item_id: first.id });
+  const firstDelivery = await (await request.get(`/api/mobile/work-items/${first.id}/delivery`, { headers })).json();
+  expect(firstDelivery.workflow_run.id).toBe(started.workflow_run_id);
+  expect(firstDelivery.workflow_run.assigned_team_id).toBe(team.id);
+  const rejected = await call("aruvi_workflows", "start_work_item_workflow", { work_item_id: second.id });
+  expect(rejected.isError).toBeTruthy();
+  expect(JSON.stringify(rejected.content)).toContain("at capacity");
+  const blockedDelivery = await (await request.get(`/api/mobile/work-items/${second.id}/delivery`, { headers })).json();
+  expect(blockedDelivery.workflow_run).toBeNull();
+  await mcp("aruvi_agents", "update_agent_team", { id: team.id, max_concurrent_workflows: 2 });
+  const retried = await mcp("aruvi_workflows", "start_work_item_workflow", { work_item_id: second.id });
+  const secondDelivery = await (await request.get(`/api/mobile/work-items/${second.id}/delivery`, { headers })).json();
+  expect(secondDelivery.workflow_run.id).toBe(retried.workflow_run_id);
+  expect(secondDelivery.workflow_run.assigned_team_id).toBe(team.id);
+});
+
 test("workflow replaces a disabled coordinator before the next review", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
   test.setTimeout(180000);
@@ -1926,6 +2161,50 @@ test("workflow replaces a disabled coordinator before the next review", async ({
   await expect(page.locator("#deliveryStatus")).toHaveText("pending plan approval", { timeout: 60000 });
   const before = await (await request.get(`/api/mobile/work-items/${work.id}/delivery`, { headers })).json();
   const initialRuns = await mcp("aruvi_workflows", "list_agent_runs_for_workflow", { workflow_run_id: before.workflow_run.id });
+  expect((await request.get(`/api/mobile/workflows/${before.workflow_run.id}/history`)).status()).toBe(401);
+  const history = await mcp("aruvi_workflows", "get_workflow_history", { workflow_run_id: before.workflow_run.id });
+  const browserHistory = await (await request.get(`/api/mobile/workflows/${before.workflow_run.id}/history`, { headers })).json();
+  expect(browserHistory.map((entry) => entry.id)).toEqual(history.map((entry) => entry.id));
+  expect(history.length).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Review workflow stages" }).click();
+  await expect(page.locator("#deliveryDetails").getByRole("button", { name: "Lead merge", exact: true })).toContainText("Current");
+  await page.getByLabel("Workflow stage").selectOption(history[0].to_stage);
+  await expect(page.locator("#deliveryDetails")).toContainText(`${history[0].from_stage} → ${history[0].to_stage}`);
+  await page.locator("#deliveryDetails").getByRole("button", { name: "Coding", exact: true }).click();
+  await expect(page.getByLabel("Workflow stage")).toHaveValue("coding");
+  await expect(page.locator("#deliveryDetails").getByRole("button", { name: "Coding", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByText("Show workflow diagram", { exact: true }).click();
+  const diagram = page.locator("#deliveryDetails svg[aria-hidden=true]");
+  await expect(diagram.locator("line")).toHaveCount(27);
+  await expect(diagram.locator('line[x1="492"]')).toHaveCount(4);
+  await expect(diagram.locator('line[x2="838"]')).toHaveCount(4);
+  await expect(diagram.locator('line[x1="1282"]')).toHaveCount(6);
+  await expect(diagram.locator('line[x2="1838"]')).toHaveCount(6);
+  await page.locator("#deliveryDetails").getByRole("button", { name: "Integration plan", exact: true }).click();
+  await expect(diagram.locator('[data-graph-node="integration_test_plan"] rect')).toHaveAttribute("stroke", "#8ecbff");
+  await page.locator("#deliveryDetails").getByRole("button", { name: "Coding", exact: true }).click();
+  await page.getByLabel("Focus diagram on selected stage").check();
+  await expect(diagram).toHaveAttribute("viewBox", "760 0 600 260");
+  await page.locator("#deliveryDetails").getByRole("button", { name: "Done", exact: true }).click();
+  await expect(diagram).toHaveAttribute("viewBox", "1880 0 600 260");
+  expect((await request.get(`/api/mobile/workflows/${before.workflow_run.id}/agent-runs`)).status()).toBe(401);
+  const browserRuns = await (await request.get(`/api/mobile/workflows/${before.workflow_run.id}/agent-runs`, { headers })).json();
+  expect(browserRuns.map((run) => run.id)).toEqual(initialRuns.map((run) => run.id));
+  expect((await request.get(`/api/mobile/workflows/${before.workflow_run.id}/model-calls`)).status()).toBe(401);
+  const calls = await mcp("aruvi_workflows", "list_agent_model_calls_for_workflow", { workflow_run_id: before.workflow_run.id });
+  expect(calls.length).toBeGreaterThan(0);
+  expect(calls.every((call) => call.workflow_run_id === before.workflow_run.id)).toBe(true);
+  if (calls[0].stage) {
+    await page.getByLabel("Workflow stage").selectOption(calls[0].stage);
+    await expect(page.locator("#deliveryDetails")).toContainText(calls[0].model_name);
+  }
+  expect(await mcp("aruvi_workflows", "list_agent_model_calls_for_workflow", { workflow_run_id: "nonexistent-workflow" })).toEqual([]);
+  const browserCalls = await (await request.get(`/api/mobile/workflows/${before.workflow_run.id}/model-calls`, { headers })).json();
+  expect(browserCalls.map((call) => call.id)).toEqual(calls.map((call) => call.id));
+  await page.getByRole("button", { name: "Show workflow model calls" }).click();
+  await expect(page.locator("#deliveryDetails")).toContainText(calls[0].model_name);
+  await expect(page.locator("#deliveryDetails")).toContainText("Source: per-call telemetry");
+  await expect(page.locator("#deliveryDetails")).toContainText(`Calls: ${calls.length}`);
   expect(initialRuns.filter((run) => run.stage === "coordinator_review").length).toBeGreaterThanOrEqual(2);
   expect(initialRuns.filter((run) => run.stage === "coordinator_review").every((run) => run.agent_id === first.id)).toBe(true);
   await mcp("aruvi_agents", "update_agent_definition", { id: first.id, enabled: false });
@@ -2113,6 +2392,18 @@ test("browser reviews and updates server database settings", async ({ page, requ
   await expect(page.locator("#databaseMigrations")).toContainText("applied");
   page.on("dialog", (dialog) => dialog.accept());
   await page.locator("#databaseOverride").fill("/tmp/isolated-new-database.db");
+  const other = await request.post("/api/mcp", {
+    headers: { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}`, Accept: "application/json, text/event-stream" },
+    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "aruvi_settings", arguments: { action: "set_database_path_override", arguments: { db_path: "/tmp/concurrent-database.db" } } } },
+  });
+  expect((await other.json()).result.isError).not.toBeTruthy();
+  const conflict = page.waitForResponse(response => response.url().endsWith("/api/mobile/database-settings") && response.request().method() === "POST");
+  await page.locator("#saveDatabaseOverride").click();
+  expect((await conflict).status()).toBe(409);
+  await expect(page.locator("#databaseOverride")).toHaveValue("/tmp/isolated-new-database.db");
+  await page.getByRole("button", { name: "Discard draft and reload" }).click();
+  await expect(page.locator("#databaseOverride")).toHaveValue("/tmp/concurrent-database.db");
+  await page.locator("#databaseOverride").fill("/tmp/isolated-new-database.db");
   await page.locator("#saveDatabaseOverride").click();
   await expect.poll(async () => (await (await request.get("/api/mobile/database-settings", { headers })).json()).override_path).toBe("/tmp/isolated-new-database.db");
   const after = await (await request.get("/api/mobile/database-settings", { headers })).json();
@@ -2161,6 +2452,10 @@ test("agent model inspection reports bindings and discovery in browser and MCP",
 
 test("transcription language format is configurable across browser and MCP", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  if (process.env.ARUVI_TEST_REMOTE_HTML_SOURCE === "1") {
+    const html = readFileSync("src-tauri/src/services/remote_app.html", "utf8");
+    await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
+  }
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
   const base_url = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/array-voice/v1");
   const created = await request.post("/api/mobile/providers", { headers, data: { name: "Array voice fixture", base_url } });
@@ -2195,6 +2490,10 @@ test("transcription language format is configurable across browser and MCP", asy
 
 test("provider streaming usage is opt-in across browser and MCP", async ({ page, request }) => {
   test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  if (process.env.ARUVI_TEST_REMOTE_HTML_SOURCE === "1") {
+    const html = readFileSync("src-tauri/src/services/remote_app.html", "utf8");
+    await page.route("**/remote", (route) => route.fulfill({ contentType: "text/html", body: html }));
+  }
   const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
   const base = process.env.ARUVI_TEST_MODEL_URL.replace(/\/v1\/?$/, "/usage/v1");
   const created = await request.post("/api/mobile/providers", { headers, data: { name: "Usage fixture", base_url: base } });
@@ -2309,4 +2608,242 @@ test("browser Twilio settings mask credentials and reject stale rotation", async
   const unsafe = await request.get("/api/mobile/twilio-settings", { headers });
   expect(unsafe.status()).toBe(409);
   expect(await unsafe.text()).not.toContain("private-legacy-secret");
+});
+
+test("browser continuous voice conversation uses Studio transcription and chat", async ({ page, request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server and simulated provider");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MOBILE_API_TOKEN}` };
+  const created = await request.post("/api/mobile/providers", { headers, data: { name: "Continuous voice fixture", base_url: process.env.ARUVI_TEST_MODEL_URL } });
+  expect(created.ok()).toBeTruthy();
+  const provider = await created.json();
+  const model = await request.post("/api/mobile/models", { headers, data: { provider_id: provider.id, name: "browser-test-model" } });
+  expect(model.ok()).toBeTruthy();
+  await page.addInitScript(() => {
+    window.fixtureVoiceMicCalls = 0; window.fixtureVoiceStops = 0;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => {
+      window.fixtureVoiceMicCalls++;
+      return { getTracks: () => [{ stop() { window.fixtureVoiceStops++; } }] };
+    } } });
+    window.AudioContext = class {
+      constructor() { this.sampleRate = 16000; this.destination = {}; }
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() { return { connect() {
+        if (window.fixtureVoiceMicCalls !== 1) return;
+        // A short answer occupies 200 ms in one real-sized capture buffer.
+        setTimeout(() => { const shortAnswer = new Float32Array(4096); shortAnswer.fill(0.5, 0, 3200); for (const chunk of [shortAnswer, ...Array.from({ length: 5 }, () => new Float32Array(4096))]) this.onaudioprocess({ inputBuffer: { getChannelData: () => chunk }, outputBuffer: { getChannelData: () => new Float32Array(chunk.length) } }); }, 30);
+      }, disconnect() {} }; }
+      async close() {}
+    };
+    window.SpeechSynthesisUtterance = class { constructor(text) { this.text = text; } };
+    Object.defineProperty(window, "speechSynthesis", { configurable: true, value: { cancel() {}, speak(utterance) { window.fixtureVoiceFinishSpeech = () => utterance.onend(); } } });
+  });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#providerInput").fill(provider.id);
+  await page.locator("#modelInput").fill("browser-test-model");
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await expect(page.getByLabel("Transcription provider", { exact: true }).locator(`option[value="${provider.id}"]`)).toHaveCount(1);
+  await page.getByLabel("Transcription provider", { exact: true }).selectOption(provider.id);
+  await page.getByLabel("Transcription model", { exact: true }).fill("synthetic-stt-model");
+  await page.getByLabel("Speech locale", { exact: true }).fill("en-US");
+  await page.getByRole("button", { name: "Start voice conversation" }).click();
+  await expect(page.locator("#voiceConversation")).toContainText("Synthetic microphone transcript");
+  await expect(page.locator("#voiceConversation")).toContainText("Container provider reply");
+  expect(await page.evaluate(() => window.fixtureVoiceMicCalls)).toBe(1);
+  await page.evaluate(() => window.fixtureVoiceFinishSpeech());
+  await expect.poll(() => page.evaluate(() => window.fixtureVoiceMicCalls)).toBe(2);
+  await page.getByRole("button", { name: "End voice conversation" }).click();
+  await expect(page.getByRole("button", { name: "Start voice conversation" })).toBeEnabled();
+  expect(await page.evaluate(() => window.fixtureVoiceStops)).toBe(2);
+});
+
+test("continuous voice discards a silent capture", async ({ page }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable Studio server");
+  await page.addInitScript(() => {
+    window.fixtureSilentMicCalls = 0; window.fixtureSilentStops = 0;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => {
+      window.fixtureSilentMicCalls++;
+      return { getTracks: () => [{ stop() { window.fixtureSilentStops++; } }] };
+    } } });
+    window.AudioContext = class {
+      constructor() { this.sampleRate = 16000; this.destination = {}; }
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() { return { connect() {
+        if (window.fixtureSilentMicCalls !== 1) return;
+        setTimeout(() => { const chunk = new Float32Array(288000); this.onaudioprocess({ inputBuffer: { getChannelData: () => chunk }, outputBuffer: { getChannelData: () => new Float32Array(chunk.length) } }); }, 30);
+      }, disconnect() {} }; }
+      async close() {}
+    };
+  });
+  let transcriptions = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/api/mobile/speech/transcribe")) transcriptions++; });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.getByRole("button", { name: "Start voice conversation" }).click();
+  await expect.poll(() => page.evaluate(() => window.fixtureSilentMicCalls)).toBe(2);
+  expect(transcriptions).toBe(0);
+  await page.getByRole("button", { name: "End voice conversation" }).click();
+  await expect(page.getByRole("button", { name: "Start voice conversation" })).toBeEnabled();
+  expect(await page.evaluate(() => window.fixtureSilentStops)).toBe(2);
+});
+
+test("continuous voice reports a context that remains suspended", async ({ page }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable Studio server");
+  await page.addInitScript(() => {
+    window.suspendedStops = 0; window.suspendedCloses = 0;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() { window.suspendedStops++; } }] }) } });
+    window.AudioContext = class {
+      constructor() { this.state = "suspended"; this.sampleRate = 16000; this.destination = {}; }
+      async resume() {}
+      async close() { window.suspendedCloses++; }
+    };
+  });
+  let transcriptions = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/api/mobile/speech/transcribe")) transcriptions++; });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.getByRole("button", { name: "Start voice conversation" }).click();
+  await expect(page.locator("#voiceMeta")).toHaveText("Microphone audio could not start in this browser.");
+  await expect(page.getByRole("button", { name: "Start voice conversation" })).toBeEnabled();
+  expect(await page.evaluate(() => [window.suspendedStops, window.suspendedCloses])).toEqual([1, 1]);
+  expect(transcriptions).toBe(0);
+});
+
+test("continuous voice releases a microphone while audio resume is pending", async ({ page }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable Studio server");
+  await page.addInitScript(() => {
+    window.pendingVoiceStops = 0; window.pendingVoiceCloses = 0; window.pendingVoiceResumes = 0;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() { window.pendingVoiceStops++; } }] }) } });
+    window.AudioContext = class {
+      constructor() { this.state = "suspended"; this.sampleRate = 16000; this.destination = {}; }
+      resume() { window.pendingVoiceResumes++; return new Promise((resolve) => { window.finishVoiceResume = resolve; }); }
+      async close() { window.pendingVoiceCloses++; }
+    };
+  });
+  let transcriptions = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/api/mobile/speech/transcribe")) transcriptions++; });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.getByRole("button", { name: "Start voice conversation" }).click();
+  await expect.poll(() => page.evaluate(() => window.pendingVoiceResumes)).toBe(1);
+  await page.getByRole("button", { name: "End voice conversation" }).click();
+  await expect(page.getByRole("button", { name: "Start voice conversation" })).toBeEnabled();
+  expect(await page.evaluate(() => [window.pendingVoiceStops, window.pendingVoiceCloses])).toEqual([1, 1]);
+  await page.evaluate(() => window.finishVoiceResume());
+  await expect(page.locator("#voiceMeta")).toHaveText("Voice conversation stopped.");
+  expect(transcriptions).toBe(0);
+});
+
+test("browser navigation discards manual voice capture", async ({ page }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable Studio server");
+  await page.addInitScript(() => {
+    window.fixtureManualStops = 0;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() { window.fixtureManualStops++; } }] }) } });
+    window.AudioContext = class {
+      constructor() { this.sampleRate = 16000; this.destination = {}; }
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() { return { connect() {}, disconnect() {} }; }
+      async close() {}
+    };
+  });
+  let transcriptions = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/api/mobile/speech/transcribe")) transcriptions++; });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.locator("#voiceRecordButton").click();
+  await expect(page.locator("#voiceRecordButton")).toHaveText("Stop");
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.fixtureManualStops)).toBe(1);
+  expect(transcriptions).toBe(0);
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await expect(page.locator("#voiceMeta")).toHaveText("Recording discarded.");
+});
+
+test("manual voice resumes suspended audio and releases it when navigation interrupts resume", async ({ page }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable Studio server");
+  await page.addInitScript(() => {
+    window.manualResumes = 0; window.manualStops = 0; window.manualCloses = 0;
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: async () => ({ getTracks: () => [{ stop() { window.manualStops++; } }] }) } });
+    window.AudioContext = class {
+      constructor() { this.state = "suspended"; this.sampleRate = 16000; this.destination = {}; }
+      resume() {
+        window.manualResumes++;
+        if (window.manualResumes === 1) { this.state = "running"; return Promise.resolve(); }
+        if (window.manualResumes === 2) return new Promise((resolve) => { window.finishManualResume = resolve; });
+        return Promise.resolve(); // Simulate a browser that remains suspended.
+      }
+      createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
+      createScriptProcessor() { return { connect() {}, disconnect() {} }; }
+      async close() { window.manualCloses++; }
+    };
+  });
+  let transcriptions = 0;
+  page.on("request", (request) => { if (request.url().endsWith("/api/mobile/speech/transcribe")) transcriptions++; });
+  await page.goto("/remote");
+  await page.locator("#tokenInput").fill(process.env.ARUVI_MOBILE_API_TOKEN);
+  await page.locator("#saveButton").click();
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.locator("#voiceRecordButton").click();
+  await expect(page.locator("#voiceRecordButton")).toHaveText("Stop");
+  expect(await page.evaluate(() => window.manualResumes)).toBe(1);
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.manualStops)).toBe(1);
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await page.locator("#voiceRecordButton").click();
+  await expect.poll(() => page.evaluate(() => window.manualResumes)).toBe(2);
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.manualStops)).toBe(2);
+  await expect.poll(() => page.evaluate(() => window.manualCloses)).toBe(2);
+  await page.evaluate(() => window.finishManualResume());
+  await page.getByRole("button", { name: "Voice", exact: true }).click();
+  await expect(page.locator("#voiceRecordButton")).toHaveText("Record");
+  await expect(page.locator("#voiceMeta")).toHaveText("Recording discarded.");
+  await page.locator("#voiceRecordButton").click();
+  await expect(page.locator("#voiceMeta")).toHaveText("Microphone audio could not start in this browser.");
+  await expect.poll(() => page.evaluate(() => window.manualStops)).toBe(3);
+  await expect.poll(() => page.evaluate(() => window.manualCloses)).toBe(3);
+  await expect(page.locator("#voiceRecordButton")).toHaveText("Record");
+  expect(transcriptions).toBe(0);
+});
+
+test("MCP exposes scoped work summaries and attachment inventory", async ({ request }) => {
+  test.skip(process.env.ARUVI_ISOLATED_WORKFLOW !== "1", "Requires a disposable server");
+  const headers = { Authorization: `Bearer ${process.env.ARUVI_MCP_API_TOKEN}` };
+  const invoke = async (name, arguments_) => {
+    const response = await request.post("/api/mcp", { headers, data: {
+      jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: arguments_ },
+    } });
+    expect(response.ok()).toBeTruthy();
+    const rpc = (await response.json()).result;
+    expect(rpc.isError).not.toBeTruthy();
+    return rpc.structuredContent.result;
+  };
+  const discovery = await request.post("/api/mcp", { headers, data: { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} } });
+  const names = (await discovery.json()).result.tools.map((tool) => tool.name);
+  expect(names).toContain("work_items.summarize_by_scope");
+  expect(names).toContain("repositories.attachments.list_all");
+  const product = await invoke("catalog.products.create", { name: "MCP scoped summary fixture" });
+  const other = await invoke("catalog.products.create", { name: "Other summary fixture" });
+  await invoke("work_items.create", { productId: product.id, title: "Scoped task", workItemType: "task" });
+  await invoke("work_items.create", { productId: other.id, title: "Other task", workItemType: "task" });
+  const rows = await invoke("work_items.summarize_by_scope", { productId: product.id });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ product_id: product.id, total_count: 1 });
+  expect(await invoke("aruvi_work_items", { action: "summarize_work_items_by_scope", arguments: { product_id: product.id } })).toEqual(rows);
+  const all = await invoke("work_items.summarize_by_scope", {});
+  expect(all.some((row) => row.product_id === product.id)).toBeTruthy();
+  expect(all.some((row) => row.product_id === other.id)).toBeTruthy();
+  await invoke("repositories.workspaces.create_for_scope", { productId: product.id, preferredPath: "/repositories/mcp-scope-summary-fixture" });
+  const attachments = await invoke("repositories.attachments.list_all", {});
+  expect(attachments.some((row) => row.scope_type === "product" && row.scope_id === product.id)).toBeTruthy();
+  expect(await invoke("aruvi_repositories", { action: "list_all_repository_attachments", arguments: {} })).toEqual(attachments);
 });

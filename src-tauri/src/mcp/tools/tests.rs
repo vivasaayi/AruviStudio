@@ -69,6 +69,139 @@ async fn create_test_work_item(state: &AppState, id: &str, product_id: &str, tit
 }
 
 #[tokio::test]
+async fn catalog_exposes_desktop_capability_reads_and_tree_summary() {
+    let state = create_test_state("catalog_read_parity").await;
+    create_test_product(&state, "catalog-product-a").await;
+    create_test_product(&state, "catalog-product-b").await;
+    let area = dispatch_tool(&state, "catalog.product_areas.create", json!({
+        "productId": "catalog-product-a", "name": "Inventory"
+    })).await.unwrap();
+    let area_id = area["result"]["id"].as_str().unwrap();
+    let capability = dispatch_tool(&state, "catalog.capabilities.create", json!({
+        "productAreaId": area_id, "name": "Stock", "nodeKind": "capability"
+    })).await.unwrap();
+    let capability_id = capability["result"]["id"].as_str().unwrap();
+    let feature = dispatch_tool(&state, "catalog.capabilities.create", json!({
+        "productAreaId": area_id, "parentCapabilityId": capability_id,
+        "name": "Updates", "nodeKind": "feature"
+    })).await.unwrap();
+    let feature_id = feature["result"]["id"].as_str().unwrap();
+
+    let get = dispatch_tool(&state, "catalog.capabilities.get", json!({"id": feature_id})).await.unwrap();
+    assert_eq!(get["result"]["id"], feature_id);
+    let legacy_get = dispatch_tool(&state, "aruvi_catalog", json!({
+        "action": "get_capability", "arguments": {"id": feature_id}
+    })).await.unwrap();
+    assert_eq!(get["result"], legacy_get["result"]);
+    assert!(dispatch_tool(&state, "catalog.capabilities.get", json!({"id": "missing"})).await.is_err());
+
+    let list = dispatch_tool(&state, "catalog.capabilities.list_for_product", json!({"productId": "catalog-product-a"})).await.unwrap();
+    let rows = list["result"].as_array().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0]["id"], capability_id);
+    assert_eq!(rows[1]["id"], feature_id);
+    let legacy_list = dispatch_tool(&state, "aruvi_catalog", json!({
+        "action": "list_product_capabilities", "arguments": {"product_id": "catalog-product-a"}
+    })).await.unwrap();
+    assert_eq!(list["result"], legacy_list["result"]);
+    let other = dispatch_tool(&state, "aruvi_catalog", json!({
+        "action": "list_product_capabilities", "arguments": {"product_id": "catalog-product-b"}
+    })).await.unwrap();
+    assert!(other["result"].as_array().unwrap().is_empty());
+
+    let summary = dispatch_tool(&state, "catalog.products.summarize_tree", json!({"productId": "catalog-product-a"})).await.unwrap();
+    assert_eq!(summary["result"]["product_area_count"], 1);
+    assert_eq!(summary["result"]["capability_count"], 2);
+    assert_eq!(summary["result"]["leaf_node_count"], 1);
+    let legacy_summary = dispatch_tool(&state, "aruvi_catalog", json!({
+        "action": "summarize_product_tree", "arguments": {"product_id": "catalog-product-a"}
+    })).await.unwrap();
+    assert_eq!(summary["result"], legacy_summary["result"]);
+    assert!(dispatch_tool(&state, "catalog.products.summarize_tree", json!({"productId": "missing"})).await.is_err());
+}
+
+#[tokio::test]
+async fn mcp_exposes_scope_summaries_and_all_repository_attachments() {
+    let state = create_test_state("scope_and_attachment_read_parity").await;
+    create_test_product(&state, "scope-product-a").await;
+    create_test_product(&state, "scope-product-b").await;
+    create_test_work_item(&state, "scope-work-a", "scope-product-a", "First").await;
+    create_test_work_item(&state, "scope-work-b", "scope-product-b", "Second").await;
+    crate::persistence::repository_repo::create_repository(&state.db, "scope-repo", "Workspace", "/tmp/scope-fixture", "", "main").await.unwrap();
+    crate::persistence::repository_repo::attach_repository(&state.db, "scope-attachment", "product", "scope-product-a", "scope-repo", true).await.unwrap();
+
+    let scoped = dispatch_tool(&state, "work_items.summarize_by_scope", json!({"productId": "scope-product-a"})).await.unwrap();
+    let rows = scoped["result"].as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["product_id"], "scope-product-a");
+    assert_eq!(rows[0]["total_count"], 1);
+    let legacy = dispatch_tool(&state, "aruvi_work_items", json!({
+        "action": "summarize_work_items_by_scope", "arguments": {"product_id": "scope-product-a"}
+    })).await.unwrap();
+    assert_eq!(legacy["result"], scoped["result"]);
+    let all = dispatch_tool(&state, "work_items.summarize_by_scope", json!({})).await.unwrap();
+    let all_rows = all["result"].as_array().unwrap();
+    assert!(all_rows.iter().any(|row| row["product_id"] == "scope-product-a"));
+    assert!(all_rows.iter().any(|row| row["product_id"] == "scope-product-b"));
+
+    let attachments = dispatch_tool(&state, "repositories.attachments.list_all", json!({})).await.unwrap();
+    let attachment_rows = attachments["result"].as_array().unwrap();
+    assert_eq!(attachment_rows.len(), 1);
+    assert_eq!(attachment_rows[0]["id"], "scope-attachment");
+    assert_eq!(attachment_rows[0]["scope_id"], "scope-product-a");
+    let legacy_attachments = dispatch_tool(&state, "aruvi_repositories", json!({
+        "action": "list_all_repository_attachments", "arguments": {}
+    })).await.unwrap();
+    assert_eq!(legacy_attachments["result"], attachments["result"]);
+}
+
+#[tokio::test]
+async fn mcp_reviewed_patch_rejects_changed_workspace_and_file() {
+    let state = create_test_state("reviewed_patch_workspace_parity").await;
+    let first = state.app_data_dir.join("first-workspace");
+    let second = state.app_data_dir.join("second-workspace");
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    std::fs::write(first.join("sample.txt"), "original\n").unwrap();
+    std::fs::write(second.join("sample.txt"), "original\n").unwrap();
+    let first_root = first.to_str().unwrap();
+    let second_root = second.to_str().unwrap();
+    crate::persistence::repository_repo::create_repository(&state.db, "review-repo", "Review", first_root, "", "main").await.unwrap();
+    let patch = "@@ -1 +1 @@\n-original\n+updated\n";
+
+    let read = dispatch_tool(&state, "repositories.files.read", json!({"repositoryId":"review-repo", "relativePath":"sample.txt"})).await.unwrap();
+    assert_eq!(read["result"]["workspace_root"], first_root);
+    assert_eq!(read["result"]["content"], "original\n");
+    assert!(dispatch_tool(&state, "repositories.files.preview_patch", json!({"repositoryId":"review-repo", "relativePath":"sample.txt", "patch":patch})).await.is_err());
+    let preview = dispatch_tool(&state, "repositories.files.preview_patch", json!({"repositoryId":"review-repo", "relativePath":"sample.txt", "patch":patch, "expectedRoot":first_root})).await.unwrap();
+    assert_eq!(preview["result"]["workspace_root"], first_root);
+    assert_eq!(preview["result"]["result_content"], "updated\n");
+    let legacy_preview = dispatch_tool(&state, "aruvi_repositories", json!({"action":"preview_repository_patch", "arguments":{"repository_id":"review-repo", "relative_path":"sample.txt", "patch":patch}})).await.unwrap();
+    assert_eq!(legacy_preview["result"], preview["result"]);
+    let base = preview["result"]["base_sha256"].as_str().unwrap();
+    let reviewed = json!({"repositoryId":"review-repo", "relativePath":"sample.txt", "patch":patch, "baseSha256":base, "expectedExists":true, "expectedRoot":first_root});
+    let mut missing_root = reviewed.clone();
+    missing_root.as_object_mut().unwrap().remove("expectedRoot");
+    assert!(dispatch_tool(&state, "repositories.files.apply_reviewed_patch", missing_root).await.is_err());
+
+    sqlx::query("UPDATE repositories SET local_path=? WHERE id=?").bind(second_root).bind("review-repo").execute(&state.db).await.unwrap();
+    assert!(dispatch_tool(&state, "repositories.files.read", json!({"repositoryId":"review-repo", "relativePath":"sample.txt", "expectedRoot":first_root})).await.is_err());
+    assert!(dispatch_tool(&state, "repositories.files.preview_patch", json!({"repositoryId":"review-repo", "relativePath":"sample.txt", "patch":patch, "expectedRoot":first_root})).await.is_err());
+    assert!(dispatch_tool(&state, "repositories.files.apply_reviewed_patch", reviewed.clone()).await.is_err());
+    assert_eq!(std::fs::read_to_string(second.join("sample.txt")).unwrap(), "original\n");
+
+    sqlx::query("UPDATE repositories SET local_path=? WHERE id=?").bind(first_root).bind("review-repo").execute(&state.db).await.unwrap();
+    std::fs::write(first.join("sample.txt"), "changed elsewhere\n").unwrap();
+    assert!(dispatch_tool(&state, "repositories.files.apply_reviewed_patch", reviewed.clone()).await.is_err());
+    assert_eq!(std::fs::read_to_string(first.join("sample.txt")).unwrap(), "changed elsewhere\n");
+    std::fs::write(first.join("sample.txt"), "original\n").unwrap();
+    dispatch_tool(&state, "repositories.files.apply_reviewed_patch", reviewed).await.unwrap();
+    assert_eq!(std::fs::read_to_string(first.join("sample.txt")).unwrap(), "updated\n");
+    let legacy = dispatch_tool(&state, "aruvi_repositories", json!({"action":"read_repository_file", "arguments":{"repository_id":"review-repo", "relative_path":"sample.txt"}})).await.unwrap();
+    assert_eq!(legacy["result"]["content"], "updated\n");
+}
+
+#[tokio::test]
 async fn work_items_list_supports_opt_in_pagination_metadata() {
     let state = create_test_state("work_item_list_pagination").await;
     create_test_product(&state, "mcp-product-page").await;
@@ -336,9 +469,13 @@ async fn database_settings_use_desktop_validation_and_persist() {
     dispatch_tool(&state, "aruvi_settings", call("set_database_path_override", json!({"db_path": format!("  {path}  ")}))).await.unwrap();
     let result = dispatch_tool(&state, "aruvi_settings", call("get_database_path_override", json!({}))).await.unwrap();
     assert_eq!(result["result"]["path"], path);
+    assert!(dispatch_tool(&state, "aruvi_settings", call("set_database_path_override", json!({"db_path":"/tmp/other.db", "expected":{"path":null}}))).await.is_err());
+    assert!(dispatch_tool(&state, "aruvi_settings", call("clear_database_path_override", json!({"expected":{"path":"/tmp/stale.db"}}))).await.is_err());
+    let still = dispatch_tool(&state, "aruvi_settings", call("get_database_path_override", json!({}))).await.unwrap();
+    assert_eq!(still["result"]["path"], path);
     let health = dispatch_tool(&state, "aruvi_settings", call("get_database_health", json!({}))).await.unwrap();
     assert!(health["result"]["applied_migrations"].as_u64().unwrap() > 0);
-    dispatch_tool(&state, "aruvi_settings", call("clear_database_path_override", json!({}))).await.unwrap();
+    dispatch_tool(&state, "aruvi_settings", call("clear_database_path_override", json!({"expected":{"path":path}}))).await.unwrap();
     let cleared = dispatch_tool(&state, "aruvi_settings", call("get_database_path_override", json!({}))).await.unwrap();
     assert!(cleared["result"]["path"].is_null());
 }

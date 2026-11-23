@@ -11,6 +11,30 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
     let args = tool_action.args();
 
     match tool_action.action.as_str() {
+        "move_work_item" => {
+            let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
+            let source_id = args.required_string(&["source_id", "sourceId"], "source_id")?;
+            let offset = args.optional_i64(&["offset"])?.unwrap_or(0);
+            let items: Vec<work_item_repo::WorkOrderEntry> = args.required_deserialize(&["items"], "items")?;
+            work_item_repo::move_work_item(&state.db, &product_id, offset, &items, &source_id).await?;
+            Ok(action_ok("move_work_item"))
+        }
+        "run_external_cli" => {
+            let id = args.required_string(&["work_item_id", "workItemId"], "work_item_id")?;
+            let provider = args.required_string(&["provider"], "provider")?;
+            action_result("run_external_cli", crate::services::external_cli_service::run_remote_external_cli_for_work_item(&state.db, &state.artifact_base_path, &id, &provider).await?)
+        }
+        "list_external_cli_runs" => {
+            let id = args.required_string(&["work_item_id", "workItemId"], "work_item_id")?;
+            work_item_repo::get_work_item(&state.db, &id).await?;
+            action_result("list_external_cli_runs", crate::persistence::external_cli_repo::list_recent_external_cli_runs_for_work_item(&state.db, &id).await?)
+        }
+        "list_external_cli_events" => {
+            let id = args.required_string(&["run_id", "runId"], "run_id")?;
+            crate::persistence::external_cli_repo::get_external_cli_run(&state.db, &id).await?;
+            let limit = args.optional_i64(&["limit"])?.unwrap_or(500);
+            action_result("list_external_cli_events", crate::persistence::external_cli_repo::list_external_cli_run_events(&state.db, &id, limit).await?)
+        }
         action @ ("create_work_item" | "create_story" | "create_task") => {
             let parent_work_item_id = if action == "create_task" {
                 Some(args.required_string(
@@ -112,6 +136,7 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
             let status = args.optional_string(&["status"])?;
             let include_pagination =
                 args.bool_or_default(&["include_pagination", "includePagination"], false)?;
+            let top_level_only = args.bool_or_default(&["top_level_only", "topLevelOnly"], false)?;
             let query = work_item_repo::WorkItemListQuery {
                 product_id: product_id.as_deref(),
                 product_area_id: product_area_id.as_deref(),
@@ -123,8 +148,11 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                 offset: args.optional_i64(&["offset"])?,
             };
             if include_pagination {
-                let page =
-                    work_item_repo::list_work_items_page_with_metadata(&state.db, query).await?;
+                let page = if top_level_only {
+                    work_item_repo::list_top_level_work_items_page_with_metadata(&state.db, query).await?
+                } else {
+                    work_item_repo::list_work_items_page_with_metadata(&state.db, query).await?
+                };
                 let returned = page.items.len();
                 let next_offset = page.has_more.then_some(page.offset + page.limit);
                 action_result(
@@ -141,19 +169,35 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
                     }),
                 )
             } else {
-                action_result(
-                    "list_work_items",
-                    work_item_repo::list_work_items_page(&state.db, query).await?,
-                )
+                let items = if top_level_only {
+                    work_item_repo::list_top_level_work_items_page(&state.db, query).await?
+                } else {
+                    work_item_repo::list_work_items_page(&state.db, query).await?
+                };
+                action_result("list_work_items", items)
             }
         }
         "summarize_work_items_by_product" => action_result(
             "summarize_work_items_by_product",
             work_item_repo::summarize_work_items_by_product(&state.db).await?,
         ),
+        "summarize_work_items_by_scope" => {
+            let product_id = args.optional_string(&["product_id", "productId"])?;
+            action_result(
+                "summarize_work_items_by_scope",
+                work_item_repo::summarize_work_items_by_scope(&state.db, product_id.as_deref()).await?,
+            )
+        }
         "list_product_export_work_items" => {
             let product_id = args.required_string(&["product_id", "productId"], "product_id")?;
             action_result("list_product_export_work_items", work_item_repo::list_product_export_work_items(&state.db, &product_id).await?)
+        }
+        "assign_work_item_workspace" => {
+            let id = args.required_string(&["id", "work_item_id", "workItemId"], "id")?;
+            let repository = args.optional_string(&["repository_id", "repositoryId"])?;
+            let branch = args.optional_string(&["branch_name", "branchName"])?;
+            let expected = args.optional_deserialize::<crate::services::work_item_service::WorkspaceBaseline>(&["expected"], "expected")?;
+            action_result("assign_work_item_workspace", crate::services::work_item_service::assign_workspace(state, &id, repository.as_deref(), branch.as_deref(), expected.as_ref()).await?)
         }
         "update_work_item" => {
             let id = args.required_string(&["id"], "id")?;
@@ -182,7 +226,8 @@ pub(super) async fn handle(state: &AppState, payload: Value) -> Result<Value, Ap
         }
         "delete_work_item" => {
             let id = args.required_string(&["id"], "id")?;
-            work_item_repo::delete_work_item(&state.db, &id).await?;
+            let expected = args.optional_deserialize::<crate::services::work_item_service::WorkItemBaseline>(&["expected"], "expected")?;
+            crate::services::work_item_service::delete_work_item(state, &id, expected.as_ref()).await?;
             Ok(action_ok("delete_work_item"))
         }
         "get_sub_work_items" => {

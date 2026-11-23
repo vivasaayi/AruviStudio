@@ -31,6 +31,7 @@ pub(super) fn translate_first_class_tool(
         "catalog.products.update" => ("aruvi_catalog", "update_product"),
         "catalog.products.archive" => ("aruvi_catalog", "archive_product"),
         "catalog.products.get_tree" => ("aruvi_catalog", "get_product_tree"),
+        "catalog.products.summarize_tree" => ("aruvi_catalog", "summarize_product_tree"),
         "catalog.references.list" => ("aruvi_catalog", "list_references"),
         "catalog.references.create" => ("aruvi_catalog", "create_reference"),
         "catalog.references.delete" => ("aruvi_catalog", "delete_reference"),
@@ -42,8 +43,11 @@ pub(super) fn translate_first_class_tool(
         "catalog.product_areas.create" => ("aruvi_catalog", "create_product_area"),
         "catalog.product_areas.update" => ("aruvi_catalog", "update_product_area"),
         "catalog.product_areas.delete" => ("aruvi_catalog", "delete_product_area"),
+        "catalog.hierarchy.reorder_checked" => ("aruvi_catalog", "reorder_hierarchy_checked"),
         "catalog.product_areas.reorder" => ("aruvi_catalog", "reorder_product_areas"),
         "catalog.capabilities.list" => ("aruvi_catalog", "list_capabilities"),
+        "catalog.capabilities.list_for_product" => ("aruvi_catalog", "list_product_capabilities"),
+        "catalog.capabilities.get" => ("aruvi_catalog", "get_capability"),
         "catalog.capabilities.create" => ("aruvi_catalog", "create_capability"),
         "catalog.capabilities.update" => ("aruvi_catalog", "update_capability"),
         "catalog.capabilities.delete" => ("aruvi_catalog", "delete_capability"),
@@ -62,6 +66,7 @@ pub(super) fn translate_first_class_tool(
         "work_items.summarize_by_product" => {
             ("aruvi_work_items", "summarize_work_items_by_product")
         }
+        "work_items.summarize_by_scope" => ("aruvi_work_items", "summarize_work_items_by_scope"),
         "agent_work.runs.upsert" => ("aruvi_agent_work", "upsert_run"),
         "agent_work.runs.get" => ("aruvi_agent_work", "get_run"),
         "agent_work.runs.list" => ("aruvi_agent_work", "list_runs"),
@@ -100,6 +105,7 @@ pub(super) fn translate_first_class_tool(
         "repositories.register" => ("aruvi_repositories", "register_repository"),
         "repositories.delete" => ("aruvi_repositories", "delete_repository"),
         "repositories.attachments.create" => ("aruvi_repositories", "attach_repository"),
+        "repositories.attachments.list_all" => ("aruvi_repositories", "list_all_repository_attachments"),
         "repositories.resolution.for_work_item" => {
             ("aruvi_repositories", "resolve_repository_for_work_item")
         }
@@ -111,9 +117,12 @@ pub(super) fn translate_first_class_tool(
         }
         "repositories.trees.list" => ("aruvi_repositories", "list_repository_tree"),
         "repositories.files.read" => ("aruvi_repositories", "read_repository_file"),
+        "repositories.files.read_binary" => ("aruvi_repositories", "read_repository_binary"),
         "repositories.files.write" => ("aruvi_repositories", "write_repository_file"),
         "repositories.files.get_sha256" => ("aruvi_repositories", "get_repository_file_sha256"),
         "repositories.files.apply_patch" => ("aruvi_repositories", "apply_repository_patch"),
+        "repositories.files.preview_patch" => ("aruvi_repositories", "preview_repository_patch"),
+        "repositories.files.apply_reviewed_patch" => ("aruvi_repositories", "apply_reviewed_repository_patch"),
         "repositories.git.status" => ("aruvi_repositories", "get_git_status"),
         "repositories.git.diff" => ("aruvi_repositories", "get_git_diff"),
         "repositories.git.changed_files" => ("aruvi_repositories", "list_git_changed_files"),
@@ -130,6 +139,13 @@ pub(super) fn translate_first_class_tool(
             )))
         }
     };
+
+    if matches!(tool_name, "repositories.files.preview_patch" | "repositories.files.apply_reviewed_patch")
+        && !arguments.get("expected_root").or_else(|| arguments.get("expectedRoot"))
+            .and_then(Value::as_str).is_some_and(|root| !root.trim().is_empty())
+    {
+        return Err(AppError::Validation("A captured expectedRoot is required for reviewed patch operations".into()));
+    }
 
     Ok(Some((
         namespace_tool,

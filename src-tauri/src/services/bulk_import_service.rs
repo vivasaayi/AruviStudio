@@ -18,47 +18,65 @@ pub struct BulkImportRequest {
     pub product_id: Option<String>,
 }
 
+const MAX_INLINE_IMPORT_BYTES: usize = 1024 * 1024;
+
+enum ImportSource {
+    File(String),
+    Inline(String),
+}
+
 pub async fn submit_bulk_import(
     state: AppState,
     request: BulkImportRequest,
 ) -> Result<BulkImportJob, AppError> {
-    let import_format = resolve_format(&request.file_path, request.format.as_deref())?;
-    let job_id = uuid::Uuid::new_v4().to_string();
-    let job = bulk_import_repo::create_job(
-        &state.db,
-        &job_id,
-        request.file_path.as_str(),
-        import_format.as_str(),
-    )
-    .await?;
-    let worker_state = state.clone();
-    let worker_request = BulkImportRequest {
-        file_path: request.file_path,
-        format: Some(import_format),
-        product_id: request.product_id,
-    };
-    let worker_job_id = job.id.clone();
+    let format = resolve_format(&request.file_path, request.format.as_deref())?;
+    let label = request.file_path.clone();
+    submit_import(
+        state, label, format, request.product_id, ImportSource::File(request.file_path),
+    ).await
+}
 
+/// Submit bounded UTF-8 text from a remote client without writing a server file.
+pub async fn submit_inline_bulk_import(
+    state: AppState,
+    content: String,
+    format: String,
+    product_id: Option<String>,
+) -> Result<BulkImportJob, AppError> {
+    if content.trim().is_empty() || content.len() > MAX_INLINE_IMPORT_BYTES {
+        return Err(AppError::Validation(format!(
+            "Inline bulk import must contain between 1 and {MAX_INLINE_IMPORT_BYTES} UTF-8 bytes."
+        )));
+    }
+    let format = resolve_format("", Some(&format))?;
+    submit_import(
+        state, "<inline>".to_string(), format, product_id, ImportSource::Inline(content),
+    ).await
+}
+
+async fn submit_import(
+    state: AppState,
+    source_label: String,
+    format: String,
+    product_id: Option<String>,
+    source: ImportSource,
+) -> Result<BulkImportJob, AppError> {
+    let job_id = uuid::Uuid::new_v4().to_string();
+    let job = bulk_import_repo::create_job(&state.db, &job_id, &source_label, &format).await?;
+    let worker_state = state.clone();
+    let worker_job_id = job.id.clone();
     tokio::spawn(async move {
-        if let Err(error) =
-            run_bulk_import_job(worker_state.clone(), worker_job_id.clone(), worker_request).await
-        {
+        if let Err(error) = run_bulk_import_job(
+            worker_state.clone(), worker_job_id.clone(), source_label, format, product_id, source,
+        ).await {
             let message = error.to_string();
             error!(job_id = %worker_job_id, error = %message, "bulk import job failed");
             let _ = bulk_import_repo::add_job_error(
-                &worker_state.db,
-                &worker_job_id,
-                None,
-                "job",
-                "",
-                &message,
-            )
-            .await;
-            let _ =
-                bulk_import_repo::mark_job_failed(&worker_state.db, &worker_job_id, &message).await;
+                &worker_state.db, &worker_job_id, None, "job", "", &message,
+            ).await;
+            let _ = bulk_import_repo::mark_job_failed(&worker_state.db, &worker_job_id, &message).await;
         }
     });
-
     Ok(job)
 }
 
@@ -82,17 +100,19 @@ pub async fn list_bulk_import_jobs(
 async fn run_bulk_import_job(
     state: AppState,
     job_id: String,
-    request: BulkImportRequest,
+    source_label: String,
+    import_format: String,
+    product_id: Option<String>,
+    source: ImportSource,
 ) -> Result<(), AppError> {
-    let import_format = request
-        .format
-        .as_deref()
-        .ok_or_else(|| AppError::Validation("missing import format".to_string()))?;
-    info!(job_id = %job_id, file_path = %request.file_path, import_format = %import_format, "bulk import job started");
-    let content = tokio::fs::read_to_string(&request.file_path).await?;
-    let prepared = match import_format {
-        "json" => prepare_json_import(&content, request.product_id.as_deref())?,
-        "csv" => prepare_csv_import(&content, request.product_id.as_deref())?,
+    info!(job_id = %job_id, source = %source_label, import_format = %import_format, "bulk import job started");
+    let content = match source {
+        ImportSource::File(path) => tokio::fs::read_to_string(path).await?,
+        ImportSource::Inline(content) => content,
+    };
+    let prepared = match import_format.as_str() {
+        "json" => prepare_json_import(&content, product_id.as_deref())?,
+        "csv" => prepare_csv_import(&content, product_id.as_deref())?,
         other => {
             return Err(AppError::Validation(format!(
                 "Unsupported bulk import format '{other}'. Use json or csv."

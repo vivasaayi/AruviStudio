@@ -3,6 +3,8 @@
 import argparse
 import importlib.machinery
 import importlib.util
+import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -17,6 +19,7 @@ parser.add_argument("--credential-scope", choices=("management", "inference"), d
 parser.add_argument("--json-mode", action="store_true", help="Also test JSON-object completion on a compatible model")
 parser.add_argument("--voice-model", help="Installed speech generation model ID")
 parser.add_argument("--transcription-model", help="Installed speech transcription model ID")
+parser.add_argument("--native", action="store_true", help="Run the pinned consumer natively instead of building a Docker probe")
 args = parser.parse_args()
 if bool(args.voice_model) != bool(args.transcription_model):
     parser.error("--voice-model and --transcription-model must be supplied together")
@@ -29,14 +32,32 @@ try:
     port, token = configure.read_host(host, args.environment, args.credential_scope)
     if args.credential_scope == "inference":
         configure.verify_inference_scope(port, token)
-    with tempfile.TemporaryDirectory(prefix="aruvi-model-probe-") as directory:
-        subprocess.run(["docker", "build", "--target", "probe-artifact", "--output", f"type=local,dest={directory}", "validation/model-client-consumer"], cwd=root, check=True, stdout=subprocess.DEVNULL)
-        binary = str(Path(directory) / "host_probe")
-        options = ["--env", "ARUVI_PROBE_JSON_MODE=1"] if args.json_mode else []
-        if args.voice_model:
-            options += ["--env", f"ARUVI_PROBE_VOICE_MODEL={args.voice_model}", "--env", f"ARUVI_PROBE_TRANSCRIPTION_MODEL={args.transcription_model}"]
-        result = subprocess.run(["docker", "run", "--rm", "-i", "--read-only", "--cap-drop", "ALL", "--user", "65534:65534", "--security-opt", "no-new-privileges", "--memory", "512m", "--cpus", "1", "--pids-limit", "64", "--mount", f"type=bind,src={binary},dst=/host_probe,readonly", "--env", f"ARUVI_PROBE_BASE_URL=http://host.docker.internal:{port}/v1", "--env", f"ARUVI_PROBE_MODEL={args.model}"] + options + ["rust:1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c", "/host_probe"], input=token, text=True, capture_output=True, check=True, timeout=240)
+    if args.native:
+        manifest = root / "validation/model-client-consumer/Cargo.toml"
+        metadata = json.loads(subprocess.check_output(["cargo", "metadata", "--offline", "--locked", "--no-deps", "--format-version", "1", "--manifest-path", str(manifest)], cwd=root, text=True))
+        subprocess.run(["cargo", "build", "--offline", "--locked", "--manifest-path", str(manifest), "--bin", "host_probe"], cwd=root, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        env = os.environ.copy()
+        env.update(ARUVI_PROBE_BASE_URL=f"http://127.0.0.1:{port}/v1", ARUVI_PROBE_MODEL=args.model)
+        if args.json_mode:
+            env["ARUVI_PROBE_JSON_MODE"] = "1"
+        else:
+            env.pop("ARUVI_PROBE_JSON_MODE", None)
+        for name, value in (("ARUVI_PROBE_VOICE_MODEL", args.voice_model), ("ARUVI_PROBE_TRANSCRIPTION_MODEL", args.transcription_model)):
+            if value:
+                env[name] = value
+            else:
+                env.pop(name, None)
+        result = subprocess.run([str(Path(metadata["target_directory"]) / "debug" / "host_probe")], input=token, text=True, capture_output=True, check=True, timeout=240, env=env)
         print(result.stdout.strip())
+    else:
+        with tempfile.TemporaryDirectory(prefix="aruvi-model-probe-") as directory:
+            subprocess.run(["docker", "build", "--target", "probe-artifact", "--output", f"type=local,dest={directory}", "validation/model-client-consumer"], cwd=root, check=True, stdout=subprocess.DEVNULL)
+            binary = str(Path(directory) / "host_probe")
+            options = ["--env", "ARUVI_PROBE_JSON_MODE=1"] if args.json_mode else []
+            if args.voice_model:
+                options += ["--env", f"ARUVI_PROBE_VOICE_MODEL={args.voice_model}", "--env", f"ARUVI_PROBE_TRANSCRIPTION_MODEL={args.transcription_model}"]
+            result = subprocess.run(["docker", "run", "--rm", "-i", "--read-only", "--cap-drop", "ALL", "--user", "65534:65534", "--security-opt", "no-new-privileges", "--memory", "512m", "--cpus", "1", "--pids-limit", "64", "--mount", f"type=bind,src={binary},dst=/host_probe,readonly", "--env", f"ARUVI_PROBE_BASE_URL=http://host.docker.internal:{port}/v1", "--env", f"ARUVI_PROBE_MODEL={args.model}"] + options + ["rust:1-bookworm@sha256:e6f2cff35d0f309acf8433b4f05878ed77092602c5065cc81801177da0bb3a9c", "/host_probe"], input=token, text=True, capture_output=True, check=True, timeout=240)
+            print(result.stdout.strip())
 except subprocess.CalledProcessError as error:
     # Classify only fixed, known probe errors. Never forward arbitrary provider
     # output, request URLs, model text or credentials from the child process.

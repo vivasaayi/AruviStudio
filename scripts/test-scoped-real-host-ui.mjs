@@ -25,6 +25,17 @@ try {
       document.querySelector("#status")?.textContent === "Connected" &&
       !document.querySelector("#chatSendButton")?.disabled;
   }, fixture.expected, { timeout: 180000 });
+  await page.getByRole("button", { name: "Workspaces", exact: true }).click();
+  await page.getByLabel("Stream Copilot response").check();
+  await page.getByLabel("Copilot question").fill(fixture.prompt);
+  await page.getByRole("button", { name: "Ask Copilot", exact: true }).click();
+  await page.waitForFunction((expected) => {
+    const text = document.querySelector("#repositoryCopilotResult")?.textContent || "";
+    const answer = text.split("\nCopilot: ").at(-1) || "";
+    return text.includes("\nCopilot: ") && answer.toLowerCase().includes(expected.toLowerCase()) &&
+      !text.includes("Response incomplete") && document.querySelector("#status")?.textContent === "Copilot reply ready" &&
+      !document.querySelector("#repositoryCopilotButton")?.disabled;
+  }, fixture.expected, { timeout: 180000 });
   console.log("Disposable browser streaming completed with the scoped credential.");
 } finally {
   await browser.close();

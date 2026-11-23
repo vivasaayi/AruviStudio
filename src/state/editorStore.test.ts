@@ -56,6 +56,28 @@ describe("editorStore", () => {
     });
   });
 
+  it("keeps newer edits dirty when an earlier save completes", () => {
+    const store = useEditorStore.getState();
+    store.openFile({ id: "file-1", path: "file.txt", name: "file.txt", content: "original", workspaceRoot: "/workspace", language: "text" });
+    store.updateFileContent("file-1", "first edit");
+    store.updateFileContent("file-1", "newer edit");
+    store.markFileSaved("file-1", "first edit");
+    expect(useEditorStore.getState().openFiles[0]).toMatchObject({ content: "newer edit", savedContent: "first edit", workspaceRoot: "/workspace", isDirty: true });
+    store.updateFileContent("file-1", "first edit");
+    expect(useEditorStore.getState().openFiles[0].isDirty).toBe(false);
+  });
+
+  it("does not apply an old save completion to a reopened file", () => {
+    const store = useEditorStore.getState();
+    store.openFile({ id: "file-1", path: "file.txt", name: "file.txt", content: "old", language: "text" });
+    const oldInstance = useEditorStore.getState().openFiles[0].instanceId;
+    store.closeFile("file-1");
+    store.openFile({ id: "file-1", path: "file.txt", name: "file.txt", content: "new", language: "text" });
+    store.updateFileContent("file-1", "new edit");
+    store.markFileSaved("file-1", "old save", oldInstance);
+    expect(useEditorStore.getState().openFiles[0]).toMatchObject({ content: "new edit", savedContent: "new", isDirty: true });
+  });
+
   it("reassigns the active file when the current tab closes", () => {
     const store = useEditorStore.getState();
     store.openFile({

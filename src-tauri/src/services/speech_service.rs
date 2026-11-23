@@ -55,7 +55,7 @@ pub async fn synthesize_remote_speech(
     }
     if model.trim().eq_ignore_ascii_case(DEEPSEEK_SYNTHESIS) {
         let client = crate::services::model_service::create_deepseek_voice_client(provider)?;
-        return aruvi_model_client::ModelGateway::generate_speech(&client, aruvi_model_client::SpeechRequest {
+        return client.generate_speech(aruvi_model_client::SpeechRequest {
             model, input, voice, speed, response_format: "wav".into(),
         }).await.map_err(|error| match error {
             aruvi_model_client::ClientError::InvalidInput(message) => AppError::Validation(message),
@@ -100,24 +100,28 @@ pub(crate) async fn configured_transcription_mode(db: &sqlx::SqlitePool, provide
     parse_transcription_language_mode(raw.as_deref())
 }
 
-pub(crate) async fn transcribe_audio_with_provider_mode(
-    provider: &ModelProvider,
-    model_name: &str,
-    request: SpeechToTextRequest,
-    language_mode: aruvi_model_client::openai_compatible::TranscriptionLanguageMode,
-) -> Result<SpeechToTextResponse, AppError> {
+pub(crate) fn validate_transcription_target(provider: &ModelProvider, model_name: &str) -> Result<(), AppError> {
     if !provider.enabled {
         return Err(AppError::Validation("Selected provider is disabled".into()));
     }
     if model_name.trim().eq_ignore_ascii_case(DEEPSEEK_SYNTHESIS) {
         return Err(AppError::Validation("The DeepSeek synthesis selector cannot transcribe audio".into()));
     }
+    if !matches!(provider.provider_type, ProviderType::LocalRuntime) && provider.protocol != "openai_compatible" {
+        return Err(AppError::Validation("Selected provider protocol does not support remote transcription".into()));
+    }
+    Ok(())
+}
+
+pub(crate) async fn transcribe_audio_with_provider_mode(
+    provider: &ModelProvider,
+    model_name: &str,
+    request: SpeechToTextRequest,
+    language_mode: aruvi_model_client::openai_compatible::TranscriptionLanguageMode,
+) -> Result<SpeechToTextResponse, AppError> {
+    validate_transcription_target(provider, model_name)?;
     if matches!(provider.provider_type, ProviderType::LocalRuntime) {
         return transcribe_audio_locally(provider, request).await;
-    }
-
-    if provider.protocol != "openai_compatible" {
-        return Err(AppError::Validation("Selected provider protocol does not support remote transcription".into()));
     }
     let deepseek = model_name.trim().eq_ignore_ascii_case(DEEPSEEK_TRANSCRIPTION);
     let limit = if deepseek { DEEPSEEK_TRANSCRIPTION_MAX_BYTES } else { STUDIO_TRANSCRIPTION_MAX_BYTES };
@@ -125,7 +129,7 @@ pub(crate) async fn transcribe_audio_with_provider_mode(
     if deepseek {
         let client = crate::services::model_service::create_deepseek_voice_client(provider)?;
         let filename = format!("planner-recording.{}", mime_extension_for_mime_type(&request.mime_type));
-        return aruvi_model_client::ModelGateway::transcribe(&client, aruvi_model_client::TranscriptionRequest {
+        return client.transcribe(aruvi_model_client::TranscriptionRequest {
             model: model_name.into(), audio: file_bytes, filename, mime_type: request.mime_type, language: None,
         }).await
             .map(|transcript| SpeechToTextResponse { transcript })
@@ -140,7 +144,7 @@ pub(crate) async fn transcribe_audio_with_provider_mode(
         audio: file_bytes,
         filename: format!("planner-recording.{}", mime_extension_for_mime_type(&request.mime_type)),
         mime_type: request.mime_type,
-        language: transcription_language(request.locale.as_deref()),
+        language: provider_transcription_language(provider, model_name, language_mode, request.locale.as_deref()),
     }).await;
     match result {
         Ok(transcript) => Ok(SpeechToTextResponse { transcript }),
@@ -259,12 +263,22 @@ fn compatible_environment_speech_model(env_provider: Option<&str>, saved_provide
 }
 
 pub(crate) async fn default_transcription_model(db: &sqlx::SqlitePool, provider_id: &str) -> Result<String, AppError> {
-    Ok(crate::persistence::model_repo::list_model_definitions(db).await?
+    let registered = crate::persistence::model_repo::list_model_definitions(db).await?
         .into_iter().filter(|model| model.provider_id == provider_id)
         .filter_map(|model| transcription_model_rank(&model).map(|rank| (rank, model)))
         .min_by_key(|(rank, _)| *rank)
         .map(|(_, model)| model)
-        .map(|model| model.name).unwrap_or_else(|| "whisper-1".to_string()))
+        .map(|model| model.name);
+    if let Some(model) = registered { return Ok(model); }
+    let provider = crate::persistence::model_repo::get_provider(db, provider_id).await?;
+    Ok(implicit_transcription_model(&provider).to_string())
+}
+
+fn implicit_transcription_model(provider: &crate::domain::model::ModelProvider) -> &'static str {
+    let official_openai = provider.provider_type.as_str() == "openai_compatible" && provider.protocol == "openai_compatible"
+        && aruvi_model_client::openai_compatible::is_official_openai_base_url(&provider.base_url)
+        && reqwest::Url::parse(&provider.base_url).is_ok_and(|url| matches!(url.path(), "" | "/" | "/v1" | "/v1/"));
+    if official_openai { "gpt-transcribe" } else { "whisper-1" }
 }
 
 pub fn resolve_local_runtime_model_path(raw_value: &str) -> Result<PathBuf, AppError> {
@@ -439,6 +453,15 @@ fn transcription_language(locale: Option<&str>) -> Option<String> {
     normalize_whisper_language(locale).filter(|language| !language.is_empty() && language != "auto")
 }
 
+fn provider_transcription_language(provider: &ModelProvider, model_name: &str, mode: aruvi_model_client::openai_compatible::TranscriptionLanguageMode, locale: Option<&str>) -> Option<String> {
+    use aruvi_model_client::openai_compatible::{is_official_openai_base_url, TranscriptionLanguageMode};
+    if provider.provider_type.as_str() == "openai_compatible" && provider.protocol == "openai_compatible"
+        && model_name == "gpt-transcribe" && mode == TranscriptionLanguageMode::Auto && is_official_openai_base_url(&provider.base_url) {
+        return locale.map(str::trim).filter(|value| !value.is_empty() && !value.eq_ignore_ascii_case("auto")).map(str::to_owned);
+    }
+    transcription_language(locale)
+}
+
 fn normalize_whisper_language(locale: Option<&str>) -> Option<String> {
     locale
         .map(str::trim)
@@ -498,6 +521,47 @@ fn run_whisper_transcription(
 
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn registered_transcription_models_override_provider_specific_fallbacks() {
+        use crate::{commands::test_helpers::make_test_app, persistence::model_repo, state::AppState};
+        use tauri::Manager;
+        let app: tauri::App<tauri::test::MockRuntime> = make_test_app("speech_implicit_model").await;
+        let state = app.state::<AppState>();
+        model_repo::create_provider(&state.db, "official-speech", "OpenAI", "openai_compatible", "https://api.openai.com/v1", None).await.unwrap();
+        model_repo::create_provider(&state.db, "proxy-speech", "Proxy", "openai_compatible", "http://127.0.0.1:1234/v1", None).await.unwrap();
+        assert_eq!(super::default_transcription_model(&state.db, "official-speech").await.unwrap(), "gpt-transcribe");
+        assert_eq!(super::default_transcription_model(&state.db, "proxy-speech").await.unwrap(), "whisper-1");
+        model_repo::create_model_definition(&state.db, "explicit-speech", "official-speech", "custom-transcriber", None, Some("[\"speech_to_text\"]"), None).await.unwrap();
+        assert_eq!(super::default_transcription_model(&state.db, "official-speech").await.unwrap(), "custom-transcriber");
+        assert!(super::default_transcription_model(&state.db, "missing-provider").await.is_err());
+    }
+
+    #[test]
+    fn implicit_transcription_model_changes_only_for_official_openai_api() {
+        use crate::domain::model::{ModelProvider, ProviderType};
+        let mut provider = ModelProvider { id: "fixture".into(), name: "Fixture".into(), provider_type: ProviderType::OpenaiCompatible, protocol: "openai_compatible".into(), completion_profile: "standard".into(), base_url: "https://api.openai.com/v1".into(), auth_secret_ref: None, enabled: true, created_at: "".into(), updated_at: "".into() };
+        assert_eq!(super::implicit_transcription_model(&provider), "gpt-transcribe");
+        for url in ["http://api.openai.com/v1", "https://api.openai.com:444/v1", "https://api.openai.com.example.invalid/v1", "https://api.openai.com/proxy", "http://localhost:1234/v1"] {
+            provider.base_url = url.into(); assert_eq!(super::implicit_transcription_model(&provider), "whisper-1", "{url}");
+        }
+        provider.base_url = "https://api.openai.com/v1".into(); provider.protocol = "anthropic".into();
+        assert_eq!(super::implicit_transcription_model(&provider), "whisper-1");
+    }
+
+    #[test]
+    fn official_gpt_transcription_preserves_locale_for_shared_client() {
+        use crate::domain::model::{ModelProvider, ProviderType};
+        use aruvi_model_client::openai_compatible::TranscriptionLanguageMode;
+        let mut provider = ModelProvider { id: "fixture".into(), name: "Fixture".into(), provider_type: ProviderType::OpenaiCompatible, protocol: "openai_compatible".into(), completion_profile: "standard".into(), base_url: "https://api.openai.com/v1".into(), auth_secret_ref: None, enabled: true, created_at: "".into(), updated_at: "".into() };
+        let language = |p: &ModelProvider, mode, locale| super::provider_transcription_language(p, "gpt-transcribe", mode, locale);
+        assert_eq!(language(&provider, TranscriptionLanguageMode::Auto, Some("zh-TW")).as_deref(), Some("zh-TW"));
+        assert_eq!(language(&provider, TranscriptionLanguageMode::Auto, Some("en-US")).as_deref(), Some("en-US"));
+        assert_eq!(language(&provider, TranscriptionLanguageMode::Auto, Some("auto")), None);
+        assert_eq!(language(&provider, TranscriptionLanguageMode::Array, Some("zh-TW")).as_deref(), Some("zh"));
+        provider.base_url = "http://localhost:1234/v1".into();
+        assert_eq!(language(&provider, TranscriptionLanguageMode::Auto, Some("zh-TW")).as_deref(), Some("zh"));
+    }
+
     #[test]
     fn automatic_transcription_prefers_explicit_capabilities_and_excludes_synthesis() {
         let model = |name: &str, tags: &[&str], enabled| crate::domain::model::ModelDefinition {

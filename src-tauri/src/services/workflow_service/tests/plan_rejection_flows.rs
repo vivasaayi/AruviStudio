@@ -86,7 +86,7 @@ async fn plan_rejection_restarts_analysis_and_returns_to_plan_gate() {
     .await
     .expect("failed to disable auto test review");
 
-    AgentService::set_test_model_outputs_for_any_workflow(vec![
+    AgentService::set_test_model_outputs_for_any_workflow(&pool, vec![
         "requirement analysis complete".to_string(),
         "planning complete".to_string(),
         "requirement analysis retry complete".to_string(),
@@ -143,6 +143,6 @@ async fn plan_rejection_restarts_analysis_and_returns_to_plan_gate() {
         "expected planning to reach the plan gate again after rejection"
     );
 
-    AgentService::set_test_model_outputs_for_any_workflow(Vec::new());
+    AgentService::set_test_model_outputs_for_any_workflow(&pool, Vec::new());
     let _ = std::fs::remove_dir_all(temp_root);
 }
