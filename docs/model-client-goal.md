@@ -30,6 +30,36 @@ provider hosting into the model-host service as part of this work.
 
 ## Checkpoints
 
+### Native Planner snapshot rendering
+
+The no-session and proposal snapshot path now renders in Rust rather than
+executing the bundled TypeScript in QuickJS. It preserves the ten packet
+sections, offline diagram and complete hierarchy, action summaries, caller
+snapshot labeling, and structured change set. The old renderer remains in the
+repository solely as a test oracle; Product Book still uses its separate
+QuickJS renderer. Native Rust tests compare representative action summaries
+against the oracle, exercise escaping, malformed and bounded trees, and cover
+desktop IPC. A native authenticated MCP/browser comparison checks the text,
+structured data, and header/diagram screenshots for empty, proposal, unusual
+and over-100-node snapshots. The frontend suite passed 146 tests; the frontend
+build passed; the mocked desktop suite passed 84; and the native browser suite
+passed 45 with 22 fixture-dependent skips. The full native Rust suite passed 372 tests with eight ignored after the
+limit and coercion refinements; the terminology guard also passed. The running worktree still uses `f1f9a0b`;
+clean-image, deployed and physical native-window validation remain open.
+
+The new implementation retains the 8 MiB serialized input cap and two render
+slots, adds a 64 MiB output cap, a 32 MiB combined action-summary cap and
+350,000-node/action/issue bounds, and
+checks a ten-second deadline cooperatively. Unlike the previous QuickJS
+runtime, it does not impose a separate hard per-render heap cap or forcibly
+interrupt every operation. The output and item limits can reject unusually
+large inputs that were previously accepted; transport limits may be lower.
+Draft tree nodes now require string labels and children arrays; malformed nodes
+are rejected instead of being coerced. Structured JSON preserves the legacy key
+order and common integral-number spelling, but very large or exponential numeric
+values may be spelled differently from JavaScript's JSON output. This snapshot work does not remove Product
+Book's separate embedded renderer.
+
 ### Planner session summary parity finding
 
 A source comparison found that Rust session-packet action summaries omitted
@@ -125,8 +155,8 @@ shows at most 100 nodes; the text retains all nodes and the existing serialized
 change set remains available. Labels are escaped. A focused frontend test checks
 the over-limit tree and malicious markup, and headless Chrome rendered the
 packet with networking disabled and made no requests. The frontend build passed.
-The legacy TypeScript renderer still runs inside the bounded Rust service; a
-native Rust replacement, clean-image and deployed checks remain open.
+At that checkpoint the legacy TypeScript renderer still ran inside the bounded
+Rust service; the later native snapshot checkpoint supersedes that implementation.
 
 ### Planner proposal packet identity
 
@@ -154,10 +184,9 @@ Desktop no-session packet export now sends its explicit in-memory snapshot to a
 backend renderer rather than rendering in the frontend. The same bounded path
 is exposed as MCP `render_planner_packet_snapshot`; it does not query or modify
 the catalog and labels the snapshot as potentially stale. Serialized input is
-capped at 8 MiB, execution at 10 seconds, JavaScript memory at 128 MiB and
-concurrency at two; transport limits can be lower. The legacy TypeScript
-renderer is bundled in the backend, so deleting the source and fully native
-Rust rendering remain open. The later offline-diagram checkpoint removes the
+was capped at 8 MiB, execution at 10 seconds, JavaScript memory at 128 MiB and
+concurrency at two; transport limits can be lower. The later native snapshot
+checkpoint supersedes the bundled renderer and its resource limits. The later offline-diagram checkpoint removes the
 external Mermaid script. Proposal identity handling is recorded above. Direct desktop IPC, a no-session desktop browser harness, authenticated
 and unauthorized MCP, invalid and oversized snapshots, and nonempty draft/action
 content passed. The full mocked desktop browser suite passed 82 tests, including

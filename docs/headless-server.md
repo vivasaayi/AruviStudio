@@ -399,9 +399,11 @@ packet labels the supplied snapshot as potentially stale. Set `snapshotKind` to
 `proposal` to identify a clicked proposal: the packet states that the caller's
 proposal and any recorded draft belong to that message, while catalog context
 was supplied at export time. This label does not authenticate those claims. It caps serialized
-input at 8 MiB, uses a 128 MiB JavaScript runtime limit, a 10-second execution
-limit and two concurrent render slots; transport limits may be lower. The legacy
-snapshot HTML retains its external Mermaid script reference. For a persisted
+input at 8 MiB, output at 64 MiB and combined action-summary text at 32 MiB,
+limits hierarchy nodes, actions and issues to 350,000 each, uses a cooperatively checked 10-second deadline and two
+concurrent render slots; transport limits may be lower. Every draft tree node must have a string `label` and an array of `children`.
+This native renderer does not impose a separate hard per-render heap cap. The
+diagram is offline. For a persisted
 staged design, prefer `export_planner_review_packet`, which reads the session
 and checks its state. The snapshot action does not create or change catalog data.
 

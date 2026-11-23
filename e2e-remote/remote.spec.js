@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { copyFile, readFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { createHmac } from "node:crypto";
+import vm from "node:vm";
 
 const token = process.env.ARUVI_MOBILE_API_TOKEN;
 const mcpToken = process.env.ARUVI_MCP_API_TOKEN;
@@ -38,6 +39,67 @@ test("MCP renders a caller-supplied Planner packet without a session", async ({ 
   payload.params.arguments.arguments.snapshot = {};
   const invalid = await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`}, data:payload});
   expect((await invalid.json()).result.isError).toBeTruthy();
+});
+
+test("native Planner snapshots preserve legacy packet content", async ({ request, page }) => {
+  test.skip(!mcpToken, "Requires an MCP token");
+  const runtime = vm.createContext({});
+  const oraclePath = process.env.ARUVI_PLANNER_ORACLE_PATH || (process.cwd() === "/tmp/app"
+    ? "/project/src-tauri/resources/planner_packet_renderer.js" : "src-tauri/resources/planner_packet_renderer.js");
+  vm.runInContext(await readFile(oraclePath, "utf8"), runtime);
+  const base = { title:"<Inventory>", generatedAt:"fixture", activeProductName:null, currentProducts:[], currentProductTrees:[],
+    currentWorkItems:[], currentWorkItemsHasMore:false, draftTreeNodes:[], plan:null, validation:{score:0,issues:[]}, selectedNode:null, latestAssistantText:null };
+  const complex = { ...base, snapshotKind:"proposal", activeProductName:"Shop & Co", currentProducts:[{}, {}],
+    currentProductTrees:[{roots:[{},{}]}], currentWorkItems:[{}], currentWorkItemsHasMore:true,
+    draftTreeNodes:[{id:"root",label:"Parent <&>",children:[{id:"child",label:"Child",children:[]}]}],
+    plan:{assistant_response:"Review <design>",clarification_question:"Who owns it?",actions:[
+      {type:"create_capability", name:"Stock", target:{productName:"Shop",productAreaName:"Inventory"}},
+      {type:"create_work_item",title:"Count stock",description:"A & B"},
+      {type:"convert_capability_kind"},{type:"update_product",target:{productName:"Shop"},fields:{vision:"Great <world>"}},
+      {type:"start_workflow",target:{workItemTitle:"Count"}},{type:"unknown_kind",value:"unknown"},null]},
+    validation:{score:72,issues:[{tone:"warn",title:"Review risk",detail:"Missing owner"}]},selectedNode:{label:"Child"} };
+  const large = { ...base, title:"Large tree", draftTreeNodes:Array.from({length:101},(_,i)=>({id:`n${i}`,label:`Node ${i}`,children:[]})) };
+  const unusual = { ...base, activeProductName:123, latestAssistantText:17, plan:{actions:[
+    {type:"create_capability",target:{productName:42,productAreaName:"Stock"}},
+    {type:"report_status",target:{productName:0,workItemTitle:7}}], clarification_question:0},
+    validation:{score:"<not markup>",issues:[{tone:"warn",title:null}]} };
+  async function inspect(html) {
+    await page.setContent(html);
+    return page.evaluate(() => {
+      const sections=[...document.querySelectorAll("section[id^=section-]")].map(section=>{
+        const pres=[...section.querySelectorAll("pre")]; pres.forEach(pre=>pre.hidden=true);
+        const result=section.innerText.replace(/\s+/g," ").trim();
+        pres.forEach(pre=>pre.hidden=false); return result;
+      });
+      return { title:document.title, note:document.querySelector('[role="note"]').textContent,
+        metrics:[...document.querySelectorAll(".metric-value")].map(node=>node.textContent), sections,
+        diagram:[...document.querySelectorAll("svg title")].map(node=>node.textContent),
+        tree:[...document.querySelectorAll(".tree-row")].map(node=>[node.textContent,node.getAttribute("aria-level")]),
+        changeSet:JSON.parse(document.querySelector("#section-10 pre").textContent) };
+    });
+  }
+  const emptyArrayContext = { ...base, activeProductName:[], latestAssistantText:[] };
+  for (const snapshot of [base, complex, large, unusual, emptyArrayContext]) {
+    const payload={jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"aruvi_planner",arguments:{action:"render_planner_packet_snapshot",arguments:{snapshot}}}};
+    const response=await request.post("/api/mcp", {headers:{Authorization:`Bearer ${mcpToken}`},data:payload});
+    expect(response.ok()).toBeTruthy();
+    const result=(await response.json()).result;
+    expect(result.isError,JSON.stringify(result)).not.toBeTruthy();
+    const actual=result.structuredContent.result;
+    const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === "object"
+      ? Object.fromEntries(Object.keys(value).sort().map(key => [key, canonical(value[key])])) : value;
+    const expected=JSON.parse(runtime.AruviPlannerPacket.renderJson(JSON.stringify(canonical(snapshot))));
+    expect(actual.filename).toBe(expected.filename);
+    const actualContent=await inspect(actual.html);
+    const actualHero=await page.locator(".hero").screenshot();
+    const actualDiagram=await page.locator("#section-3").screenshot();
+    const expectedContent=await inspect(expected.html);
+    const expectedHero=await page.locator(".hero").screenshot();
+    const expectedDiagram=await page.locator("#section-3").screenshot();
+    expect(actualContent).toEqual(expectedContent);
+    expect(actualHero.equals(expectedHero), "packet hero differs visually").toBeTruthy();
+    expect(actualDiagram.equals(expectedDiagram), "packet diagram differs visually").toBeTruthy();
+  }
 });
 
 test("Docs exports keep unsafe reference URLs as text", async ({ page, request }) => {
